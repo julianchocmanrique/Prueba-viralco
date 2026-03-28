@@ -3,7 +3,7 @@ import { View, Image, StyleSheet, TouchableOpacity, Text } from 'react-native'
 import Video from 'react-native-video'
 
 const PreviewConfirm360 = ({ route, navigation }) => {
-  const { videoUri, plantilla, sourceUri, fileCopyUri } = route.params
+  const { videoUri, plantilla, sourceUri, fileCopyUri, effect } = route.params
 
   return (
     <View style={styles.container}>
@@ -18,7 +18,7 @@ const PreviewConfirm360 = ({ route, navigation }) => {
       />
 
       {/* PLANTILLA */}
-      {plantilla?.image && (
+      {plantillaque.image && (
         <Image
           source={plantilla.image}
           style={styles.frame}
@@ -41,7 +41,7 @@ const PreviewConfirm360 = ({ route, navigation }) => {
           style={styles.actionButtonSecondary}
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.actionText}>Repetir</Text>
+          <Text style={styles.actionTextSecondary}>Repetir</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -52,10 +52,11 @@ const PreviewConfirm360 = ({ route, navigation }) => {
               sourceUri,
               fileCopyUri,
               plantilla,
+              effect,
             })
           }
         >
-          <Text style={styles.actionText}>Aceptar</Text>
+          <Text style={styles.actionTextPrimary}>Aceptar</Text>
         </TouchableOpacity>
       </View>
 
@@ -68,17 +69,17 @@ export default PreviewConfirm360
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#000000',
   },
 
   frame: {
     ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+    opacity: 0.75,
     zIndex: 2,
   },
 
-  /* =========================
-     FLECHA LIMPIA (SIN FONDO)
-  ========================= */
   backButton: {
     position: 'absolute',
     top: 52,
@@ -87,14 +88,11 @@ const styles = StyleSheet.create({
   },
 
   backText: {
-    color: '#FFFFFF',
+    color: '#D0D0D0',
     fontSize: 24,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 
-  /* =========================
-     BOTONES INFERIORES
-  ========================= */
   actions: {
     position: 'absolute',
     bottom: 50,
@@ -109,7 +107,7 @@ const styles = StyleSheet.create({
     minWidth: 140,
     paddingVertical: 14,
     borderRadius: 30,
-    backgroundColor: '#9B5CFF',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
 
@@ -124,7 +122,9 @@ const styles = StyleSheet.create({
     minWidth: 140,
     paddingVertical: 14,
     borderRadius: 30,
-    backgroundColor: 'rgba(15,12,30,0.75)',
+    backgroundColor: '#1E1E1E',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
     justifyContent: 'center',
     alignItems: 'center',
 
@@ -135,10 +135,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
   },
 
-  actionText: {
-    color: '#fff',
+  actionTextPrimary: {
+    color: '#000000',
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.5,
   },
-})
+  actionTextSecondary: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+});
