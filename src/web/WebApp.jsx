@@ -61,8 +61,8 @@ const setupTabs = [
   { id: 'evento', label: 'Evento', title: 'Nombre y captura' },
   { id: 'config', label: 'Config', title: 'Configuracion del modo' },
   { id: 'diseno', label: 'Diseno', title: 'Plantilla y filtro' },
+  { id: 'grabar', label: 'Grabar', title: 'Prueba de captura' },
   { id: 'salida', label: 'Salida', title: 'Entrega e impresion' },
-  { id: 'preview', label: 'Preview', title: 'Vista previa' },
 ]
 
 const captureModeDetails = {
@@ -77,6 +77,7 @@ const captureModeDetails = {
     steps: ['Tomar foto', 'Elegir filtro', 'Imprimir', 'Compartir'],
     tools: ['QR', 'Print', 'Mail'],
     settings: ['Cuenta regresiva 3s', 'Flash suave', 'Una foto por invitado'],
+    control: { label: 'Cuenta regresiva', min: 1, max: 10, defaultValue: 3, unit: 's' },
   },
   GIF: {
     title: 'GIF animado',
@@ -89,6 +90,7 @@ const captureModeDetails = {
     steps: ['Capturar 3 fotos', 'Animar', 'Revisar', 'Compartir'],
     tools: ['QR', 'SMS', 'Mail'],
     settings: ['3 poses automaticas', 'Velocidad media', 'Loop infinito'],
+    control: { label: 'Cantidad de fotos', min: 2, max: 6, defaultValue: 3, unit: 'fotos' },
   },
   Boomerang: {
     title: 'Boomerang',
@@ -101,6 +103,7 @@ const captureModeDetails = {
     steps: ['Grabar clip', 'Crear loop', 'Revisar', 'Compartir'],
     tools: ['QR', 'Mail', 'SMS'],
     settings: ['Clip de 2 segundos', 'Reversa automatica', 'Loop exportable'],
+    control: { label: 'Duracion del clip', min: 1, max: 5, defaultValue: 2, unit: 's' },
   },
   Video: {
     title: 'Video corto',
@@ -113,6 +116,7 @@ const captureModeDetails = {
     steps: ['Grabar', 'Revisar audio', 'Guardar', 'Compartir'],
     tools: ['QR', 'Mail', 'Drive'],
     settings: ['Grabacion 8s', 'Audio activo', 'Formato vertical'],
+    control: { label: 'Duracion del video', min: 3, max: 15, defaultValue: 8, unit: 's' },
   },
   360: {
     title: 'Video 360',
@@ -125,6 +129,7 @@ const captureModeDetails = {
     steps: ['Iniciar giro', 'Renderizar', 'Revisar', 'Compartir'],
     tools: ['QR', 'Print', 'Mail'],
     settings: ['Giro completo', 'Render rapido', 'Overlay del evento'],
+    control: { label: 'Duracion del giro', min: 4, max: 20, defaultValue: 10, unit: 's' },
   },
 }
 
@@ -139,10 +144,36 @@ const WebApp = () => {
   const [activityMessage, setActivityMessage] = useState('Camara lista')
   const [captureCount, setCaptureCount] = useState(0)
   const [activeTab, setActiveTab] = useState('evento')
+  const [modeConfigValues, setModeConfigValues] = useState(
+    captureModes.reduce(
+      (values, mode) => ({
+        ...values,
+        [mode]: captureModeDetails[mode].control.defaultValue,
+      }),
+      {},
+    ),
+  )
   const isMobile = width < 760
   const modeDetails = captureModeDetails[selectedMode]
   const activeSteps = modeDetails.steps || shareSteps
   const isCapturing = capturePhase === 'capturing'
+  const selectedConfigValue = modeConfigValues[selectedMode]
+  const controlLabel = `${selectedConfigValue} ${modeDetails.control.unit}`
+  const hasRecording = captureCount > 0 || capturePhase === 'complete'
+  const displayCountdown =
+    selectedMode === 'GIF'
+      ? `1/${selectedConfigValue}`
+      : selectedMode === 'Video'
+        ? 'REC'
+        : selectedMode === '360'
+          ? '360'
+          : String(selectedConfigValue)
+  const displayBadge =
+    selectedMode === 'GIF'
+      ? `${selectedConfigValue} fotos`
+      : selectedMode === '360'
+        ? `${selectedConfigValue}s giro`
+        : `${selectedConfigValue}${modeDetails.control.unit}`
 
   useEffect(() => {
     if (!isCapturing) {
@@ -152,11 +183,12 @@ const WebApp = () => {
     const timer = setTimeout(() => {
       setCapturePhase('complete')
       setCaptureCount((count) => count + 1)
-      setActivityMessage(`${modeDetails.output} para ${eventName}`)
+      setActivityMessage(`${modeDetails.output} para ${eventName} (${controlLabel})`)
+      setActiveTab('salida')
     }, 1300)
 
     return () => clearTimeout(timer)
-  }, [eventName, isCapturing, modeDetails.output])
+  }, [controlLabel, eventName, isCapturing, modeDetails.output])
 
   const chooseMode = (mode) => {
     setSelectedMode(mode)
@@ -164,12 +196,28 @@ const WebApp = () => {
     setActivityMessage(`${captureModeDetails[mode].title}: listo para capturar`)
   }
 
+  const updateModeConfig = (direction) => {
+    const { min, max } = modeDetails.control
+    const nextValue = Math.min(max, Math.max(min, selectedConfigValue + direction))
+    setModeConfigValues((values) => ({
+      ...values,
+      [selectedMode]: nextValue,
+    }))
+    setActivityMessage(`${modeDetails.control.label}: ${nextValue} ${modeDetails.control.unit}`)
+  }
+
   const startCapture = () => {
     setCapturePhase('capturing')
-    setActivityMessage(`${modeDetails.primary} en progreso`)
+    setActivityMessage(`${modeDetails.primary} en progreso (${controlLabel})`)
   }
 
   const runTool = (tool) => {
+    if (!hasRecording) {
+      setActiveTab('grabar')
+      setActivityMessage('Primero graba una captura antes de compartir')
+      return
+    }
+
     const messages = {
       QR: 'QR generado para descarga',
       Print: `${copies} copia${copies === 1 ? '' : 's'} enviada${copies === 1 ? '' : 's'} a impresion`,
@@ -240,11 +288,11 @@ const WebApp = () => {
         <Image source={selectedTemplate.image} style={styles.mobileCameraImage} />
         <View style={styles.mobileCameraShade} />
         <View style={[styles.mobileCountdown, isCapturing && styles.mobileCountdownActive]}>
-          <Text style={styles.mobileCountdownText}>{modeDetails.countdown}</Text>
+          <Text style={styles.mobileCountdownText}>{displayCountdown}</Text>
         </View>
         <View style={styles.mobileCaptureMeta}>
           <Text style={styles.mobileCaptureMode}>{modeDetails.title}</Text>
-          <Text style={styles.mobileCaptureBadge}>{modeDetails.badge}</Text>
+          <Text style={styles.mobileCaptureBadge}>{displayBadge}</Text>
         </View>
         <Text style={styles.mobileCameraCopy}>{modeDetails.instruction}</Text>
         <View style={styles.mobileProgress}>
@@ -386,7 +434,23 @@ const WebApp = () => {
             <View style={styles.mobileSection}>
               <View style={styles.mobileSectionHeader}>
                 <Text style={styles.mobileSectionTitle}>{modeDetails.title}</Text>
-                <Text style={styles.mobileAccentText}>{modeDetails.badge}</Text>
+                <Text style={styles.mobileAccentText}>{displayBadge}</Text>
+              </View>
+              <View style={styles.mobileConfigControl}>
+                <Text style={styles.mobileControlLabel}>{modeDetails.control.label}</Text>
+                <View style={styles.mobileControlStepper}>
+                  <Pressable onPress={() => updateModeConfig(-1)} style={styles.mobileStepButton}>
+                    <Text style={styles.mobileStepButtonText}>-</Text>
+                  </Pressable>
+                  <Text style={styles.mobileControlValue}>{controlLabel}</Text>
+                  <Pressable onPress={() => updateModeConfig(1)} style={styles.mobileStepButton}>
+                    <Text style={styles.mobileStepButtonText}>+</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.mobileControlLimit}>
+                  Min {modeDetails.control.min} / Max {modeDetails.control.max}{' '}
+                  {modeDetails.control.unit}
+                </Text>
               </View>
               {modeDetails.settings.map((setting) => (
                 <View key={setting} style={styles.mobileSettingRow}>
@@ -469,56 +533,81 @@ const WebApp = () => {
             </View>
 
             <Pressable onPress={goToNextTab} style={styles.mobileCaptureButton}>
-              <Text style={styles.mobileCaptureButtonText}>Continuar salida</Text>
+              <Text style={styles.mobileCaptureButtonText}>Continuar a grabar</Text>
             </Pressable>
           </>
         )}
+
+        {activeTab === 'grabar' && renderMobilePreview()}
 
         {activeTab === 'salida' && (
           <>
-            <View style={styles.mobileSection}>
-              <Text style={styles.mobileSectionTitle}>Entrega</Text>
-              <View style={styles.mobileModes}>
-                {modeDetails.tools.map((tool) => (
-                  <Pressable key={tool} onPress={() => runTool(tool)} style={styles.mobileModeButton}>
-                    <Text style={styles.mobileModeText}>{tool}</Text>
-                  </Pressable>
-                ))}
+            {!hasRecording && (
+              <View style={styles.mobileSection}>
+                <Text style={styles.mobileSectionTitle}>Falta grabar</Text>
+                <Text style={styles.mobileMutedText}>
+                  Primero haz una captura de prueba para habilitar compartir e imprimir.
+                </Text>
+                <Pressable onPress={() => setActiveTab('grabar')} style={styles.mobilePrimaryButton}>
+                  <Text style={styles.mobilePrimaryText}>Ir a grabar</Text>
+                </Pressable>
               </View>
-            </View>
+            )}
 
-            <View style={styles.mobileSection}>
-              <Text style={styles.mobileSectionTitle}>Copias</Text>
-              <View style={styles.mobileCopies}>
-                {[1, 2, 3, 4].map((number) => (
-                  <Pressable
-                    key={number}
-                    onPress={() => setCopies(number)}
-                    style={[styles.mobileCopyButton, copies === number && styles.mobileCopyActive]}
-                  >
-                    <Text
+            {hasRecording && (
+              <View style={styles.mobileSection}>
+                <Text style={styles.mobileSectionTitle}>Entrega</Text>
+                <View style={styles.mobileModes}>
+                  {modeDetails.tools.map((tool) => (
+                    <Pressable
+                      key={tool}
+                      onPress={() => runTool(tool)}
+                      style={styles.mobileModeButton}
+                    >
+                      <Text style={styles.mobileModeText}>{tool}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {hasRecording && (
+              <View style={styles.mobileSection}>
+                <Text style={styles.mobileSectionTitle}>Copias</Text>
+                <View style={styles.mobileCopies}>
+                  {[1, 2, 3, 4].map((number) => (
+                    <Pressable
+                      key={number}
+                      onPress={() => setCopies(number)}
                       style={[
-                        styles.mobileCopyText,
-                        copies === number && styles.mobileCopyTextActive,
+                        styles.mobileCopyButton,
+                        copies === number && styles.mobileCopyActive,
                       ]}
                     >
-                      {number}
-                    </Text>
-                  </Pressable>
-                ))}
+                      <Text
+                        style={[
+                          styles.mobileCopyText,
+                          copies === number && styles.mobileCopyTextActive,
+                        ]}
+                      >
+                        {number}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Pressable onPress={() => runTool('Print')} style={styles.mobilePrimaryButton}>
+                  <Text style={styles.mobilePrimaryText}>Probar impresion</Text>
+                </Pressable>
               </View>
-              <Pressable onPress={() => runTool('Print')} style={styles.mobilePrimaryButton}>
-                <Text style={styles.mobilePrimaryText}>Probar impresion</Text>
-              </Pressable>
-            </View>
+            )}
 
-            <Pressable onPress={goToNextTab} style={styles.mobileCaptureButton}>
-              <Text style={styles.mobileCaptureButtonText}>Ver preview</Text>
-            </Pressable>
+            {!hasRecording && (
+              <Pressable onPress={() => setActiveTab('grabar')} style={styles.mobileCaptureButton}>
+                <Text style={styles.mobileCaptureButtonText}>Grabar primero</Text>
+              </Pressable>
+            )}
           </>
         )}
-
-        {activeTab === 'preview' && renderMobilePreview()}
       </ScrollView>
     )
   }
@@ -606,6 +695,22 @@ const WebApp = () => {
                   <Text style={styles.settingSummaryTitle}>{modeDetails.title}</Text>
                   <Text style={styles.settingSummaryText}>{modeDetails.instruction}</Text>
                 </View>
+                <View style={styles.configControl}>
+                  <Text style={styles.configControlLabel}>{modeDetails.control.label}</Text>
+                  <View style={styles.configControlRow}>
+                    <Pressable onPress={() => updateModeConfig(-1)} style={styles.configStepButton}>
+                      <Text style={styles.configStepText}>-</Text>
+                    </Pressable>
+                    <Text style={styles.configValue}>{controlLabel}</Text>
+                    <Pressable onPress={() => updateModeConfig(1)} style={styles.configStepButton}>
+                      <Text style={styles.configStepText}>+</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.configLimit}>
+                    Min {modeDetails.control.min} / Max {modeDetails.control.max}{' '}
+                    {modeDetails.control.unit}
+                  </Text>
+                </View>
                 {modeDetails.settings.map((setting) => (
                   <View key={setting} style={styles.settingRow}>
                     <View style={styles.settingDot} />
@@ -672,48 +777,13 @@ const WebApp = () => {
               </>
             )}
 
-            {activeTab === 'salida' && (
-              <>
-                <Text style={styles.panelLabel}>Canales de entrega</Text>
-                <View style={styles.modeRow}>
-                  {modeDetails.tools.map((tool) => (
-                    <Pressable key={tool} onPress={() => runTool(tool)} style={styles.modeButton}>
-                      <Text style={styles.modeButtonText}>{tool}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                <Text style={styles.panelLabel}>Copias de impresion</Text>
-                <View style={styles.copyRow}>
-                  {[1, 2, 3, 4, 5].map((number) => (
-                    <Pressable
-                      key={number}
-                      onPress={() => setCopies(number)}
-                      style={[styles.copyButton, copies === number && styles.copyButtonActive]}
-                    >
-                      <Text
-                        style={[
-                          styles.copyButtonText,
-                          copies === number && styles.copyButtonTextActive,
-                        ]}
-                      >
-                        {number}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <Pressable onPress={() => runTool('Print')} style={styles.printButton}>
-                  <Text style={styles.printButtonText}>Probar impresion</Text>
-                </Pressable>
-              </>
-            )}
-
-            {activeTab === 'preview' && (
+            {activeTab === 'grabar' && (
               <>
                 <View style={styles.settingSummary}>
-                  <Text style={styles.settingSummaryTitle}>Resumen del booth</Text>
+                  <Text style={styles.settingSummaryTitle}>Grabar antes de compartir</Text>
                   <Text style={styles.settingSummaryText}>
-                    {eventName} / {selectedMode} / {selectedTemplate.name} / {selectedFilter}
+                    Prueba la captura con {selectedMode} configurado a {controlLabel}. Al terminar se
+                    habilita Salida.
                   </Text>
                 </View>
                 <Pressable
@@ -722,9 +792,61 @@ const WebApp = () => {
                   style={[styles.printButton, isCapturing && styles.printButtonBusy]}
                 >
                   <Text style={styles.printButtonText}>
-                    {isCapturing ? 'Capturando...' : modeDetails.primary}
+                    {isCapturing ? 'Grabando...' : modeDetails.primary}
                   </Text>
                 </Pressable>
+              </>
+            )}
+
+            {activeTab === 'salida' && (
+              <>
+                {!hasRecording && (
+                  <View style={styles.settingSummary}>
+                    <Text style={styles.settingSummaryTitle}>Primero graba una captura</Text>
+                    <Text style={styles.settingSummaryText}>
+                      Las opciones de QR, impresion y envio se habilitan despues de grabar.
+                    </Text>
+                    <Pressable onPress={() => setActiveTab('grabar')} style={styles.mobilePrimaryButton}>
+                      <Text style={styles.mobilePrimaryText}>Ir a grabar</Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                {hasRecording && (
+                  <>
+                    <Text style={styles.panelLabel}>Canales de entrega</Text>
+                    <View style={styles.modeRow}>
+                      {modeDetails.tools.map((tool) => (
+                        <Pressable key={tool} onPress={() => runTool(tool)} style={styles.modeButton}>
+                          <Text style={styles.modeButtonText}>{tool}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+
+                    <Text style={styles.panelLabel}>Copias de impresion</Text>
+                    <View style={styles.copyRow}>
+                      {[1, 2, 3, 4, 5].map((number) => (
+                        <Pressable
+                          key={number}
+                          onPress={() => setCopies(number)}
+                          style={[styles.copyButton, copies === number && styles.copyButtonActive]}
+                        >
+                          <Text
+                            style={[
+                              styles.copyButtonText,
+                              copies === number && styles.copyButtonTextActive,
+                            ]}
+                          >
+                            {number}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <Pressable onPress={() => runTool('Print')} style={styles.printButton}>
+                      <Text style={styles.printButtonText}>Probar impresion</Text>
+                    </Pressable>
+                  </>
+                )}
               </>
             )}
           </View>
@@ -734,12 +856,12 @@ const WebApp = () => {
               <Image source={selectedTemplate.image} style={styles.cameraImage} />
               <View style={styles.cameraOverlay}>
                 <Text style={[styles.countdown, isCapturing && styles.countdownActive]}>
-                  {modeDetails.countdown}
+                  {displayCountdown}
                 </Text>
                 <Text style={styles.cameraInstruction}>{modeDetails.title}</Text>
               </View>
               <View style={styles.captureStatus}>
-                <Text style={styles.captureStatusLabel}>{modeDetails.badge}</Text>
+                <Text style={styles.captureStatusLabel}>{displayBadge}</Text>
                 <Text style={styles.captureStatusText}>{activityMessage}</Text>
               </View>
               <View style={styles.progressRail}>
@@ -982,6 +1104,63 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
     fontWeight: '800',
+  },
+  mobileConfigControl: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#eef5ff',
+    borderWidth: 1,
+    borderColor: '#b8d5ff',
+  },
+  mobileControlLabel: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  mobileControlStepper: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  mobileStepButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileStepButtonText: {
+    color: '#ffffff',
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: '900',
+  },
+  mobileControlValue: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mobileControlLimit: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  mobileMutedText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    marginTop: 8,
   },
   mobileCameraCard: {
     height: 430,
@@ -1556,6 +1735,53 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 4,
   },
+  configControl: {
+    backgroundColor: '#eef5ff',
+    borderWidth: 1,
+    borderColor: '#b8d5ff',
+    padding: 14,
+  },
+  configControlLabel: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  configControlRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  configStepButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  configStepText: {
+    color: '#ffffff',
+    fontSize: 26,
+    lineHeight: 30,
+    fontWeight: '900',
+  },
+  configValue: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  configLimit: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    marginTop: 8,
+    textAlign: 'center',
+  },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1575,6 +1801,15 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 14,
     fontWeight: '800',
+  },
+  disabledButton: {
+    opacity: 0.46,
+  },
+  disabledText: {
+    color: colors.muted,
+  },
+  printButtonDisabled: {
+    backgroundColor: '#7d8aa0',
   },
   previewColumn: {
     minWidth: 0,
