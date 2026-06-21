@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native'
 
@@ -58,11 +59,13 @@ const filters = ['Original', 'Glam', 'B/N', 'Brannan', 'Vintage']
 const shareSteps = ['Capturar', 'Revisar', 'Imprimir', 'Compartir']
 
 const WebApp = () => {
+  const { width } = useWindowDimensions()
   const [selectedTemplate, setSelectedTemplate] = useState(templates[1])
   const [selectedMode, setSelectedMode] = useState('360')
   const [selectedFilter, setSelectedFilter] = useState('Original')
   const [copies, setCopies] = useState(1)
   const [eventName, setEventName] = useState('Viralco live booth')
+  const isMobile = width < 760
 
   const layoutSlots = useMemo(
     () => [
@@ -73,6 +76,173 @@ const WebApp = () => {
     ],
     [selectedTemplate],
   )
+
+  if (isMobile) {
+    return (
+      <ScrollView style={styles.mobilePage} contentContainerStyle={styles.mobileContent}>
+        <View style={styles.mobileHero}>
+          <View style={styles.mobileHeroGlow} />
+          <View style={styles.mobileHeader}>
+            <View style={styles.mobileIcon}>
+              <View style={styles.mobileIconLens} />
+              <Text style={styles.mobileIconMark}>V</Text>
+            </View>
+            <View style={styles.mobileHeaderText}>
+              <Text style={styles.mobileAppName}>Viralco Booth</Text>
+              <Text style={styles.mobileAppSub}>Photo booth para eventos</Text>
+            </View>
+            <View style={styles.mobileStatus}>
+              <View style={styles.mobileStatusDot} />
+              <Text style={styles.mobileStatusText}>ON</Text>
+            </View>
+          </View>
+
+          <View style={styles.mobileEventCard}>
+            <Text style={styles.mobileEyebrow}>Evento activo</Text>
+            <TextInput
+              value={eventName}
+              onChangeText={setEventName}
+              style={styles.mobileEventInput}
+              placeholder="Nombre del evento"
+              placeholderTextColor="rgba(255,255,255,0.48)"
+            />
+          </View>
+        </View>
+
+        <View style={styles.mobileCameraCard}>
+          <Image source={selectedTemplate.image} style={styles.mobileCameraImage} />
+          <View style={styles.mobileCameraShade} />
+          <View style={styles.mobileCountdown}>
+            <Text style={styles.mobileCountdownText}>3</Text>
+          </View>
+          <Text style={styles.mobileCameraCopy}>Mira a la camara</Text>
+          <View style={styles.mobileQuickActions}>
+            {['QR', 'Print', 'Mail'].map((tool) => (
+              <Pressable key={tool} style={styles.mobileQuickButton}>
+                <Text style={styles.mobileQuickText}>{tool}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.mobileSection}>
+          <Text style={styles.mobileSectionTitle}>Modo de captura</Text>
+          <View style={styles.mobileModes}>
+            {captureModes.map((mode) => (
+              <Pressable
+                key={mode}
+                onPress={() => setSelectedMode(mode)}
+                style={[
+                  styles.mobileModeButton,
+                  selectedMode === mode && styles.mobileModeButtonActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.mobileModeText,
+                    selectedMode === mode && styles.mobileModeTextActive,
+                  ]}
+                >
+                  {mode}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.mobileTwoCards}>
+          <View style={styles.mobileMiniCard}>
+            <Text style={styles.mobileSectionTitle}>Flujo</Text>
+            {shareSteps.map((step, index) => (
+              <View key={step} style={styles.mobileStep}>
+                <Text style={styles.mobileStepNumber}>{index + 1}</Text>
+                <Text style={styles.mobileStepText}>{step}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.mobileMiniCard}>
+            <Text style={styles.mobileSectionTitle}>Copias</Text>
+            <View style={styles.mobileCopies}>
+              {[1, 2, 3, 4].map((number) => (
+                <Pressable
+                  key={number}
+                  onPress={() => setCopies(number)}
+                  style={[styles.mobileCopyButton, copies === number && styles.mobileCopyActive]}
+                >
+                  <Text
+                    style={[
+                      styles.mobileCopyText,
+                      copies === number && styles.mobileCopyTextActive,
+                    ]}
+                  >
+                    {number}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable style={styles.mobilePrimaryButton}>
+              <Text style={styles.mobilePrimaryText}>Imprimir</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.mobileSection}>
+          <View style={styles.mobileSectionHeader}>
+            <Text style={styles.mobileSectionTitle}>Filtros</Text>
+            <Text style={styles.mobileAccentText}>{selectedFilter}</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.mobileFilterScroll}
+          >
+            {filters.map((filter) => (
+              <Pressable
+                key={filter}
+                onPress={() => setSelectedFilter(filter)}
+                style={[
+                  styles.mobileFilterButton,
+                  selectedFilter === filter && styles.mobileFilterActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.mobileFilterText,
+                    selectedFilter === filter && styles.mobileFilterTextActive,
+                  ]}
+                >
+                  {filter}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+
+        <View style={styles.mobileSection}>
+          <View style={styles.mobileSectionHeader}>
+            <Text style={styles.mobileSectionTitle}>Plantillas</Text>
+            <Text style={styles.mobileAccentText}>{selectedTemplate.name}</Text>
+          </View>
+          <View style={styles.mobileTemplateGrid}>
+            {templates.map((template) => {
+              const active = selectedTemplate.id === template.id
+              return (
+                <Pressable
+                  key={template.id}
+                  onPress={() => setSelectedTemplate(template)}
+                  style={[styles.mobileTemplateCard, active && styles.mobileTemplateActive]}
+                >
+                  <Image source={template.image} style={styles.mobileTemplateImage} />
+                  <Text style={styles.mobileTemplateName}>{template.name}</Text>
+                </Pressable>
+              )
+            })}
+          </View>
+        </View>
+      </ScrollView>
+    )
+  }
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
@@ -312,6 +482,395 @@ const shadow = {
 }
 
 const styles = StyleSheet.create({
+  mobilePage: {
+    minHeight: '100vh',
+    backgroundColor: '#0e1118',
+  },
+  mobileContent: {
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+    padding: 14,
+    paddingBottom: 28,
+    gap: 14,
+  },
+  mobileHero: {
+    marginHorizontal: -14,
+    paddingHorizontal: 14,
+    paddingTop: 18,
+    paddingBottom: 14,
+    backgroundColor: '#111720',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  mobileHeroGlow: {
+    position: 'absolute',
+    left: -90,
+    top: -80,
+    width: 260,
+    height: 210,
+    borderRadius: 130,
+    backgroundColor: 'rgba(215, 43, 116, 0.34)',
+    filter: 'blur(40px)',
+  },
+  mobileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    position: 'relative',
+    zIndex: 2,
+  },
+  mobileIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 16,
+    backgroundColor: colors.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+    boxShadow: '0 14px 30px rgba(215, 43, 116, 0.34)',
+  },
+  mobileIconLens: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    right: 8,
+    bottom: 8,
+    borderWidth: 4,
+    borderColor: '#ffffff',
+  },
+  mobileIconMark: {
+    color: '#ffffff',
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: '900',
+    marginTop: -4,
+  },
+  mobileHeaderText: {
+    flex: 1,
+  },
+  mobileAppName: {
+    color: '#ffffff',
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: '900',
+  },
+  mobileAppSub: {
+    color: 'rgba(255,255,255,0.66)',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
+  mobileStatus: {
+    minWidth: 54,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  mobileStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.red,
+  },
+  mobileStatusText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  mobileEventCard: {
+    marginTop: 18,
+    padding: 14,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    position: 'relative',
+    zIndex: 2,
+  },
+  mobileEyebrow: {
+    color: colors.red,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  mobileEventInput: {
+    marginTop: 4,
+    padding: 0,
+    color: '#ffffff',
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: '900',
+  },
+  mobileCameraCard: {
+    height: 430,
+    borderRadius: 8,
+    backgroundColor: '#05070a',
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    boxShadow: '0 18px 42px rgba(0,0,0,0.32)',
+  },
+  mobileCameraImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  mobileCameraShade: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(0,0,0,0.30)',
+  },
+  mobileCountdown: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: 128,
+    width: 138,
+    height: 138,
+    borderRadius: 69,
+    borderWidth: 5,
+    borderColor: colors.red,
+    backgroundColor: 'rgba(255,255,255,0.88)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileCountdownText: {
+    color: colors.red,
+    fontSize: 78,
+    lineHeight: 88,
+    fontWeight: '900',
+  },
+  mobileCameraCopy: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: 282,
+    color: '#ffffff',
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+    backgroundColor: 'rgba(0,0,0,0.46)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  mobileQuickActions: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 12,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  mobileQuickButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileQuickText: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  mobileSection: {
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e8ebef',
+    boxShadow: '0 12px 30px rgba(0,0,0,0.18)',
+  },
+  mobileSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  mobileSectionTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  mobileAccentText: {
+    color: colors.red,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  mobileModes: {
+    marginTop: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  mobileModeButton: {
+    flexGrow: 1,
+    flexBasis: '30%',
+    minHeight: 46,
+    borderRadius: 8,
+    backgroundColor: '#f3f5f8',
+    borderWidth: 1,
+    borderColor: '#dde2e8',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileModeButtonActive: {
+    backgroundColor: colors.red,
+    borderColor: colors.red,
+  },
+  mobileModeText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  mobileModeTextActive: {
+    color: '#ffffff',
+  },
+  mobileTwoCards: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  mobileMiniCard: {
+    flex: 1,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e8ebef',
+    boxShadow: '0 12px 30px rgba(0,0,0,0.18)',
+  },
+  mobileStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  mobileStepNumber: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.red,
+    color: '#ffffff',
+    textAlign: 'center',
+    lineHeight: 26,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  mobileStepText: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  mobileCopies: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  mobileCopyButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#f3f5f8',
+    borderWidth: 1,
+    borderColor: '#dde2e8',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileCopyActive: {
+    backgroundColor: colors.red,
+    borderColor: colors.red,
+  },
+  mobileCopyText: {
+    color: colors.ink,
+    fontWeight: '900',
+  },
+  mobileCopyTextActive: {
+    color: '#ffffff',
+  },
+  mobilePrimaryButton: {
+    marginTop: 12,
+    minHeight: 42,
+    borderRadius: 8,
+    backgroundColor: colors.dark,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobilePrimaryText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  mobileFilterScroll: {
+    gap: 8,
+    paddingTop: 12,
+  },
+  mobileFilterButton: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    backgroundColor: '#f3f5f8',
+    borderWidth: 1,
+    borderColor: '#dde2e8',
+    justifyContent: 'center',
+  },
+  mobileFilterActive: {
+    backgroundColor: colors.red,
+    borderColor: colors.red,
+  },
+  mobileFilterText: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  mobileFilterTextActive: {
+    color: '#ffffff',
+  },
+  mobileTemplateGrid: {
+    marginTop: 12,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  mobileTemplateCard: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#f3f5f8',
+    borderWidth: 1,
+    borderColor: '#dde2e8',
+  },
+  mobileTemplateActive: {
+    borderColor: colors.red,
+    boxShadow: '0 8px 18px rgba(215, 43, 116, 0.22)',
+  },
+  mobileTemplateImage: {
+    width: '100%',
+    aspectRatio: 1.28,
+    resizeMode: 'cover',
+  },
+  mobileTemplateName: {
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    padding: 9,
+  },
   page: {
     minHeight: '100vh',
     backgroundColor: colors.bg,
