@@ -57,6 +57,13 @@ const templates = [
 const captureModes = ['Foto', 'GIF', 'Boomerang', 'Video', '360']
 const filters = ['Original', 'Glam', 'B/N', 'Brannan', 'Vintage']
 const shareSteps = ['Capturar', 'Revisar', 'Imprimir', 'Compartir']
+const setupTabs = [
+  { id: 'evento', label: 'Evento', title: 'Nombre y captura' },
+  { id: 'config', label: 'Config', title: 'Configuracion del modo' },
+  { id: 'diseno', label: 'Diseno', title: 'Plantilla y filtro' },
+  { id: 'salida', label: 'Salida', title: 'Entrega e impresion' },
+  { id: 'preview', label: 'Preview', title: 'Vista previa' },
+]
 
 const captureModeDetails = {
   Foto: {
@@ -69,6 +76,7 @@ const captureModeDetails = {
     progress: ['Enfoque', 'Flash', 'Preview'],
     steps: ['Tomar foto', 'Elegir filtro', 'Imprimir', 'Compartir'],
     tools: ['QR', 'Print', 'Mail'],
+    settings: ['Cuenta regresiva 3s', 'Flash suave', 'Una foto por invitado'],
   },
   GIF: {
     title: 'GIF animado',
@@ -80,6 +88,7 @@ const captureModeDetails = {
     progress: ['Pose 1', 'Pose 2', 'Pose 3'],
     steps: ['Capturar 3 fotos', 'Animar', 'Revisar', 'Compartir'],
     tools: ['QR', 'SMS', 'Mail'],
+    settings: ['3 poses automaticas', 'Velocidad media', 'Loop infinito'],
   },
   Boomerang: {
     title: 'Boomerang',
@@ -91,6 +100,7 @@ const captureModeDetails = {
     progress: ['Grabar', 'Reversa', 'Loop'],
     steps: ['Grabar clip', 'Crear loop', 'Revisar', 'Compartir'],
     tools: ['QR', 'Mail', 'SMS'],
+    settings: ['Clip de 2 segundos', 'Reversa automatica', 'Loop exportable'],
   },
   Video: {
     title: 'Video corto',
@@ -102,6 +112,7 @@ const captureModeDetails = {
     progress: ['Rec', 'Procesar', 'Preview'],
     steps: ['Grabar', 'Revisar audio', 'Guardar', 'Compartir'],
     tools: ['QR', 'Mail', 'Drive'],
+    settings: ['Grabacion 8s', 'Audio activo', 'Formato vertical'],
   },
   360: {
     title: 'Video 360',
@@ -113,6 +124,7 @@ const captureModeDetails = {
     progress: ['Cuenta', 'Giro', 'Render'],
     steps: ['Iniciar giro', 'Renderizar', 'Revisar', 'Compartir'],
     tools: ['QR', 'Print', 'Mail'],
+    settings: ['Giro completo', 'Render rapido', 'Overlay del evento'],
   },
 }
 
@@ -126,6 +138,7 @@ const WebApp = () => {
   const [capturePhase, setCapturePhase] = useState('idle')
   const [activityMessage, setActivityMessage] = useState('Camara lista')
   const [captureCount, setCaptureCount] = useState(0)
+  const [activeTab, setActiveTab] = useState('evento')
   const isMobile = width < 760
   const modeDetails = captureModeDetails[selectedMode]
   const activeSteps = modeDetails.steps || shareSteps
@@ -167,6 +180,115 @@ const WebApp = () => {
     setCapturePhase('complete')
     setActivityMessage(messages[tool] || `${tool} listo`)
   }
+
+  const goToNextTab = () => {
+    const currentIndex = setupTabs.findIndex((tab) => tab.id === activeTab)
+    const nextTab = setupTabs[Math.min(currentIndex + 1, setupTabs.length - 1)]
+    setActiveTab(nextTab.id)
+  }
+
+  const renderMobileTabs = () => (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.mobileTabScroll}
+    >
+      {setupTabs.map((tab, index) => (
+        <Pressable
+          key={tab.id}
+          onPress={() => setActiveTab(tab.id)}
+          style={[styles.mobileTabButton, activeTab === tab.id && styles.mobileTabButtonActive]}
+        >
+          <Text style={[styles.mobileTabNumber, activeTab === tab.id && styles.mobileTabTextActive]}>
+            {index + 1}
+          </Text>
+          <Text style={[styles.mobileTabText, activeTab === tab.id && styles.mobileTabTextActive]}>
+            {tab.label}
+          </Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  )
+
+  const renderDesktopTabs = () => (
+    <View style={styles.desktopTabs}>
+      {setupTabs.map((tab, index) => (
+        <Pressable
+          key={tab.id}
+          onPress={() => setActiveTab(tab.id)}
+          style={[styles.desktopTabButton, activeTab === tab.id && styles.desktopTabButtonActive]}
+        >
+          <Text style={[styles.desktopTabIndex, activeTab === tab.id && styles.desktopTabTextActive]}>
+            {index + 1}
+          </Text>
+          <View>
+            <Text style={[styles.desktopTabLabel, activeTab === tab.id && styles.desktopTabTextActive]}>
+              {tab.label}
+            </Text>
+            <Text style={[styles.desktopTabTitle, activeTab === tab.id && styles.desktopTabTextActive]}>
+              {tab.title}
+            </Text>
+          </View>
+        </Pressable>
+      ))}
+    </View>
+  )
+
+  const renderMobilePreview = () => (
+    <>
+      <View style={styles.mobileCameraCard}>
+        <Image source={selectedTemplate.image} style={styles.mobileCameraImage} />
+        <View style={styles.mobileCameraShade} />
+        <View style={[styles.mobileCountdown, isCapturing && styles.mobileCountdownActive]}>
+          <Text style={styles.mobileCountdownText}>{modeDetails.countdown}</Text>
+        </View>
+        <View style={styles.mobileCaptureMeta}>
+          <Text style={styles.mobileCaptureMode}>{modeDetails.title}</Text>
+          <Text style={styles.mobileCaptureBadge}>{modeDetails.badge}</Text>
+        </View>
+        <Text style={styles.mobileCameraCopy}>{modeDetails.instruction}</Text>
+        <View style={styles.mobileProgress}>
+          {modeDetails.progress.map((step, index) => {
+            const active = isCapturing || capturePhase === 'complete'
+            return (
+              <View key={step} style={styles.mobileProgressItem}>
+                <View
+                  style={[
+                    styles.mobileProgressDot,
+                    active && index < (isCapturing ? 2 : 3) && styles.mobileProgressDotActive,
+                  ]}
+                />
+                <Text style={styles.mobileProgressText}>{step}</Text>
+              </View>
+            )
+          })}
+        </View>
+        <View style={styles.mobileQuickActions}>
+          {modeDetails.tools.map((tool) => (
+            <Pressable key={tool} onPress={() => runTool(tool)} style={styles.mobileQuickButton}>
+              <Text style={styles.mobileQuickText}>{tool}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <Pressable
+        onPress={startCapture}
+        disabled={isCapturing}
+        style={[styles.mobileCaptureButton, isCapturing && styles.mobileCaptureButtonBusy]}
+      >
+        <Text style={styles.mobileCaptureButtonText}>
+          {isCapturing ? 'Capturando...' : modeDetails.primary}
+        </Text>
+      </Pressable>
+
+      <View style={styles.mobileActivityCard}>
+        <Text style={styles.mobileActivityLabel}>Estado</Text>
+        <Text style={styles.mobileActivityText}>{activityMessage}</Text>
+        <Text style={styles.mobileActivityMeta}>{captureCount} capturas en esta sesion</Text>
+      </View>
+    </>
+  )
 
   const layoutSlots = useMemo(
     () => [
@@ -210,173 +332,193 @@ const WebApp = () => {
           </View>
         </View>
 
-        <View style={styles.mobileCameraCard}>
-          <Image source={selectedTemplate.image} style={styles.mobileCameraImage} />
-          <View style={styles.mobileCameraShade} />
-          <View style={[styles.mobileCountdown, isCapturing && styles.mobileCountdownActive]}>
-            <Text style={styles.mobileCountdownText}>{modeDetails.countdown}</Text>
-          </View>
-          <View style={styles.mobileCaptureMeta}>
-            <Text style={styles.mobileCaptureMode}>{modeDetails.title}</Text>
-            <Text style={styles.mobileCaptureBadge}>{modeDetails.badge}</Text>
-          </View>
-          <Text style={styles.mobileCameraCopy}>{modeDetails.instruction}</Text>
-          <View style={styles.mobileProgress}>
-            {modeDetails.progress.map((step, index) => {
-              const active = isCapturing || capturePhase === 'complete'
-              return (
-                <View key={step} style={styles.mobileProgressItem}>
-                  <View
-                    style={[
-                      styles.mobileProgressDot,
-                      active && index < (isCapturing ? 2 : 3) && styles.mobileProgressDotActive,
-                    ]}
-                  />
-                  <Text style={styles.mobileProgressText}>{step}</Text>
-                </View>
-              )
-            })}
-          </View>
-          <View style={styles.mobileQuickActions}>
-            {modeDetails.tools.map((tool) => (
-              <Pressable key={tool} onPress={() => runTool(tool)} style={styles.mobileQuickButton}>
-                <Text style={styles.mobileQuickText}>{tool}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
+        {renderMobileTabs()}
 
-        <Pressable
-          onPress={startCapture}
-          disabled={isCapturing}
-          style={[styles.mobileCaptureButton, isCapturing && styles.mobileCaptureButtonBusy]}
-        >
-          <Text style={styles.mobileCaptureButtonText}>
-            {isCapturing ? 'Capturando...' : modeDetails.primary}
-          </Text>
-        </Pressable>
+        {activeTab === 'evento' && (
+          <>
+            <View style={styles.mobileSection}>
+              <Text style={styles.mobileSectionTitle}>Nombre del evento</Text>
+              <TextInput
+                value={eventName}
+                onChangeText={setEventName}
+                style={styles.mobileLightInput}
+                placeholder="Nombre del evento"
+                placeholderTextColor="#8b93a0"
+              />
+            </View>
 
-        <View style={styles.mobileActivityCard}>
-          <Text style={styles.mobileActivityLabel}>Estado</Text>
-          <Text style={styles.mobileActivityText}>{activityMessage}</Text>
-          <Text style={styles.mobileActivityMeta}>{captureCount} capturas en esta sesion</Text>
-        </View>
-
-        <View style={styles.mobileSection}>
-          <Text style={styles.mobileSectionTitle}>Modo de captura</Text>
-          <View style={styles.mobileModes}>
-            {captureModes.map((mode) => (
-              <Pressable
-                key={mode}
-                onPress={() => chooseMode(mode)}
-                style={[
-                  styles.mobileModeButton,
-                  selectedMode === mode && styles.mobileModeButtonActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.mobileModeText,
-                    selectedMode === mode && styles.mobileModeTextActive,
-                  ]}
-                >
-                  {mode}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.mobileTwoCards}>
-          <View style={styles.mobileMiniCard}>
-            <Text style={styles.mobileSectionTitle}>Flujo</Text>
-            {activeSteps.map((step, index) => (
-              <View key={step} style={styles.mobileStep}>
-                <Text style={styles.mobileStepNumber}>{index + 1}</Text>
-                <Text style={styles.mobileStepText}>{step}</Text>
+            <View style={styles.mobileSection}>
+              <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>Tipo de captura</Text>
+                <Text style={styles.mobileAccentText}>{selectedMode}</Text>
               </View>
-            ))}
-          </View>
-
-          <View style={styles.mobileMiniCard}>
-            <Text style={styles.mobileSectionTitle}>Copias</Text>
-            <View style={styles.mobileCopies}>
-              {[1, 2, 3, 4].map((number) => (
-                <Pressable
-                  key={number}
-                  onPress={() => setCopies(number)}
-                  style={[styles.mobileCopyButton, copies === number && styles.mobileCopyActive]}
-                >
-                  <Text
+              <View style={styles.mobileModes}>
+                {captureModes.map((mode) => (
+                  <Pressable
+                    key={mode}
+                    onPress={() => chooseMode(mode)}
                     style={[
-                      styles.mobileCopyText,
-                      copies === number && styles.mobileCopyTextActive,
+                      styles.mobileModeButton,
+                      selectedMode === mode && styles.mobileModeButtonActive,
                     ]}
                   >
-                    {number}
-                  </Text>
-                </Pressable>
+                    <Text
+                      style={[
+                        styles.mobileModeText,
+                        selectedMode === mode && styles.mobileModeTextActive,
+                      ]}
+                    >
+                      {mode}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            <Pressable onPress={goToNextTab} style={styles.mobileCaptureButton}>
+              <Text style={styles.mobileCaptureButtonText}>Continuar configuracion</Text>
+            </Pressable>
+          </>
+        )}
+
+        {activeTab === 'config' && (
+          <>
+            <View style={styles.mobileSection}>
+              <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>{modeDetails.title}</Text>
+                <Text style={styles.mobileAccentText}>{modeDetails.badge}</Text>
+              </View>
+              {modeDetails.settings.map((setting) => (
+                <View key={setting} style={styles.mobileSettingRow}>
+                  <View style={styles.mobileSettingDot} />
+                  <Text style={styles.mobileSettingText}>{setting}</Text>
+                </View>
               ))}
             </View>
-            <Pressable onPress={() => runTool('Print')} style={styles.mobilePrimaryButton}>
-              <Text style={styles.mobilePrimaryText}>Imprimir</Text>
+
+            <View style={styles.mobileSection}>
+              <Text style={styles.mobileSectionTitle}>Flujo</Text>
+              {activeSteps.map((step, index) => (
+                <View key={step} style={styles.mobileStep}>
+                  <Text style={styles.mobileStepNumber}>{index + 1}</Text>
+                  <Text style={styles.mobileStepText}>{step}</Text>
+                </View>
+              ))}
+            </View>
+
+            <Pressable onPress={goToNextTab} style={styles.mobileCaptureButton}>
+              <Text style={styles.mobileCaptureButtonText}>Continuar diseno</Text>
             </Pressable>
-          </View>
-        </View>
+          </>
+        )}
 
-        <View style={styles.mobileSection}>
-          <View style={styles.mobileSectionHeader}>
-            <Text style={styles.mobileSectionTitle}>Filtros</Text>
-            <Text style={styles.mobileAccentText}>{selectedFilter}</Text>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.mobileFilterScroll}
-          >
-            {filters.map((filter) => (
-              <Pressable
-                key={filter}
-                onPress={() => setSelectedFilter(filter)}
-                style={[
-                  styles.mobileFilterButton,
-                  selectedFilter === filter && styles.mobileFilterActive,
-                ]}
+        {activeTab === 'diseno' && (
+          <>
+            <View style={styles.mobileSection}>
+              <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>Filtros</Text>
+                <Text style={styles.mobileAccentText}>{selectedFilter}</Text>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.mobileFilterScroll}
               >
-                <Text
-                  style={[
-                    styles.mobileFilterText,
-                    selectedFilter === filter && styles.mobileFilterTextActive,
-                  ]}
-                >
-                  {filter}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
+                {filters.map((filter) => (
+                  <Pressable
+                    key={filter}
+                    onPress={() => setSelectedFilter(filter)}
+                    style={[
+                      styles.mobileFilterButton,
+                      selectedFilter === filter && styles.mobileFilterActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.mobileFilterText,
+                        selectedFilter === filter && styles.mobileFilterTextActive,
+                      ]}
+                    >
+                      {filter}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
 
-        <View style={styles.mobileSection}>
-          <View style={styles.mobileSectionHeader}>
-            <Text style={styles.mobileSectionTitle}>Plantillas</Text>
-            <Text style={styles.mobileAccentText}>{selectedTemplate.name}</Text>
-          </View>
-          <View style={styles.mobileTemplateGrid}>
-            {templates.map((template) => {
-              const active = selectedTemplate.id === template.id
-              return (
-                <Pressable
-                  key={template.id}
-                  onPress={() => setSelectedTemplate(template)}
-                  style={[styles.mobileTemplateCard, active && styles.mobileTemplateActive]}
-                >
-                  <Image source={template.image} style={styles.mobileTemplateImage} />
-                  <Text style={styles.mobileTemplateName}>{template.name}</Text>
-                </Pressable>
-              )
-            })}
-          </View>
-        </View>
+            <View style={styles.mobileSection}>
+              <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>Plantillas</Text>
+                <Text style={styles.mobileAccentText}>{selectedTemplate.name}</Text>
+              </View>
+              <View style={styles.mobileTemplateGrid}>
+                {templates.map((template) => {
+                  const active = selectedTemplate.id === template.id
+                  return (
+                    <Pressable
+                      key={template.id}
+                      onPress={() => setSelectedTemplate(template)}
+                      style={[styles.mobileTemplateCard, active && styles.mobileTemplateActive]}
+                    >
+                      <Image source={template.image} style={styles.mobileTemplateImage} />
+                      <Text style={styles.mobileTemplateName}>{template.name}</Text>
+                    </Pressable>
+                  )
+                })}
+              </View>
+            </View>
+
+            <Pressable onPress={goToNextTab} style={styles.mobileCaptureButton}>
+              <Text style={styles.mobileCaptureButtonText}>Continuar salida</Text>
+            </Pressable>
+          </>
+        )}
+
+        {activeTab === 'salida' && (
+          <>
+            <View style={styles.mobileSection}>
+              <Text style={styles.mobileSectionTitle}>Entrega</Text>
+              <View style={styles.mobileModes}>
+                {modeDetails.tools.map((tool) => (
+                  <Pressable key={tool} onPress={() => runTool(tool)} style={styles.mobileModeButton}>
+                    <Text style={styles.mobileModeText}>{tool}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.mobileSection}>
+              <Text style={styles.mobileSectionTitle}>Copias</Text>
+              <View style={styles.mobileCopies}>
+                {[1, 2, 3, 4].map((number) => (
+                  <Pressable
+                    key={number}
+                    onPress={() => setCopies(number)}
+                    style={[styles.mobileCopyButton, copies === number && styles.mobileCopyActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.mobileCopyText,
+                        copies === number && styles.mobileCopyTextActive,
+                      ]}
+                    >
+                      {number}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable onPress={() => runTool('Print')} style={styles.mobilePrimaryButton}>
+                <Text style={styles.mobilePrimaryText}>Probar impresion</Text>
+              </Pressable>
+            </View>
+
+            <Pressable onPress={goToNextTab} style={styles.mobileCaptureButton}>
+              <Text style={styles.mobileCaptureButtonText}>Ver preview</Text>
+            </Pressable>
+          </>
+        )}
+
+        {activeTab === 'preview' && renderMobilePreview()}
       </ScrollView>
     )
   }
@@ -414,22 +556,180 @@ const WebApp = () => {
           </View>
         </View>
 
-        <View style={styles.mainGrid}>
-          <View style={styles.captureColumn}>
-            <View style={styles.captureHeader}>
-              <View>
-                <Text style={styles.screenTitle}>{eventName}</Text>
-                <Text style={styles.screenCaption}>{modeDetails.instruction}</Text>
-              </View>
-              <TextInput
-                value={eventName}
-                onChangeText={setEventName}
-                style={styles.eventInput}
-                placeholder="Nombre del evento"
-                placeholderTextColor="#7d8188"
-              />
-            </View>
+        {renderDesktopTabs()}
 
+        <View style={styles.desktopSetupGrid}>
+          <View style={styles.desktopSectionPanel}>
+            <Text style={styles.desktopSectionEyebrow}>
+              {setupTabs.find((tab) => tab.id === activeTab)?.label}
+            </Text>
+            <Text style={styles.desktopSectionTitle}>
+              {setupTabs.find((tab) => tab.id === activeTab)?.title}
+            </Text>
+
+            {activeTab === 'evento' && (
+              <>
+                <Text style={styles.panelLabel}>Nombre del evento</Text>
+                <TextInput
+                  value={eventName}
+                  onChangeText={setEventName}
+                  style={styles.desktopInput}
+                  placeholder="Nombre del evento"
+                  placeholderTextColor="#7d8188"
+                />
+
+                <Text style={styles.panelLabel}>Tipo de captura</Text>
+                <View style={styles.modeRow}>
+                  {captureModes.map((mode) => (
+                    <Pressable
+                      key={mode}
+                      onPress={() => chooseMode(mode)}
+                      style={[styles.modeButton, selectedMode === mode && styles.modeButtonActive]}
+                    >
+                      <Text
+                        style={[
+                          styles.modeButtonText,
+                          selectedMode === mode && styles.modeButtonTextActive,
+                        ]}
+                      >
+                        {mode}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {activeTab === 'config' && (
+              <>
+                <View style={styles.settingSummary}>
+                  <Text style={styles.settingSummaryTitle}>{modeDetails.title}</Text>
+                  <Text style={styles.settingSummaryText}>{modeDetails.instruction}</Text>
+                </View>
+                {modeDetails.settings.map((setting) => (
+                  <View key={setting} style={styles.settingRow}>
+                    <View style={styles.settingDot} />
+                    <Text style={styles.settingText}>{setting}</Text>
+                  </View>
+                ))}
+                <View style={styles.steps}>
+                  {activeSteps.map((step, index) => (
+                    <View key={step} style={styles.stepItem}>
+                      <View style={styles.stepNumber}>
+                        <Text style={styles.stepNumberText}>{index + 1}</Text>
+                      </View>
+                      <Text style={styles.stepText}>{step}</Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {activeTab === 'diseno' && (
+              <>
+                <Text style={styles.panelLabel}>Filtro</Text>
+                <View style={styles.filterGrid}>
+                  {filters.map((filter) => (
+                    <Pressable
+                      key={filter}
+                      onPress={() => setSelectedFilter(filter)}
+                      style={[
+                        styles.filterButton,
+                        selectedFilter === filter && styles.filterButtonActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterText,
+                          selectedFilter === filter && styles.filterTextActive,
+                        ]}
+                      >
+                        {filter}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={styles.panelLabel}>Plantilla</Text>
+                <View style={styles.templateGrid}>
+                  {templates.map((template) => {
+                    const active = selectedTemplate.id === template.id
+                    return (
+                      <Pressable
+                        key={template.id}
+                        onPress={() => setSelectedTemplate(template)}
+                        style={[styles.templateCard, active && styles.templateCardActive]}
+                      >
+                        <Image source={template.image} style={styles.templateImage} />
+                        <View style={styles.templateBody}>
+                          <Text style={styles.templateLabel}>{template.label}</Text>
+                          <Text style={styles.templateName}>{template.name}</Text>
+                        </View>
+                      </Pressable>
+                    )
+                  })}
+                </View>
+              </>
+            )}
+
+            {activeTab === 'salida' && (
+              <>
+                <Text style={styles.panelLabel}>Canales de entrega</Text>
+                <View style={styles.modeRow}>
+                  {modeDetails.tools.map((tool) => (
+                    <Pressable key={tool} onPress={() => runTool(tool)} style={styles.modeButton}>
+                      <Text style={styles.modeButtonText}>{tool}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={styles.panelLabel}>Copias de impresion</Text>
+                <View style={styles.copyRow}>
+                  {[1, 2, 3, 4, 5].map((number) => (
+                    <Pressable
+                      key={number}
+                      onPress={() => setCopies(number)}
+                      style={[styles.copyButton, copies === number && styles.copyButtonActive]}
+                    >
+                      <Text
+                        style={[
+                          styles.copyButtonText,
+                          copies === number && styles.copyButtonTextActive,
+                        ]}
+                      >
+                        {number}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Pressable onPress={() => runTool('Print')} style={styles.printButton}>
+                  <Text style={styles.printButtonText}>Probar impresion</Text>
+                </Pressable>
+              </>
+            )}
+
+            {activeTab === 'preview' && (
+              <>
+                <View style={styles.settingSummary}>
+                  <Text style={styles.settingSummaryTitle}>Resumen del booth</Text>
+                  <Text style={styles.settingSummaryText}>
+                    {eventName} / {selectedMode} / {selectedTemplate.name} / {selectedFilter}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={startCapture}
+                  disabled={isCapturing}
+                  style={[styles.printButton, isCapturing && styles.printButtonBusy]}
+                >
+                  <Text style={styles.printButtonText}>
+                    {isCapturing ? 'Capturando...' : modeDetails.primary}
+                  </Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+
+          <View style={styles.previewColumn}>
             <View style={styles.cameraFrame}>
               <Image source={selectedTemplate.image} style={styles.cameraImage} />
               <View style={styles.cameraOverlay}>
@@ -457,170 +757,7 @@ const WebApp = () => {
                   </View>
                 ))}
               </View>
-              <View style={styles.sideTools}>
-                {modeDetails.tools.map((tool) => (
-                  <Pressable key={tool} onPress={() => runTool(tool)} style={styles.sideTool}>
-                    <Text style={styles.sideToolText}>{tool}</Text>
-                  </Pressable>
-                ))}
-              </View>
             </View>
-
-            <View style={styles.captureControls}>
-              <View style={styles.modeRow}>
-                {captureModes.map((mode) => (
-                  <Pressable
-                    key={mode}
-                    onPress={() => chooseMode(mode)}
-                    style={[styles.modeButton, selectedMode === mode && styles.modeButtonActive]}
-                  >
-                    <Text
-                      style={[
-                        styles.modeButtonText,
-                        selectedMode === mode && styles.modeButtonTextActive,
-                      ]}
-                    >
-                      {mode}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <View style={styles.printPanel}>
-                <View>
-                  <Text style={styles.panelLabel}>Copias</Text>
-                  <View style={styles.copyRow}>
-                    {[1, 2, 3, 4, 5].map((number) => (
-                      <Pressable
-                        key={number}
-                        onPress={() => setCopies(number)}
-                        style={[styles.copyButton, copies === number && styles.copyButtonActive]}
-                      >
-                        <Text
-                          style={[
-                            styles.copyButtonText,
-                            copies === number && styles.copyButtonTextActive,
-                          ]}
-                        >
-                          {number}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-                <Pressable
-                  onPress={startCapture}
-                  disabled={isCapturing}
-                  style={[styles.printButton, isCapturing && styles.printButtonBusy]}
-                >
-                  <Text style={styles.printButtonText}>
-                    {isCapturing ? 'Capturando...' : modeDetails.primary}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.workflowColumn}>
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Flujo del invitado</Text>
-              <View style={styles.steps}>
-                {activeSteps.map((step, index) => (
-                  <View key={step} style={styles.stepItem}>
-                    <View style={styles.stepNumber}>
-                      <Text style={styles.stepNumberText}>{index + 1}</Text>
-                    </View>
-                    <Text style={styles.stepText}>{step}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Efectos y filtros</Text>
-              <View style={styles.filterGrid}>
-                {filters.map((filter) => (
-                  <Pressable
-                    key={filter}
-                    onPress={() => setSelectedFilter(filter)}
-                    style={[
-                      styles.filterButton,
-                      selectedFilter === filter && styles.filterButtonActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterText,
-                        selectedFilter === filter && styles.filterTextActive,
-                      ]}
-                    >
-                      {filter}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-              <View style={styles.beautyRow}>
-                <Text style={styles.beautyLabel}>Beauty mode</Text>
-                <View style={styles.toggle}>
-                  <View style={styles.toggleKnob} />
-                  <Text style={styles.toggleText}>OFF</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Layout de impresion</Text>
-              <View style={styles.printLayout}>
-                {layoutSlots.map((slot) => (
-                  <View
-                    key={slot.id}
-                    style={[
-                      styles.layoutSlot,
-                      {
-                        width: slot.width,
-                        height: slot.height,
-                        top: slot.top,
-                        left: slot.left,
-                        right: slot.right,
-                        bottom: slot.bottom,
-                        backgroundColor: slot.color,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.layoutSlotText}>{slot.id}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.templateBand}>
-          <View style={styles.bandHeader}>
-            <View>
-              <Text style={styles.bandTitle}>Plantillas del evento</Text>
-              <Text style={styles.bandCaption}>Elige una experiencia y cambia todo el booth.</Text>
-            </View>
-            <Text style={styles.bandMeta}>{selectedTemplate.name}</Text>
-          </View>
-
-          <View style={styles.templateGrid}>
-            {templates.map((template) => {
-              const active = selectedTemplate.id === template.id
-              return (
-                <Pressable
-                  key={template.id}
-                  onPress={() => setSelectedTemplate(template)}
-                  style={[styles.templateCard, active && styles.templateCardActive]}
-                >
-                  <Image source={template.image} style={styles.templateImage} />
-                  <View style={styles.templateBody}>
-                    <Text style={styles.templateLabel}>{template.label}</Text>
-                    <Text style={styles.templateName}>{template.name}</Text>
-                  </View>
-                </Pressable>
-              )
-            })}
           </View>
         </View>
       </View>
@@ -771,6 +908,80 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 27,
     fontWeight: '900',
+  },
+  mobileTabScroll: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  mobileTabButton: {
+    minHeight: 42,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  mobileTabButtonActive: {
+    backgroundColor: colors.red,
+    borderColor: colors.red,
+  },
+  mobileTabNumber: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    color: '#ffffff',
+    fontSize: 11,
+    lineHeight: 20,
+    textAlign: 'center',
+    fontWeight: '900',
+  },
+  mobileTabText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  mobileTabTextActive: {
+    color: '#ffffff',
+  },
+  mobileLightInput: {
+    marginTop: 12,
+    minHeight: 46,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dde2e8',
+    backgroundColor: '#f8f9fb',
+    color: colors.ink,
+    paddingHorizontal: 12,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  mobileSettingRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    backgroundColor: '#f7f8fa',
+    borderWidth: 1,
+    borderColor: '#e5e9ef',
+    padding: 10,
+    borderRadius: 8,
+  },
+  mobileSettingDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: colors.red,
+  },
+  mobileSettingText: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   mobileCameraCard: {
     height: 430,
@@ -1243,6 +1454,134 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 1320,
     alignSelf: 'center',
+  },
+  desktopTabs: {
+    marginTop: 18,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+    gap: 10,
+  },
+  desktopTabButton: {
+    minHeight: 70,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    ...shadow,
+  },
+  desktopTabButtonActive: {
+    backgroundColor: colors.red,
+    borderColor: colors.red,
+  },
+  desktopTabIndex: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f1f3f6',
+    color: colors.ink,
+    lineHeight: 28,
+    textAlign: 'center',
+    fontWeight: '900',
+  },
+  desktopTabLabel: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  desktopTabTitle: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  desktopTabTextActive: {
+    color: '#ffffff',
+  },
+  desktopSetupGrid: {
+    marginTop: 18,
+    display: 'grid',
+    gridTemplateColumns: 'minmax(360px, 0.92fr) minmax(420px, 1.08fr)',
+    gap: 18,
+  },
+  desktopSectionPanel: {
+    minHeight: 560,
+    backgroundColor: colors.panel,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 18,
+    gap: 14,
+    ...shadow,
+  },
+  desktopSectionEyebrow: {
+    color: colors.red,
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  desktopSectionTitle: {
+    color: colors.ink,
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  desktopInput: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.line,
+    color: colors.ink,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  settingSummary: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 14,
+  },
+  settingSummaryTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  settingSummaryText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 12,
+  },
+  settingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.red,
+  },
+  settingText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  previewColumn: {
+    minWidth: 0,
+    backgroundColor: colors.panel,
+    borderWidth: 1,
+    borderColor: colors.line,
+    ...shadow,
   },
   topBar: {
     minHeight: 68,
