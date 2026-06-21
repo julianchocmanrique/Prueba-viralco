@@ -355,12 +355,10 @@ const WebApp = () => {
           <View style={styles.mobileHeroGlow} />
           <View style={styles.mobileHeader}>
             <View style={styles.mobileIcon}>
-              <View style={styles.mobileIconLens} />
               <Text style={styles.mobileIconMark}>V</Text>
             </View>
             <View style={styles.mobileHeaderText}>
-              <Text style={styles.mobileAppName}>Viralco Booth</Text>
-              <Text style={styles.mobileAppSub}>Photo booth para eventos</Text>
+              <Text style={styles.mobileAppName}>Viralco</Text>
             </View>
             <View style={styles.mobileStatus}>
               <View style={styles.mobileStatusDot} />
@@ -619,12 +617,10 @@ const WebApp = () => {
         <View style={styles.heroGlowTwo} />
         <View style={styles.appIdentity}>
           <View style={styles.appIcon}>
-            <View style={styles.iconLens} />
             <Text style={styles.iconMark}>V</Text>
           </View>
           <View>
-            <Text style={styles.heroName}>Prueba Viralco</Text>
-            <Text style={styles.heroSub}>Booth web para eventos</Text>
+            <Text style={styles.heroName}>Viralco</Text>
           </View>
         </View>
         <View style={styles.heroLine} />
@@ -633,8 +629,7 @@ const WebApp = () => {
       <View style={styles.appShell}>
         <View style={styles.topBar}>
           <View>
-            <Text style={styles.brand}>Viralco Booth</Text>
-            <Text style={styles.brandSub}>Captura, imprime y comparte experiencias de evento.</Text>
+            <Text style={styles.brand}>Viralco</Text>
           </View>
           <View style={styles.topActions}>
             <View style={styles.syncPill}>
@@ -952,22 +947,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     boxShadow: '0 14px 30px rgba(10, 77, 232, 0.34)',
   },
-  mobileIconLens: {
-    position: 'absolute',
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    right: 8,
-    bottom: 8,
-    borderWidth: 4,
-    borderColor: '#ffffff',
-  },
   mobileIconMark: {
     color: '#ffffff',
     fontSize: 34,
     lineHeight: 40,
     fontWeight: '900',
-    marginTop: -4,
   },
   mobileHeaderText: {
     flex: 1,
@@ -977,12 +961,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     lineHeight: 28,
     fontWeight: '900',
-  },
-  mobileAppSub: {
-    color: 'rgba(255,255,255,0.66)',
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '700',
   },
   mobileStatus: {
     minWidth: 54,
@@ -1592,34 +1570,16 @@ const styles = StyleSheet.create({
     position: 'relative',
     boxShadow: '0 22px 48px rgba(10, 77, 232, 0.34)',
   },
-  iconLens: {
-    position: 'absolute',
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    right: 22,
-    bottom: 22,
-    borderWidth: 8,
-    borderColor: '#ffffff',
-    opacity: 0.94,
-  },
   iconMark: {
     color: '#ffffff',
     fontSize: 78,
     lineHeight: 86,
     fontWeight: '900',
-    marginTop: -8,
   },
   heroName: {
     color: '#f8fbff',
     fontSize: 44,
     fontWeight: '400',
-  },
-  heroSub: {
-    color: 'rgba(255,255,255,0.68)',
-    fontSize: 16,
-    marginTop: 8,
-    fontWeight: '600',
   },
   heroLine: {
     position: 'absolute',
@@ -1833,11 +1793,6 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 22,
     fontWeight: '900',
-  },
-  brandSub: {
-    color: colors.muted,
-    fontSize: 13,
-    marginTop: 3,
   },
   topActions: {
     flexDirection: 'row',
@@ -2320,23 +2275,12 @@ const styles = StyleSheet.create({
       height: 96,
       borderRadius: 24,
     },
-    iconLens: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      right: 14,
-      bottom: 14,
-      borderWidth: 6,
-    },
     iconMark: {
       fontSize: 54,
       lineHeight: 60,
     },
     heroName: {
       fontSize: 32,
-    },
-    heroSub: {
-      fontSize: 13,
     },
     heroLine: {
       left: 22,
@@ -2408,27 +2352,14 @@ const styles = StyleSheet.create({
       height: 66,
       borderRadius: 17,
     },
-    iconLens: {
-      width: 24,
-      height: 24,
-      borderRadius: 12,
-      right: 9,
-      bottom: 9,
-      borderWidth: 4,
-    },
     iconMark: {
       fontSize: 38,
       lineHeight: 44,
-      marginTop: -5,
     },
     heroName: {
       fontSize: 25,
       lineHeight: 29,
       fontWeight: '700',
-    },
-    heroSub: {
-      fontSize: 12,
-      marginTop: 4,
     },
     heroLine: {
       display: 'none',
@@ -2444,11 +2375,6 @@ const styles = StyleSheet.create({
     },
     brand: {
       fontSize: 20,
-    },
-    brandSub: {
-      fontSize: 12,
-      lineHeight: 17,
-      maxWidth: 310,
     },
     topActions: {
       width: '100%',
