@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Image,
   Pressable,
@@ -144,6 +144,14 @@ const WebApp = () => {
   const [activityMessage, setActivityMessage] = useState('Camara lista')
   const [captureCount, setCaptureCount] = useState(0)
   const [activeTab, setActiveTab] = useState('evento')
+  const [cameraStream, setCameraStream] = useState(null)
+  const [cameraError, setCameraError] = useState('')
+  const [recordingUrl, setRecordingUrl] = useState('')
+  const desktopVideoRef = useRef(null)
+  const mobileVideoRef = useRef(null)
+  const streamRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const captureTimerRef = useRef(null)
   const [modeConfigValues, setModeConfigValues] = useState(
     captureModes.reduce(
       (values, mode) => ({
@@ -160,6 +168,7 @@ const WebApp = () => {
   const selectedConfigValue = modeConfigValues[selectedMode]
   const controlLabel = `${selectedConfigValue} ${modeDetails.control.unit}`
   const hasRecording = captureCount > 0 || capturePhase === 'complete'
+  const hasCamera = Boolean(cameraStream)
   const displayCountdown =
     selectedMode === 'GIF'
       ? `1/${selectedConfigValue}`
@@ -176,19 +185,51 @@ const WebApp = () => {
         : `${selectedConfigValue}${modeDetails.control.unit}`
 
   useEffect(() => {
-    if (!isCapturing) {
-      return undefined
+    ;[desktopVideoRef.current, mobileVideoRef.current].forEach((video) => {
+      if (!video || !cameraStream) {
+        return
+      }
+
+      video.srcObject = cameraStream
+      video.play?.().catch(() => undefined)
+    })
+  }, [cameraStream, isMobile])
+
+  useEffect(
+    () => () => {
+      if (captureTimerRef.current) {
+        clearTimeout(captureTimerRef.current)
+      }
+
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop()
+      }
+
+      streamRef.current?.getTracks().forEach((track) => track.stop())
+    },
+    [],
+  )
+
+  useEffect(
+    () => () => {
+      if (recordingUrl) {
+        URL.revokeObjectURL(recordingUrl)
+      }
+    },
+    [recordingUrl],
+  )
+
+  const finishCapture = (message) => {
+    if (captureTimerRef.current) {
+      clearTimeout(captureTimerRef.current)
+      captureTimerRef.current = null
     }
 
-    const timer = setTimeout(() => {
-      setCapturePhase('complete')
-      setCaptureCount((count) => count + 1)
-      setActivityMessage(`${modeDetails.output} para ${eventName} (${controlLabel})`)
-      setActiveTab('salida')
-    }, 1300)
-
-    return () => clearTimeout(timer)
-  }, [controlLabel, eventName, isCapturing, modeDetails.output])
+    setCapturePhase('complete')
+    setCaptureCount((count) => count + 1)
+    setActivityMessage(message)
+    setActiveTab('salida')
+  }
 
   const chooseMode = (mode) => {
     setSelectedMode(mode)
@@ -206,9 +247,95 @@ const WebApp = () => {
     setActivityMessage(`${modeDetails.control.label}: ${nextValue} ${modeDetails.control.unit}`)
   }
 
-  const startCapture = () => {
+  const stopCameraStream = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    setCameraStream(null)
+  }
+
+  const getCaptureDurationMs = () => {
+    if (selectedMode === 'Foto') {
+      return selectedConfigValue * 1000
+    }
+
+    if (selectedMode === 'GIF') {
+      return selectedConfigValue * 650
+    }
+
+    return selectedConfigValue * 1000
+  }
+
+  const requestCameraStream = async () => {
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      throw new Error('Este navegador no permite abrir camara desde la web')
+    }
+
+    stopCameraStream()
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'user' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: selectedMode === 'Video',
+    })
+
+    streamRef.current = stream
+    setCameraStream(stream)
+    return stream
+  }
+
+  const startCapture = async () => {
+    setCameraError('')
+    setRecordingUrl('')
     setCapturePhase('capturing')
-    setActivityMessage(`${modeDetails.primary} en progreso (${controlLabel})`)
+    setActivityMessage('Solicitando permiso de camara del celular...')
+
+    let stream
+    try {
+      stream = await requestCameraStream()
+    } catch (error) {
+      setCapturePhase('idle')
+      setCameraError(error.message)
+      setActivityMessage('No se pudo abrir la camara. Revisa permisos del navegador.')
+      return
+    }
+
+    setActivityMessage(`${modeDetails.primary} con camara activa (${controlLabel})`)
+
+    const durationMs = getCaptureDurationMs()
+
+    if (selectedMode === 'Foto' || !window.MediaRecorder) {
+      captureTimerRef.current = setTimeout(() => {
+        finishCapture(`${modeDetails.output} con camara del celular (${controlLabel})`)
+      }, durationMs)
+      return
+    }
+
+    const chunks = []
+    const recorder = new MediaRecorder(stream)
+    mediaRecorderRef.current = recorder
+
+    recorder.ondataavailable = (event) => {
+      if (event.data?.size) {
+        chunks.push(event.data)
+      }
+    }
+
+    recorder.onstop = () => {
+      const type = chunks[0]?.type || 'video/webm'
+      const blob = new Blob(chunks, { type })
+      setRecordingUrl(URL.createObjectURL(blob))
+      finishCapture(`${modeDetails.output} grabado con la camara del celular (${controlLabel})`)
+    }
+
+    recorder.start()
+    captureTimerRef.current = setTimeout(() => {
+      if (recorder.state === 'recording') {
+        recorder.stop()
+      }
+    }, durationMs)
   }
 
   const runTool = (tool) => {
@@ -285,7 +412,17 @@ const WebApp = () => {
   const renderMobilePreview = () => (
     <>
       <View style={styles.mobileCameraCard}>
-        <Image source={selectedTemplate.image} style={styles.mobileCameraImage} />
+        {hasCamera ? (
+          <video
+            ref={mobileVideoRef}
+            playsInline
+            muted
+            autoPlay
+            style={styles.mobileCameraVideo}
+          />
+        ) : (
+          <Image source={selectedTemplate.image} style={styles.mobileCameraImage} />
+        )}
         <View style={styles.mobileCameraShade} />
         <View style={[styles.mobileCountdown, isCapturing && styles.mobileCountdownActive]}>
           <Text style={styles.mobileCountdownText}>{displayCountdown}</Text>
@@ -295,6 +432,7 @@ const WebApp = () => {
           <Text style={styles.mobileCaptureBadge}>{displayBadge}</Text>
         </View>
         <Text style={styles.mobileCameraCopy}>{modeDetails.instruction}</Text>
+        {cameraError && <Text style={styles.mobileCameraError}>{cameraError}</Text>}
         <View style={styles.mobileProgress}>
           {modeDetails.progress.map((step, index) => {
             const active = isCapturing || capturePhase === 'complete'
@@ -333,7 +471,9 @@ const WebApp = () => {
       <View style={styles.mobileActivityCard}>
         <Text style={styles.mobileActivityLabel}>Estado</Text>
         <Text style={styles.mobileActivityText}>{activityMessage}</Text>
-        <Text style={styles.mobileActivityMeta}>{captureCount} capturas en esta sesion</Text>
+        <Text style={styles.mobileActivityMeta}>
+          {recordingUrl ? 'Video temporal guardado en el navegador' : `${captureCount} capturas en esta sesion`}
+        </Text>
       </View>
     </>
   )
@@ -848,12 +988,23 @@ const WebApp = () => {
 
           <View style={styles.previewColumn}>
             <View style={styles.cameraFrame}>
-              <Image source={selectedTemplate.image} style={styles.cameraImage} />
+              {hasCamera ? (
+                <video
+                  ref={desktopVideoRef}
+                  playsInline
+                  muted
+                  autoPlay
+                  style={styles.cameraVideo}
+                />
+              ) : (
+                <Image source={selectedTemplate.image} style={styles.cameraImage} />
+              )}
               <View style={styles.cameraOverlay}>
                 <Text style={[styles.countdown, isCapturing && styles.countdownActive]}>
                   {displayCountdown}
                 </Text>
                 <Text style={styles.cameraInstruction}>{modeDetails.title}</Text>
+                {cameraError && <Text style={styles.cameraError}>{cameraError}</Text>}
               </View>
               <View style={styles.captureStatus}>
                 <Text style={styles.captureStatusLabel}>{displayBadge}</Text>
@@ -1155,6 +1306,13 @@ const styles = StyleSheet.create({
     height: '100%',
     resizeMode: 'cover',
   },
+  mobileCameraVideo: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    backgroundColor: '#05070a',
+    transform: 'scaleX(-1)',
+  },
   mobileCameraShade: {
     position: 'absolute',
     top: 0,
@@ -1226,6 +1384,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.46)',
     paddingHorizontal: 14,
     paddingVertical: 7,
+    borderRadius: 8,
+  },
+  mobileCameraError: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 118,
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    textAlign: 'center',
+    backgroundColor: 'rgba(10, 18, 30, 0.82)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 8,
   },
   mobileProgress: {
@@ -1885,6 +2058,14 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
     opacity: 0.86,
   },
+  cameraVideo: {
+    width: '100%',
+    height: '100%',
+    minHeight: 470,
+    objectFit: 'cover',
+    backgroundColor: '#05070a',
+    transform: 'scaleX(-1)',
+  },
   cameraOverlay: {
     position: 'absolute',
     top: 0,
@@ -1917,6 +2098,18 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
     backgroundColor: 'rgba(0,0,0,0.42)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  cameraError: {
+    marginTop: 10,
+    maxWidth: 360,
+    color: '#ffffff',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+    backgroundColor: 'rgba(10, 18, 30, 0.82)',
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
