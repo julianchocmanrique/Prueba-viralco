@@ -19,168 +19,259 @@ const templates = [
   {
     id: 'boda',
     name: 'Bodas',
-    category: 'Elegante',
-    duration: '30s',
+    label: 'Wedding',
     image: bodaImage,
-    description: 'Una salida sobria para ceremonias, brindis y momentos formales.',
+    tone: '#ef5a5a',
   },
   {
     id: 'fiesta',
     name: 'Fiestas privadas',
-    category: 'Live',
-    duration: '30s',
+    label: 'Party',
     image: fiestaImage,
-    description: 'Color, ritmo y una presencia visual pensada para alta energia.',
+    tone: '#ff9f1c',
   },
   {
     id: 'corporativo',
     name: 'Corporativos',
-    category: 'Marca',
-    duration: '30s',
+    label: 'Brand',
     image: navidadImage,
-    description: 'Un look pulido para activaciones, lanzamientos y eventos de empresa.',
+    tone: '#2f80ed',
   },
   {
     id: 'cumple',
     name: 'Cumpleanos',
-    category: 'Social',
-    duration: '30s',
+    label: 'Birthday',
     image: cumpleImage,
-    description: 'Un flujo cercano y brillante para celebraciones familiares.',
+    tone: '#9b51e0',
   },
   {
     id: 'tropical',
     name: 'Tropical',
-    category: 'Color',
-    duration: '30s',
+    label: 'Summer',
     image: tropicalImage,
-    description: 'Vibras intensas para eventos de verano, playa y fiesta abierta.',
+    tone: '#00a870',
   },
 ]
 
-const effects = ['Normal', 'Rapida 2x', 'Rapida 4x', 'Lenta 0.5x', 'Boomerang']
+const captureModes = ['Foto', 'GIF', 'Boomerang', 'Video', '360']
+const filters = ['Original', 'Glam', 'B/N', 'Brannan', 'Vintage']
+const shareSteps = ['Capturar', 'Revisar', 'Imprimir', 'Compartir']
 
 const WebApp = () => {
-  const [selectedTemplate, setSelectedTemplate] = useState(templates[0])
-  const [selectedEffect, setSelectedEffect] = useState(effects[0])
-  const [clientName, setClientName] = useState('')
+  const [selectedTemplate, setSelectedTemplate] = useState(templates[1])
+  const [selectedMode, setSelectedMode] = useState('360')
+  const [selectedFilter, setSelectedFilter] = useState('Original')
+  const [copies, setCopies] = useState(1)
+  const [eventName, setEventName] = useState('Viralco live booth')
 
-  const summary = useMemo(
+  const layoutSlots = useMemo(
     () => [
-      { label: 'Plantilla', value: selectedTemplate.name },
-      { label: 'Efecto', value: selectedEffect },
-      { label: 'Duracion', value: selectedTemplate.duration },
+      { id: 1, width: '58%', height: 138, top: 18, left: 18, color: selectedTemplate.tone },
+      { id: 2, width: '34%', height: 138, top: 18, right: 18, color: '#101820' },
+      { id: 3, width: '43%', height: 118, bottom: 18, left: 18, color: '#f1c75b' },
+      { id: 4, width: '49%', height: 118, bottom: 18, right: 18, color: '#5d7287' },
     ],
-    [selectedEffect, selectedTemplate],
+    [selectedTemplate],
   )
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
-      <View style={styles.topBar}>
-        <View>
-          <Text style={styles.brand}>Prueba viralco</Text>
-          <Text style={styles.brandSub}>Experiencia 360 para eventos</Text>
-        </View>
-        <View style={styles.statusPill}>
-          <Text style={styles.statusText}>WEB ACTIVA</Text>
-        </View>
-      </View>
-
-      <View style={styles.hero}>
-        <View style={styles.heroCopy}>
-          <Text style={styles.kicker}>React Native Web</Text>
-          <Text style={styles.title}>Crea una experiencia 360 lista para presentar</Text>
-          <Text style={styles.subtitle}>
-            Selecciona una plantilla, ajusta el ritmo y prepara una propuesta visual
-            para el cliente desde el navegador.
-          </Text>
-
-          <View style={styles.formRow}>
-            <TextInput
-              value={clientName}
-              onChangeText={setClientName}
-              placeholder="Nombre del evento o cliente"
-              placeholderTextColor="#73736d"
-              style={styles.input}
-            />
-            <Pressable style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>Preparar flujo</Text>
-            </Pressable>
+      <View style={styles.appShell}>
+        <View style={styles.topBar}>
+          <View>
+            <Text style={styles.brand}>Prueba Viralco Booth</Text>
+            <Text style={styles.brandSub}>Kiosco web inspirado en flujo tipo LumaBooth</Text>
+          </View>
+          <View style={styles.topActions}>
+            <View style={styles.syncPill}>
+              <View style={styles.syncDot} />
+              <Text style={styles.syncText}>LISTO</Text>
+            </View>
+            <Text style={styles.topMeta}>Evento / {selectedMode}</Text>
           </View>
         </View>
 
-        <View style={styles.previewPanel}>
-          <Image source={selectedTemplate.image} style={styles.previewImage} />
-          <View style={styles.previewFooter}>
-            <Text style={styles.previewTitle}>{selectedTemplate.name}</Text>
-            <Text style={styles.previewMeta}>
-              {clientName.trim() || 'Evento sin nombre'} / {selectedEffect}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.summaryRow}>
-        {summary.map((item) => (
-          <View key={item.label} style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>{item.label}</Text>
-            <Text style={styles.summaryValue}>{item.value}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>Plantillas</Text>
-          <Text style={styles.sectionText}>Opciones importadas del proyecto movil original.</Text>
-        </View>
-      </View>
-
-      <View style={styles.templateGrid}>
-        {templates.map((template) => {
-          const isActive = selectedTemplate.id === template.id
-          return (
-            <Pressable
-              key={template.id}
-              onPress={() => setSelectedTemplate(template)}
-              style={[styles.templateCard, isActive && styles.templateCardActive]}
-            >
-              <Image source={template.image} style={styles.templateImage} />
-              <View style={styles.templateContent}>
-                <View style={styles.templateMetaRow}>
-                  <Text style={styles.templateCategory}>{template.category}</Text>
-                  <Text style={styles.templateDuration}>{template.duration}</Text>
-                </View>
-                <Text style={styles.templateName}>{template.name}</Text>
-                <Text style={styles.templateDescription}>{template.description}</Text>
+        <View style={styles.mainGrid}>
+          <View style={styles.captureColumn}>
+            <View style={styles.captureHeader}>
+              <View>
+                <Text style={styles.screenTitle}>{eventName}</Text>
+                <Text style={styles.screenCaption}>Vista de captura para invitado</Text>
               </View>
-            </Pressable>
-          )
-        })}
-      </View>
+              <TextInput
+                value={eventName}
+                onChangeText={setEventName}
+                style={styles.eventInput}
+                placeholder="Nombre del evento"
+                placeholderTextColor="#7d8188"
+              />
+            </View>
 
-      <View style={styles.controlsBand}>
-        <View>
-          <Text style={styles.sectionTitle}>Efectos</Text>
-          <Text style={styles.sectionText}>Selecciona el ritmo base del video 360.</Text>
+            <View style={styles.cameraFrame}>
+              <Image source={selectedTemplate.image} style={styles.cameraImage} />
+              <View style={styles.cameraOverlay}>
+                <Text style={styles.countdown}>3</Text>
+                <Text style={styles.cameraInstruction}>Mira a la camara</Text>
+              </View>
+              <View style={styles.sideTools}>
+                {['Email', 'SMS', 'QR', 'Print'].map((tool) => (
+                  <Pressable key={tool} style={styles.sideTool}>
+                    <Text style={styles.sideToolText}>{tool}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.captureControls}>
+              <View style={styles.modeRow}>
+                {captureModes.map((mode) => (
+                  <Pressable
+                    key={mode}
+                    onPress={() => setSelectedMode(mode)}
+                    style={[styles.modeButton, selectedMode === mode && styles.modeButtonActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.modeButtonText,
+                        selectedMode === mode && styles.modeButtonTextActive,
+                      ]}
+                    >
+                      {mode}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={styles.printPanel}>
+                <View>
+                  <Text style={styles.panelLabel}>Copias</Text>
+                  <View style={styles.copyRow}>
+                    {[1, 2, 3, 4, 5].map((number) => (
+                      <Pressable
+                        key={number}
+                        onPress={() => setCopies(number)}
+                        style={[styles.copyButton, copies === number && styles.copyButtonActive]}
+                      >
+                        <Text
+                          style={[
+                            styles.copyButtonText,
+                            copies === number && styles.copyButtonTextActive,
+                          ]}
+                        >
+                          {number}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+                <Pressable style={styles.printButton}>
+                  <Text style={styles.printButtonText}>Imprimir</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.workflowColumn}>
+            <View style={styles.panel}>
+              <Text style={styles.panelTitle}>Flujo del invitado</Text>
+              <View style={styles.steps}>
+                {shareSteps.map((step, index) => (
+                  <View key={step} style={styles.stepItem}>
+                    <View style={styles.stepNumber}>
+                      <Text style={styles.stepNumberText}>{index + 1}</Text>
+                    </View>
+                    <Text style={styles.stepText}>{step}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.panel}>
+              <Text style={styles.panelTitle}>Efectos y filtros</Text>
+              <View style={styles.filterGrid}>
+                {filters.map((filter) => (
+                  <Pressable
+                    key={filter}
+                    onPress={() => setSelectedFilter(filter)}
+                    style={[
+                      styles.filterButton,
+                      selectedFilter === filter && styles.filterButtonActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterText,
+                        selectedFilter === filter && styles.filterTextActive,
+                      ]}
+                    >
+                      {filter}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <View style={styles.beautyRow}>
+                <Text style={styles.beautyLabel}>Beauty mode</Text>
+                <View style={styles.toggle}>
+                  <View style={styles.toggleKnob} />
+                  <Text style={styles.toggleText}>OFF</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.panel}>
+              <Text style={styles.panelTitle}>Layout de impresion</Text>
+              <View style={styles.printLayout}>
+                {layoutSlots.map((slot) => (
+                  <View
+                    key={slot.id}
+                    style={[
+                      styles.layoutSlot,
+                      {
+                        width: slot.width,
+                        height: slot.height,
+                        top: slot.top,
+                        left: slot.left,
+                        right: slot.right,
+                        bottom: slot.bottom,
+                        backgroundColor: slot.color,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.layoutSlotText}>{slot.id}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
         </View>
-        <View style={styles.effectsRow}>
-          {effects.map((effect) => (
-            <Pressable
-              key={effect}
-              onPress={() => setSelectedEffect(effect)}
-              style={[styles.effectChip, selectedEffect === effect && styles.effectChipActive]}
-            >
-              <Text
-                style={[
-                  styles.effectText,
-                  selectedEffect === effect && styles.effectTextActive,
-                ]}
-              >
-                {effect}
-              </Text>
-            </Pressable>
-          ))}
+
+        <View style={styles.templateBand}>
+          <View style={styles.bandHeader}>
+            <View>
+              <Text style={styles.bandTitle}>Plantillas del evento</Text>
+              <Text style={styles.bandCaption}>Elige una experiencia y cambia todo el booth.</Text>
+            </View>
+            <Text style={styles.bandMeta}>{selectedTemplate.name}</Text>
+          </View>
+
+          <View style={styles.templateGrid}>
+            {templates.map((template) => {
+              const active = selectedTemplate.id === template.id
+              return (
+                <Pressable
+                  key={template.id}
+                  onPress={() => setSelectedTemplate(template)}
+                  style={[styles.templateCard, active && styles.templateCardActive]}
+                >
+                  <Image source={template.image} style={styles.templateImage} />
+                  <View style={styles.templateBody}>
+                    <Text style={styles.templateLabel}>{template.label}</Text>
+                    <Text style={styles.templateName}>{template.name}</Text>
+                  </View>
+                </Pressable>
+              )
+            })}
+          </View>
         </View>
       </View>
     </ScrollView>
@@ -190,279 +281,498 @@ const WebApp = () => {
 export default WebApp
 
 const colors = {
-  ink: '#101820',
-  muted: '#5f635f',
-  paper: '#f4f1ea',
-  panel: '#fffaf0',
-  line: '#d7c9ad',
-  amber: '#d9951e',
-  teal: '#0b6f6a',
+  bg: '#f2f3f5',
+  panel: '#ffffff',
+  ink: '#22252a',
+  muted: '#6b717a',
+  line: '#dedfe3',
+  red: '#ef4b4b',
+  blue: '#1688d6',
+  dark: '#2f3136',
+}
+
+const shadow = {
+  boxShadow: '0 12px 32px rgba(20, 24, 33, 0.10)',
 }
 
 const styles = StyleSheet.create({
   page: {
     minHeight: '100vh',
-    backgroundColor: colors.paper,
+    backgroundColor: colors.bg,
   },
   pageContent: {
     width: '100%',
-    maxWidth: 1180,
+    padding: 18,
+  },
+  appShell: {
+    width: '100%',
+    maxWidth: 1320,
     alignSelf: 'center',
-    paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: 48,
   },
   topBar: {
-    minHeight: 64,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    minHeight: 68,
+    paddingHorizontal: 22,
+    backgroundColor: colors.panel,
     borderBottomWidth: 1,
     borderBottomColor: colors.line,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    ...shadow,
   },
   brand: {
     color: colors.ink,
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   brandSub: {
     color: colors.muted,
     fontSize: 13,
     marginTop: 3,
   },
-  statusPill: {
-    borderWidth: 1,
-    borderColor: colors.teal,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  statusText: {
-    color: colors.teal,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  hero: {
+  topActions: {
     flexDirection: 'row',
-    gap: 28,
-    paddingTop: 42,
-    alignItems: 'stretch',
-  },
-  heroCopy: {
-    flex: 1.05,
-    justifyContent: 'center',
-    minWidth: 280,
-  },
-  kicker: {
-    color: colors.teal,
-    fontSize: 13,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    marginBottom: 10,
-  },
-  title: {
-    color: colors.ink,
-    fontSize: 54,
-    lineHeight: 58,
-    fontWeight: '900',
-    maxWidth: 650,
-  },
-  subtitle: {
-    color: colors.muted,
-    fontSize: 18,
-    lineHeight: 28,
-    marginTop: 18,
-    maxWidth: 590,
-  },
-  formRow: {
-    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
-    marginTop: 28,
-    maxWidth: 620,
   },
-  input: {
-    flex: 1,
-    minHeight: 50,
+  syncPill: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#eef8f2',
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#c9ead6',
+  },
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#23a35b',
+  },
+  syncText: {
+    color: '#177644',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  topMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  mainGrid: {
+    flexDirection: 'row',
+    gap: 18,
+    marginTop: 18,
+  },
+  captureColumn: {
+    flex: 1.7,
+    minWidth: 320,
+    backgroundColor: colors.panel,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: '#ffffff',
-    color: colors.ink,
-    fontSize: 15,
-    paddingHorizontal: 16,
+    ...shadow,
   },
-  primaryButton: {
-    minHeight: 50,
-    justifyContent: 'center',
+  workflowColumn: {
+    flex: 0.9,
+    minWidth: 300,
+    gap: 14,
+  },
+  captureHeader: {
+    minHeight: 76,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.ink,
-    paddingHorizontal: 18,
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    gap: 18,
   },
-  primaryButtonText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  previewPanel: {
-    flex: 0.95,
-    minWidth: 280,
-    backgroundColor: colors.ink,
-  },
-  previewImage: {
-    width: '100%',
-    aspectRatio: 4 / 3,
-    resizeMode: 'cover',
-  },
-  previewFooter: {
-    padding: 18,
-  },
-  previewTitle: {
-    color: '#ffffff',
+  screenTitle: {
+    color: colors.ink,
     fontSize: 24,
     fontWeight: '900',
   },
-  previewMeta: {
-    color: '#dce9e7',
-    marginTop: 6,
+  screenCaption: {
+    color: colors.muted,
+    fontSize: 13,
+    marginTop: 3,
+  },
+  eventInput: {
+    width: 270,
+    minHeight: 42,
+    borderWidth: 1,
+    borderColor: colors.line,
+    color: colors.ink,
+    paddingHorizontal: 12,
     fontSize: 14,
   },
-  summaryRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 28,
+  cameraFrame: {
+    minHeight: 470,
+    backgroundColor: '#111',
+    position: 'relative',
+    overflow: 'hidden',
   },
-  summaryItem: {
-    flex: 1,
-    borderTopWidth: 2,
-    borderTopColor: colors.amber,
-    backgroundColor: colors.panel,
-    padding: 16,
+  cameraImage: {
+    width: '100%',
+    height: '100%',
+    minHeight: 470,
+    resizeMode: 'cover',
+    opacity: 0.86,
   },
-  summaryLabel: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
+  cameraOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  summaryValue: {
-    color: colors.ink,
-    fontSize: 20,
+  countdown: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 5,
+    borderColor: colors.red,
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
+    color: colors.red,
+    fontSize: 82,
+    lineHeight: 140,
     fontWeight: '900',
-    marginTop: 8,
+    textAlign: 'center',
   },
-  sectionHeader: {
-    marginTop: 42,
+  cameraInstruction: {
+    marginTop: 14,
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '800',
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  sideTools: {
+    position: 'absolute',
+    right: 14,
+    top: 92,
+    gap: 10,
+  },
+  sideTool: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ededed',
+  },
+  sideToolText: {
+    color: colors.ink,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  captureControls: {
+    padding: 18,
+    gap: 16,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  modeButton: {
+    minHeight: 46,
+    minWidth: 110,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f6f8',
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  modeButtonActive: {
+    backgroundColor: colors.dark,
+    borderColor: colors.dark,
+  },
+  modeButtonText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  modeButtonTextActive: {
+    color: '#ffffff',
+  },
+  printPanel: {
+    minHeight: 90,
+    backgroundColor: '#f3f3f3',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 16,
+  },
+  panelLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  copyRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  copyButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  copyButtonActive: {
+    backgroundColor: colors.red,
+    borderColor: colors.red,
+  },
+  copyButtonText: {
+    color: colors.ink,
+    fontWeight: '900',
+  },
+  copyButtonTextActive: {
+    color: '#ffffff',
+  },
+  printButton: {
+    minHeight: 50,
+    minWidth: 154,
+    backgroundColor: colors.blue,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  printButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  panel: {
+    backgroundColor: colors.panel,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 16,
+    ...shadow,
+  },
+  panelTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 14,
+  },
+  steps: {
+    gap: 10,
+  },
+  stepItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#f7f7f8',
+    padding: 10,
+  },
+  stepNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stepNumberText: {
+    color: '#ffffff',
+    fontWeight: '900',
+  },
+  stepText: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  filterGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterButton: {
+    minHeight: 38,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#f8f8f8',
+  },
+  filterButtonActive: {
+    backgroundColor: colors.red,
+    borderColor: colors.red,
+  },
+  filterText: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  filterTextActive: {
+    color: '#ffffff',
+  },
+  beautyRow: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  beautyLabel: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  toggle: {
+    minWidth: 72,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#eeeeee',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    gap: 6,
+  },
+  toggleKnob: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#b8b8b8',
+  },
+  toggleText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  printLayout: {
+    height: 310,
+    backgroundColor: '#f7f7f7',
+    borderWidth: 1,
+    borderColor: colors.line,
+    position: 'relative',
+  },
+  layoutSlot: {
+    position: 'absolute',
+    borderWidth: 3,
+    borderColor: colors.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  layoutSlotText: {
+    color: '#ffffff',
+    fontSize: 38,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowRadius: 4,
+  },
+  templateBand: {
+    marginTop: 18,
+    padding: 20,
+    backgroundColor: colors.panel,
+    borderWidth: 1,
+    borderColor: colors.line,
+    ...shadow,
+  },
+  bandHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 14,
+    alignItems: 'flex-start',
     marginBottom: 16,
   },
-  sectionTitle: {
+  bandTitle: {
     color: colors.ink,
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '900',
   },
-  sectionText: {
+  bandCaption: {
     color: colors.muted,
-    fontSize: 15,
-    marginTop: 5,
+    fontSize: 14,
+    marginTop: 4,
+  },
+  bandMeta: {
+    color: colors.red,
+    fontSize: 14,
+    fontWeight: '900',
   },
   templateGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: 14,
+    gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+    gap: 12,
   },
   templateCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f7f7f8',
     borderWidth: 1,
     borderColor: colors.line,
     overflow: 'hidden',
   },
   templateCardActive: {
-    borderColor: colors.teal,
-    boxShadow: '0 8px 24px rgba(16, 24, 32, 0.14)',
+    borderColor: colors.red,
+    boxShadow: '0 8px 24px rgba(239, 75, 75, 0.22)',
   },
   templateImage: {
     width: '100%',
     aspectRatio: 16 / 10,
     resizeMode: 'cover',
   },
-  templateContent: {
-    padding: 14,
+  templateBody: {
+    padding: 12,
   },
-  templateMetaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  templateCategory: {
-    color: colors.teal,
-    fontSize: 12,
+  templateLabel: {
+    color: colors.muted,
+    fontSize: 11,
     fontWeight: '900',
     textTransform: 'uppercase',
   },
-  templateDuration: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: '800',
-  },
   templateName: {
     color: colors.ink,
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '900',
-    marginTop: 10,
+    marginTop: 5,
   },
-  templateDescription: {
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 8,
-  },
-  controlsBand: {
-    marginTop: 36,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    paddingTop: 24,
-  },
-  effectsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 16,
-  },
-  effectChip: {
-    minHeight: 42,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 14,
-  },
-  effectChipActive: {
-    backgroundColor: colors.teal,
-    borderColor: colors.teal,
-  },
-  effectText: {
-    color: colors.ink,
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  effectTextActive: {
-    color: '#ffffff',
-  },
-  '@media (max-width: 820px)': {
-    hero: {
-      flexDirection: 'column',
-      paddingTop: 28,
-    },
-    title: {
-      fontSize: 38,
-      lineHeight: 42,
-    },
-    subtitle: {
-      fontSize: 16,
-      lineHeight: 24,
-    },
-    formRow: {
+  '@media (max-width: 980px)': {
+    mainGrid: {
       flexDirection: 'column',
     },
-    summaryRow: {
+    topBar: {
+      alignItems: 'flex-start',
+      gap: 12,
+      paddingVertical: 14,
       flexDirection: 'column',
+    },
+    captureHeader: {
+      flexDirection: 'column',
+      alignItems: 'stretch',
+      paddingVertical: 16,
+    },
+    eventInput: {
+      width: '100%',
+    },
+    cameraFrame: {
+      minHeight: 380,
+    },
+    cameraImage: {
+      minHeight: 380,
+    },
+    printPanel: {
+      flexDirection: 'column',
+      alignItems: 'stretch',
+    },
+    printButton: {
+      width: '100%',
     },
   },
 })
