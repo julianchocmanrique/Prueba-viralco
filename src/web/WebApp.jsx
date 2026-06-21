@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Image,
   Pressable,
@@ -58,6 +58,64 @@ const captureModes = ['Foto', 'GIF', 'Boomerang', 'Video', '360']
 const filters = ['Original', 'Glam', 'B/N', 'Brannan', 'Vintage']
 const shareSteps = ['Capturar', 'Revisar', 'Imprimir', 'Compartir']
 
+const captureModeDetails = {
+  Foto: {
+    title: 'Foto lista',
+    instruction: 'Sonrie para la foto',
+    primary: 'Tomar foto',
+    countdown: '3',
+    badge: '1 toma',
+    output: 'Foto capturada',
+    progress: ['Enfoque', 'Flash', 'Preview'],
+    steps: ['Tomar foto', 'Elegir filtro', 'Imprimir', 'Compartir'],
+    tools: ['QR', 'Print', 'Mail'],
+  },
+  GIF: {
+    title: 'GIF animado',
+    instruction: 'Tres poses rapidas',
+    primary: 'Crear GIF',
+    countdown: '1/3',
+    badge: '3 fotos',
+    output: 'GIF listo',
+    progress: ['Pose 1', 'Pose 2', 'Pose 3'],
+    steps: ['Capturar 3 fotos', 'Animar', 'Revisar', 'Compartir'],
+    tools: ['QR', 'SMS', 'Mail'],
+  },
+  Boomerang: {
+    title: 'Boomerang',
+    instruction: 'Muevete un poco',
+    primary: 'Grabar boom',
+    countdown: '2s',
+    badge: 'Loop',
+    output: 'Boomerang listo',
+    progress: ['Grabar', 'Reversa', 'Loop'],
+    steps: ['Grabar clip', 'Crear loop', 'Revisar', 'Compartir'],
+    tools: ['QR', 'Mail', 'SMS'],
+  },
+  Video: {
+    title: 'Video corto',
+    instruction: 'Mensaje para el evento',
+    primary: 'Grabar video',
+    countdown: 'REC',
+    badge: '8s',
+    output: 'Video guardado',
+    progress: ['Rec', 'Procesar', 'Preview'],
+    steps: ['Grabar', 'Revisar audio', 'Guardar', 'Compartir'],
+    tools: ['QR', 'Mail', 'Drive'],
+  },
+  360: {
+    title: 'Video 360',
+    instruction: 'Gira con la plataforma',
+    primary: 'Iniciar 360',
+    countdown: '360',
+    badge: 'Spin',
+    output: 'Clip 360 listo',
+    progress: ['Cuenta', 'Giro', 'Render'],
+    steps: ['Iniciar giro', 'Renderizar', 'Revisar', 'Compartir'],
+    tools: ['QR', 'Print', 'Mail'],
+  },
+}
+
 const WebApp = () => {
   const { width } = useWindowDimensions()
   const [selectedTemplate, setSelectedTemplate] = useState(templates[1])
@@ -65,7 +123,50 @@ const WebApp = () => {
   const [selectedFilter, setSelectedFilter] = useState('Original')
   const [copies, setCopies] = useState(1)
   const [eventName, setEventName] = useState('Viralco live booth')
+  const [capturePhase, setCapturePhase] = useState('idle')
+  const [activityMessage, setActivityMessage] = useState('Camara lista')
+  const [captureCount, setCaptureCount] = useState(0)
   const isMobile = width < 760
+  const modeDetails = captureModeDetails[selectedMode]
+  const activeSteps = modeDetails.steps || shareSteps
+  const isCapturing = capturePhase === 'capturing'
+
+  useEffect(() => {
+    if (!isCapturing) {
+      return undefined
+    }
+
+    const timer = setTimeout(() => {
+      setCapturePhase('complete')
+      setCaptureCount((count) => count + 1)
+      setActivityMessage(`${modeDetails.output} para ${eventName}`)
+    }, 1300)
+
+    return () => clearTimeout(timer)
+  }, [eventName, isCapturing, modeDetails.output])
+
+  const chooseMode = (mode) => {
+    setSelectedMode(mode)
+    setCapturePhase('idle')
+    setActivityMessage(`${captureModeDetails[mode].title}: listo para capturar`)
+  }
+
+  const startCapture = () => {
+    setCapturePhase('capturing')
+    setActivityMessage(`${modeDetails.primary} en progreso`)
+  }
+
+  const runTool = (tool) => {
+    const messages = {
+      QR: 'QR generado para descarga',
+      Print: `${copies} copia${copies === 1 ? '' : 's'} enviada${copies === 1 ? '' : 's'} a impresion`,
+      Mail: 'Formulario de email abierto',
+      SMS: 'Link preparado para SMS',
+      Drive: 'Video guardado en cola de entrega',
+    }
+    setCapturePhase('complete')
+    setActivityMessage(messages[tool] || `${tool} listo`)
+  }
 
   const layoutSlots = useMemo(
     () => [
@@ -93,7 +194,7 @@ const WebApp = () => {
             </View>
             <View style={styles.mobileStatus}>
               <View style={styles.mobileStatusDot} />
-              <Text style={styles.mobileStatusText}>ON</Text>
+              <Text style={styles.mobileStatusText}>{isCapturing ? 'REC' : 'ON'}</Text>
             </View>
           </View>
 
@@ -112,17 +213,53 @@ const WebApp = () => {
         <View style={styles.mobileCameraCard}>
           <Image source={selectedTemplate.image} style={styles.mobileCameraImage} />
           <View style={styles.mobileCameraShade} />
-          <View style={styles.mobileCountdown}>
-            <Text style={styles.mobileCountdownText}>3</Text>
+          <View style={[styles.mobileCountdown, isCapturing && styles.mobileCountdownActive]}>
+            <Text style={styles.mobileCountdownText}>{modeDetails.countdown}</Text>
           </View>
-          <Text style={styles.mobileCameraCopy}>Mira a la camara</Text>
+          <View style={styles.mobileCaptureMeta}>
+            <Text style={styles.mobileCaptureMode}>{modeDetails.title}</Text>
+            <Text style={styles.mobileCaptureBadge}>{modeDetails.badge}</Text>
+          </View>
+          <Text style={styles.mobileCameraCopy}>{modeDetails.instruction}</Text>
+          <View style={styles.mobileProgress}>
+            {modeDetails.progress.map((step, index) => {
+              const active = isCapturing || capturePhase === 'complete'
+              return (
+                <View key={step} style={styles.mobileProgressItem}>
+                  <View
+                    style={[
+                      styles.mobileProgressDot,
+                      active && index < (isCapturing ? 2 : 3) && styles.mobileProgressDotActive,
+                    ]}
+                  />
+                  <Text style={styles.mobileProgressText}>{step}</Text>
+                </View>
+              )
+            })}
+          </View>
           <View style={styles.mobileQuickActions}>
-            {['QR', 'Print', 'Mail'].map((tool) => (
-              <Pressable key={tool} style={styles.mobileQuickButton}>
+            {modeDetails.tools.map((tool) => (
+              <Pressable key={tool} onPress={() => runTool(tool)} style={styles.mobileQuickButton}>
                 <Text style={styles.mobileQuickText}>{tool}</Text>
               </Pressable>
             ))}
           </View>
+        </View>
+
+        <Pressable
+          onPress={startCapture}
+          disabled={isCapturing}
+          style={[styles.mobileCaptureButton, isCapturing && styles.mobileCaptureButtonBusy]}
+        >
+          <Text style={styles.mobileCaptureButtonText}>
+            {isCapturing ? 'Capturando...' : modeDetails.primary}
+          </Text>
+        </Pressable>
+
+        <View style={styles.mobileActivityCard}>
+          <Text style={styles.mobileActivityLabel}>Estado</Text>
+          <Text style={styles.mobileActivityText}>{activityMessage}</Text>
+          <Text style={styles.mobileActivityMeta}>{captureCount} capturas en esta sesion</Text>
         </View>
 
         <View style={styles.mobileSection}>
@@ -131,7 +268,7 @@ const WebApp = () => {
             {captureModes.map((mode) => (
               <Pressable
                 key={mode}
-                onPress={() => setSelectedMode(mode)}
+                onPress={() => chooseMode(mode)}
                 style={[
                   styles.mobileModeButton,
                   selectedMode === mode && styles.mobileModeButtonActive,
@@ -153,7 +290,7 @@ const WebApp = () => {
         <View style={styles.mobileTwoCards}>
           <View style={styles.mobileMiniCard}>
             <Text style={styles.mobileSectionTitle}>Flujo</Text>
-            {shareSteps.map((step, index) => (
+            {activeSteps.map((step, index) => (
               <View key={step} style={styles.mobileStep}>
                 <Text style={styles.mobileStepNumber}>{index + 1}</Text>
                 <Text style={styles.mobileStepText}>{step}</Text>
@@ -181,7 +318,7 @@ const WebApp = () => {
                 </Pressable>
               ))}
             </View>
-            <Pressable style={styles.mobilePrimaryButton}>
+            <Pressable onPress={() => runTool('Print')} style={styles.mobilePrimaryButton}>
               <Text style={styles.mobilePrimaryText}>Imprimir</Text>
             </Pressable>
           </View>
@@ -273,7 +410,7 @@ const WebApp = () => {
               <View style={styles.syncDot} />
               <Text style={styles.syncText}>LISTO</Text>
             </View>
-            <Text style={styles.topMeta}>Evento / {selectedMode}</Text>
+            <Text style={styles.topMeta}>Evento / {selectedMode} / {capturePhase}</Text>
           </View>
         </View>
 
@@ -282,7 +419,7 @@ const WebApp = () => {
             <View style={styles.captureHeader}>
               <View>
                 <Text style={styles.screenTitle}>{eventName}</Text>
-                <Text style={styles.screenCaption}>Pantalla lista para invitados</Text>
+                <Text style={styles.screenCaption}>{modeDetails.instruction}</Text>
               </View>
               <TextInput
                 value={eventName}
@@ -296,12 +433,33 @@ const WebApp = () => {
             <View style={styles.cameraFrame}>
               <Image source={selectedTemplate.image} style={styles.cameraImage} />
               <View style={styles.cameraOverlay}>
-                <Text style={styles.countdown}>3</Text>
-                <Text style={styles.cameraInstruction}>Mira a la camara</Text>
+                <Text style={[styles.countdown, isCapturing && styles.countdownActive]}>
+                  {modeDetails.countdown}
+                </Text>
+                <Text style={styles.cameraInstruction}>{modeDetails.title}</Text>
+              </View>
+              <View style={styles.captureStatus}>
+                <Text style={styles.captureStatusLabel}>{modeDetails.badge}</Text>
+                <Text style={styles.captureStatusText}>{activityMessage}</Text>
+              </View>
+              <View style={styles.progressRail}>
+                {modeDetails.progress.map((step, index) => (
+                  <View key={step} style={styles.progressStep}>
+                    <View
+                      style={[
+                        styles.progressBar,
+                        (isCapturing || capturePhase === 'complete') &&
+                          index < (isCapturing ? 2 : 3) &&
+                          styles.progressBarActive,
+                      ]}
+                    />
+                    <Text style={styles.progressStepText}>{step}</Text>
+                  </View>
+                ))}
               </View>
               <View style={styles.sideTools}>
-                {['Mail', 'SMS', 'QR', 'Print'].map((tool) => (
-                  <Pressable key={tool} style={styles.sideTool}>
+                {modeDetails.tools.map((tool) => (
+                  <Pressable key={tool} onPress={() => runTool(tool)} style={styles.sideTool}>
                     <Text style={styles.sideToolText}>{tool}</Text>
                   </Pressable>
                 ))}
@@ -313,7 +471,7 @@ const WebApp = () => {
                 {captureModes.map((mode) => (
                   <Pressable
                     key={mode}
-                    onPress={() => setSelectedMode(mode)}
+                    onPress={() => chooseMode(mode)}
                     style={[styles.modeButton, selectedMode === mode && styles.modeButtonActive]}
                   >
                     <Text
@@ -350,8 +508,14 @@ const WebApp = () => {
                     ))}
                   </View>
                 </View>
-                <Pressable style={styles.printButton}>
-                  <Text style={styles.printButtonText}>Imprimir</Text>
+                <Pressable
+                  onPress={startCapture}
+                  disabled={isCapturing}
+                  style={[styles.printButton, isCapturing && styles.printButtonBusy]}
+                >
+                  <Text style={styles.printButtonText}>
+                    {isCapturing ? 'Capturando...' : modeDetails.primary}
+                  </Text>
                 </Pressable>
               </View>
             </View>
@@ -361,7 +525,7 @@ const WebApp = () => {
             <View style={styles.panel}>
               <Text style={styles.panelTitle}>Flujo del invitado</Text>
               <View style={styles.steps}>
-                {shareSteps.map((step, index) => (
+                {activeSteps.map((step, index) => (
                   <View key={step} style={styles.stepItem}>
                     <View style={styles.stepNumber}>
                       <Text style={styles.stepNumberText}>{index + 1}</Text>
@@ -644,11 +808,44 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  mobileCountdownActive: {
+    backgroundColor: '#ffffff',
+    boxShadow: '0 0 34px rgba(215, 43, 116, 0.72)',
+  },
   mobileCountdownText: {
     color: colors.red,
-    fontSize: 78,
+    fontSize: 58,
     lineHeight: 88,
     fontWeight: '900',
+  },
+  mobileCaptureMeta: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    right: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  mobileCaptureMode: {
+    color: '#ffffff',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+    backgroundColor: 'rgba(0,0,0,0.44)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  mobileCaptureBadge: {
+    color: colors.red,
+    fontSize: 12,
+    fontWeight: '900',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
   },
   mobileCameraCopy: {
     position: 'absolute',
@@ -662,6 +859,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: 8,
+  },
+  mobileProgress: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 68,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  mobileProgressItem: {
+    flex: 1,
+    gap: 5,
+  },
+  mobileProgressDot: {
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.34)',
+  },
+  mobileProgressDotActive: {
+    backgroundColor: colors.red,
+  },
+  mobileProgressText: {
+    color: '#ffffff',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowRadius: 3,
   },
   mobileQuickActions: {
     position: 'absolute',
@@ -683,6 +909,51 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 12,
     fontWeight: '900',
+  },
+  mobileCaptureButton: {
+    minHeight: 54,
+    borderRadius: 8,
+    backgroundColor: colors.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+    boxShadow: '0 16px 34px rgba(215, 43, 116, 0.30)',
+  },
+  mobileCaptureButtonBusy: {
+    backgroundColor: '#9e194f',
+  },
+  mobileCaptureButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  mobileActivityCard: {
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e8ebef',
+    boxShadow: '0 12px 30px rgba(0,0,0,0.18)',
+  },
+  mobileActivityLabel: {
+    color: colors.red,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  mobileActivityText: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  mobileActivityMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 3,
   },
   mobileSection: {
     borderRadius: 8,
@@ -1107,6 +1378,10 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'center',
   },
+  countdownActive: {
+    backgroundColor: '#ffffff',
+    boxShadow: '0 0 42px rgba(215, 43, 116, 0.66)',
+  },
   cameraInstruction: {
     marginTop: 14,
     color: '#ffffff',
@@ -1115,6 +1390,53 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.42)',
     paddingHorizontal: 14,
     paddingVertical: 8,
+  },
+  captureStatus: {
+    position: 'absolute',
+    left: 18,
+    top: 18,
+    maxWidth: 360,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    padding: 12,
+  },
+  captureStatusLabel: {
+    color: colors.red,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  captureStatusText: {
+    color: colors.ink,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+  progressRail: {
+    position: 'absolute',
+    left: 18,
+    right: 86,
+    bottom: 18,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  progressStep: {
+    flex: 1,
+    gap: 6,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.36)',
+  },
+  progressBarActive: {
+    backgroundColor: colors.red,
+  },
+  progressStepText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.44)',
+    textShadowRadius: 4,
   },
   sideTools: {
     position: 'absolute',
@@ -1215,6 +1537,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  printButtonBusy: {
+    backgroundColor: '#9e194f',
   },
   printButtonText: {
     color: '#ffffff',
