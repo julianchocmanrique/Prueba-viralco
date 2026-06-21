@@ -96,7 +96,7 @@ const WebApp = () => {
         <View style={styles.topBar}>
           <View>
             <Text style={styles.brand}>Viralco Booth</Text>
-            <Text style={styles.brandSub}>Experiencia tipo LumaBooth para captura, impresion y compartir</Text>
+            <Text style={styles.brandSub}>Captura, imprime y comparte experiencias de evento.</Text>
           </View>
           <View style={styles.topActions}>
             <View style={styles.syncPill}>
@@ -112,7 +112,7 @@ const WebApp = () => {
             <View style={styles.captureHeader}>
               <View>
                 <Text style={styles.screenTitle}>{eventName}</Text>
-                <Text style={styles.screenCaption}>Vista de captura para invitado</Text>
+                <Text style={styles.screenCaption}>Pantalla lista para invitados</Text>
               </View>
               <TextInput
                 value={eventName}
@@ -130,7 +130,7 @@ const WebApp = () => {
                 <Text style={styles.cameraInstruction}>Mira a la camara</Text>
               </View>
               <View style={styles.sideTools}>
-                {['Email', 'SMS', 'QR', 'Print'].map((tool) => (
+                {['Mail', 'SMS', 'QR', 'Print'].map((tool) => (
                   <Pressable key={tool} style={styles.sideTool}>
                     <Text style={styles.sideToolText}>{tool}</Text>
                   </Pressable>
@@ -913,6 +913,268 @@ const styles = StyleSheet.create({
     },
     printButton: {
       width: '100%',
+    },
+  },
+  '@media (max-width: 640px)': {
+    pageContent: {
+      padding: 10,
+      paddingTop: 0,
+    },
+    lumaHero: {
+      width: '100vw',
+      minHeight: 138,
+      marginLeft: -10,
+      marginRight: -10,
+      marginBottom: 10,
+      paddingHorizontal: 16,
+      paddingTop: 22,
+    },
+    heroGlowOne: {
+      left: -110,
+      bottom: -130,
+      width: 270,
+      height: 210,
+    },
+    heroGlowTwo: {
+      right: -120,
+      top: 18,
+      width: 260,
+      height: 180,
+    },
+    appIdentity: {
+      alignItems: 'center',
+      gap: 12,
+    },
+    appIcon: {
+      width: 66,
+      height: 66,
+      borderRadius: 17,
+    },
+    iconLens: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      right: 9,
+      bottom: 9,
+      borderWidth: 4,
+    },
+    iconMark: {
+      fontSize: 38,
+      lineHeight: 44,
+      marginTop: -5,
+    },
+    heroName: {
+      fontSize: 25,
+      lineHeight: 29,
+      fontWeight: '700',
+    },
+    heroSub: {
+      fontSize: 12,
+      marginTop: 4,
+    },
+    heroLine: {
+      display: 'none',
+    },
+    appShell: {
+      maxWidth: '100%',
+    },
+    topBar: {
+      minHeight: 0,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      boxShadow: '0 10px 28px rgba(4, 8, 15, 0.18)',
+    },
+    brand: {
+      fontSize: 20,
+    },
+    brandSub: {
+      fontSize: 12,
+      lineHeight: 17,
+      maxWidth: 310,
+    },
+    topActions: {
+      width: '100%',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    syncPill: {
+      minHeight: 30,
+      paddingHorizontal: 10,
+    },
+    topMeta: {
+      fontSize: 12,
+    },
+    mainGrid: {
+      gap: 10,
+      marginTop: 10,
+    },
+    captureColumn: {
+      minWidth: 0,
+      borderWidth: 0,
+      boxShadow: '0 10px 28px rgba(4, 8, 15, 0.18)',
+    },
+    captureHeader: {
+      minHeight: 0,
+      paddingHorizontal: 14,
+      paddingVertical: 13,
+      gap: 11,
+    },
+    screenTitle: {
+      fontSize: 21,
+      lineHeight: 25,
+    },
+    screenCaption: {
+      fontSize: 12,
+    },
+    eventInput: {
+      minHeight: 40,
+      fontSize: 13,
+    },
+    cameraFrame: {
+      minHeight: 0,
+      height: 330,
+    },
+    cameraImage: {
+      minHeight: 0,
+      height: 330,
+    },
+    countdown: {
+      width: 92,
+      height: 92,
+      borderRadius: 46,
+      borderWidth: 4,
+      fontSize: 52,
+      lineHeight: 84,
+    },
+    cameraInstruction: {
+      marginTop: 10,
+      fontSize: 14,
+      paddingHorizontal: 11,
+      paddingVertical: 6,
+    },
+    sideTools: {
+      top: 'auto',
+      right: 10,
+      left: 10,
+      bottom: 12,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    sideTool: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: 'rgba(255,255,255,0.92)',
+    },
+    sideToolText: {
+      fontSize: 9,
+    },
+    captureControls: {
+      padding: 12,
+      gap: 12,
+    },
+    modeRow: {
+      gap: 7,
+    },
+    modeButton: {
+      minWidth: 0,
+      flexGrow: 1,
+      flexBasis: '30%',
+      minHeight: 42,
+    },
+    modeButtonText: {
+      fontSize: 13,
+    },
+    printPanel: {
+      minHeight: 0,
+      padding: 12,
+      gap: 12,
+    },
+    copyRow: {
+      gap: 7,
+      justifyContent: 'space-between',
+    },
+    copyButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+    },
+    printButton: {
+      minHeight: 46,
+      minWidth: 0,
+    },
+    workflowColumn: {
+      minWidth: 0,
+      gap: 10,
+    },
+    panel: {
+      padding: 13,
+      boxShadow: '0 10px 28px rgba(4, 8, 15, 0.14)',
+    },
+    panelTitle: {
+      fontSize: 17,
+      marginBottom: 11,
+    },
+    steps: {
+      gap: 8,
+    },
+    stepItem: {
+      padding: 9,
+    },
+    stepNumber: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+    },
+    stepText: {
+      fontSize: 14,
+    },
+    filterGrid: {
+      gap: 7,
+    },
+    filterButton: {
+      minHeight: 36,
+      paddingHorizontal: 10,
+    },
+    printLayout: {
+      height: 230,
+    },
+    layoutSlotText: {
+      fontSize: 28,
+    },
+    templateBand: {
+      marginTop: 10,
+      padding: 13,
+      boxShadow: '0 10px 28px rgba(4, 8, 15, 0.14)',
+    },
+    bandHeader: {
+      flexDirection: 'column',
+      marginBottom: 12,
+    },
+    bandTitle: {
+      fontSize: 20,
+    },
+    bandCaption: {
+      fontSize: 12,
+      lineHeight: 17,
+    },
+    bandMeta: {
+      fontSize: 12,
+    },
+    templateGrid: {
+      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+      gap: 9,
+    },
+    templateBody: {
+      padding: 9,
+    },
+    templateLabel: {
+      fontSize: 10,
+    },
+    templateName: {
+      fontSize: 13,
+      lineHeight: 17,
     },
   },
 })
