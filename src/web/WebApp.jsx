@@ -773,8 +773,8 @@ const colors = {
   ink: '#171b22',
   muted: '#626b76',
   line: '#dfe3e8',
-  red: '#d72b74',
-  blue: '#18a9c8',
+  red: '#0a4de8',
+  blue: '#39a9ff',
   dark: '#222936',
 }
 
@@ -811,7 +811,7 @@ const styles = StyleSheet.create({
     width: 260,
     height: 210,
     borderRadius: 130,
-    backgroundColor: 'rgba(215, 43, 116, 0.34)',
+    backgroundColor: 'rgba(10, 77, 232, 0.34)',
     filter: 'blur(40px)',
   },
   mobileHeader: {
@@ -828,7 +828,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
     justifyContent: 'center',
     alignItems: 'center',
-    boxShadow: '0 14px 30px rgba(215, 43, 116, 0.34)',
+    boxShadow: '0 14px 30px rgba(10, 77, 232, 0.34)',
   },
   mobileIconLens: {
     position: 'absolute',
@@ -1021,7 +1021,7 @@ const styles = StyleSheet.create({
   },
   mobileCountdownActive: {
     backgroundColor: '#ffffff',
-    boxShadow: '0 0 34px rgba(215, 43, 116, 0.72)',
+    boxShadow: '0 0 34px rgba(57, 169, 255, 0.72)',
   },
   mobileCountdownText: {
     color: colors.red,
@@ -1127,10 +1127,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
     justifyContent: 'center',
     alignItems: 'center',
-    boxShadow: '0 16px 34px rgba(215, 43, 116, 0.30)',
+    boxShadow: '0 16px 34px rgba(10, 77, 232, 0.30)',
   },
   mobileCaptureButtonBusy: {
-    backgroundColor: '#9e194f',
+    backgroundColor: '#063fd1',
   },
   mobileCaptureButtonText: {
     color: '#ffffff',
@@ -1339,7 +1339,7 @@ const styles = StyleSheet.create({
   },
   mobileTemplateActive: {
     borderColor: colors.red,
-    boxShadow: '0 8px 18px rgba(215, 43, 116, 0.22)',
+    boxShadow: '0 8px 18px rgba(10, 77, 232, 0.22)',
   },
   mobileTemplateImage: {
     width: '100%',
@@ -1411,7 +1411,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
-    boxShadow: '0 22px 48px rgba(215, 43, 116, 0.34)',
+    boxShadow: '0 22px 48px rgba(10, 77, 232, 0.34)',
   },
   iconLens: {
     position: 'absolute',
@@ -1614,10 +1614,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#fff0f6',
+    backgroundColor: '#eef5ff',
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#f7c3db',
+    borderColor: '#b8d5ff',
   },
   syncDot: {
     width: 8,
@@ -1626,7 +1626,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
   },
   syncText: {
-    color: '#a31352',
+    color: '#0a4de8',
     fontSize: 12,
     fontWeight: '900',
   },
@@ -1719,7 +1719,7 @@ const styles = StyleSheet.create({
   },
   countdownActive: {
     backgroundColor: '#ffffff',
-    boxShadow: '0 0 42px rgba(215, 43, 116, 0.66)',
+    boxShadow: '0 0 42px rgba(57, 169, 255, 0.66)',
   },
   cameraInstruction: {
     marginTop: 14,
@@ -1878,7 +1878,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   printButtonBusy: {
-    backgroundColor: '#9e194f',
+    backgroundColor: '#063fd1',
   },
   printButtonText: {
     color: '#ffffff',
@@ -2049,7 +2049,7 @@ const styles = StyleSheet.create({
   },
   templateCardActive: {
     borderColor: colors.red,
-    boxShadow: '0 8px 24px rgba(239, 75, 75, 0.22)',
+    boxShadow: '0 8px 24px rgba(10, 77, 232, 0.22)',
   },
   templateImage: {
     width: '100%',
