@@ -76,11 +76,27 @@ const WebApp = () => {
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
+      <View style={styles.lumaHero}>
+        <View style={styles.heroGlowOne} />
+        <View style={styles.heroGlowTwo} />
+        <View style={styles.appIdentity}>
+          <View style={styles.appIcon}>
+            <View style={styles.iconLens} />
+            <Text style={styles.iconMark}>V</Text>
+          </View>
+          <View>
+            <Text style={styles.heroName}>Prueba Viralco</Text>
+            <Text style={styles.heroSub}>Booth web para eventos</Text>
+          </View>
+        </View>
+        <View style={styles.heroLine} />
+      </View>
+
       <View style={styles.appShell}>
         <View style={styles.topBar}>
           <View>
-            <Text style={styles.brand}>Prueba Viralco Booth</Text>
-            <Text style={styles.brandSub}>Kiosco web inspirado en flujo tipo LumaBooth</Text>
+            <Text style={styles.brand}>Viralco Booth</Text>
+            <Text style={styles.brandSub}>Experiencia tipo LumaBooth para captura, impresion y compartir</Text>
           </View>
           <View style={styles.topActions}>
             <View style={styles.syncPill}>
@@ -281,18 +297,18 @@ const WebApp = () => {
 export default WebApp
 
 const colors = {
-  bg: '#f2f3f5',
-  panel: '#ffffff',
-  ink: '#22252a',
-  muted: '#6b717a',
-  line: '#dedfe3',
-  red: '#ef4b4b',
-  blue: '#1688d6',
-  dark: '#2f3136',
+  bg: '#101419',
+  panel: '#f8f9fb',
+  ink: '#171b22',
+  muted: '#626b76',
+  line: '#dfe3e8',
+  red: '#d72b74',
+  blue: '#18a9c8',
+  dark: '#222936',
 }
 
 const shadow = {
-  boxShadow: '0 12px 32px rgba(20, 24, 33, 0.10)',
+  boxShadow: '0 18px 42px rgba(4, 8, 15, 0.22)',
 }
 
 const styles = StyleSheet.create({
@@ -303,6 +319,95 @@ const styles = StyleSheet.create({
   pageContent: {
     width: '100%',
     padding: 18,
+    paddingTop: 0,
+  },
+  lumaHero: {
+    width: '100vw',
+    minHeight: 238,
+    marginLeft: -18,
+    marginRight: -18,
+    marginBottom: 18,
+    paddingHorizontal: 32,
+    paddingTop: 50,
+    backgroundColor: '#131821',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  heroGlowOne: {
+    position: 'absolute',
+    left: -70,
+    bottom: -118,
+    width: 360,
+    height: 250,
+    borderRadius: 180,
+    backgroundColor: 'rgba(0, 163, 146, 0.36)',
+    filter: 'blur(48px)',
+  },
+  heroGlowTwo: {
+    position: 'absolute',
+    right: -44,
+    top: 52,
+    width: 340,
+    height: 210,
+    borderRadius: 170,
+    backgroundColor: 'rgba(202, 223, 218, 0.28)',
+    filter: 'blur(50px)',
+  },
+  appIdentity: {
+    width: '100%',
+    maxWidth: 920,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 34,
+    zIndex: 2,
+  },
+  appIcon: {
+    width: 142,
+    height: 142,
+    borderRadius: 32,
+    backgroundColor: colors.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    boxShadow: '0 22px 48px rgba(215, 43, 116, 0.34)',
+  },
+  iconLens: {
+    position: 'absolute',
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    right: 22,
+    bottom: 22,
+    borderWidth: 8,
+    borderColor: '#ffffff',
+    opacity: 0.94,
+  },
+  iconMark: {
+    color: '#ffffff',
+    fontSize: 78,
+    lineHeight: 86,
+    fontWeight: '900',
+    marginTop: -8,
+  },
+  heroName: {
+    color: '#f8fbff',
+    fontSize: 44,
+    fontWeight: '400',
+  },
+  heroSub: {
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 16,
+    marginTop: 8,
+    fontWeight: '600',
+  },
+  heroLine: {
+    position: 'absolute',
+    left: '32%',
+    right: 0,
+    bottom: 26,
+    height: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
   },
   appShell: {
     width: '100%',
@@ -312,7 +417,7 @@ const styles = StyleSheet.create({
   topBar: {
     minHeight: 68,
     paddingHorizontal: 22,
-    backgroundColor: colors.panel,
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: colors.line,
     flexDirection: 'row',
@@ -340,19 +445,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#eef8f2',
+    backgroundColor: '#fff0f6',
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#c9ead6',
+    borderColor: '#f7c3db',
   },
   syncDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#23a35b',
+    backgroundColor: colors.red,
   },
   syncText: {
-    color: '#177644',
+    color: '#a31352',
     fontSize: 12,
     fontWeight: '900',
   },
@@ -436,7 +541,7 @@ const styles = StyleSheet.create({
     borderRadius: 75,
     borderWidth: 5,
     borderColor: colors.red,
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
+    backgroundColor: 'rgba(255, 255, 255, 0.82)',
     color: colors.red,
     fontSize: 82,
     lineHeight: 140,
@@ -548,7 +653,7 @@ const styles = StyleSheet.create({
   printButton: {
     minHeight: 50,
     minWidth: 154,
-    backgroundColor: colors.blue,
+    backgroundColor: colors.red,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -744,6 +849,41 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   '@media (max-width: 980px)': {
+    lumaHero: {
+      minHeight: 206,
+      paddingHorizontal: 22,
+      paddingTop: 34,
+    },
+    appIdentity: {
+      gap: 18,
+    },
+    appIcon: {
+      width: 96,
+      height: 96,
+      borderRadius: 24,
+    },
+    iconLens: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      right: 14,
+      bottom: 14,
+      borderWidth: 6,
+    },
+    iconMark: {
+      fontSize: 54,
+      lineHeight: 60,
+    },
+    heroName: {
+      fontSize: 32,
+    },
+    heroSub: {
+      fontSize: 13,
+    },
+    heroLine: {
+      left: 22,
+      bottom: 20,
+    },
     mainGrid: {
       flexDirection: 'column',
     },
