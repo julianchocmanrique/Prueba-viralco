@@ -218,12 +218,14 @@ const WebApp = () => {
   const [recordingUrl, setRecordingUrl] = useState('')
   const [photoPrintUrl, setPhotoPrintUrl] = useState('')
   const [captureProgressIndex, setCaptureProgressIndex] = useState(0)
+  const [liveCountdown, setLiveCountdown] = useState('')
   const desktopVideoRef = useRef(null)
   const mobileVideoRef = useRef(null)
   const streamRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const captureTimerRef = useRef(null)
   const progressTimerRef = useRef(null)
+  const countdownTimerRef = useRef(null)
   const [modeConfigValues, setModeConfigValues] = useState(
     captureModes.reduce(
       (values, mode) => ({
@@ -247,7 +249,7 @@ const WebApp = () => {
   const hasRecording = captureCount > 0 || capturePhase === 'complete'
   const hasCamera = Boolean(cameraStream)
   const outputReady = capturePhase === 'complete'
-  const displayCountdown =
+  const idleCountdown =
     selectedMode === 'GIF'
       ? `1/${selectedConfigValue}`
       : selectedMode === 'Video'
@@ -255,6 +257,7 @@ const WebApp = () => {
         : selectedMode === '360'
           ? '360'
           : String(selectedConfigValue)
+  const displayCountdown = isCapturing && liveCountdown ? liveCountdown : idleCountdown
   const displayBadge =
     selectedMode === 'GIF'
       ? `${selectedConfigValue} fotos`
@@ -333,6 +336,10 @@ const WebApp = () => {
         clearInterval(progressTimerRef.current)
       }
 
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current)
+      }
+
       if (mediaRecorderRef.current?.state === 'recording') {
         mediaRecorderRef.current.stop()
       }
@@ -362,6 +369,12 @@ const WebApp = () => {
       progressTimerRef.current = null
     }
 
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current)
+      countdownTimerRef.current = null
+    }
+
+    setLiveCountdown('')
     setCaptureProgressIndex(modeDetails.progress.length - 1)
     setCapturePhase('complete')
     setCaptureCount((count) => count + 1)
@@ -373,6 +386,7 @@ const WebApp = () => {
     setSelectedMode(mode)
     setCapturePhase('idle')
     setCaptureProgressIndex(0)
+    setLiveCountdown('')
     setActivityMessage(`${captureModeDetails[mode].title}: listo para capturar`)
   }
 
@@ -417,6 +431,59 @@ const WebApp = () => {
     progressTimerRef.current = setInterval(() => {
       setCaptureProgressIndex((index) => Math.min(index + 1, steps - 1))
     }, intervalMs)
+  }
+
+  const getLiveCountdownLabel = (remaining, step = 1) => {
+    if (selectedMode === 'GIF') {
+      return `${Math.min(step, selectedConfigValue)}/${selectedConfigValue}`
+    }
+
+    if (selectedMode === 'Video') {
+      return `REC ${remaining}s`
+    }
+
+    if (selectedMode === '360') {
+      return `${remaining}s`
+    }
+
+    if (selectedMode === 'Boomerang') {
+      return `${remaining}s`
+    }
+
+    return String(remaining)
+  }
+
+  const startLiveCountdown = () => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current)
+      countdownTimerRef.current = null
+    }
+
+    if (selectedMode === 'GIF') {
+      let step = 1
+      setLiveCountdown(getLiveCountdownLabel(0, step))
+      countdownTimerRef.current = setInterval(() => {
+        step += 1
+        setLiveCountdown(getLiveCountdownLabel(0, step))
+        if (step >= selectedConfigValue && countdownTimerRef.current) {
+          clearInterval(countdownTimerRef.current)
+          countdownTimerRef.current = null
+        }
+      }, 650)
+      return
+    }
+
+    let remaining = selectedMode === 'Foto' ? selectedConfigValue : Math.ceil(getCaptureDurationMs() / 1000)
+    setLiveCountdown(getLiveCountdownLabel(remaining))
+
+    countdownTimerRef.current = setInterval(() => {
+      remaining -= 1
+      setLiveCountdown(getLiveCountdownLabel(Math.max(remaining, 0)))
+      if (remaining <= 0 && countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current)
+        countdownTimerRef.current = null
+      }
+    }, 1000)
   }
 
   const capturePhotoFrame = () => {
@@ -652,6 +719,7 @@ const WebApp = () => {
       stream = await requestCameraStream()
     } catch (error) {
       setCapturePhase('idle')
+      setLiveCountdown('')
       setCameraError(error.message)
       setActivityMessage('No se pudo abrir la camara. Revisa permisos del navegador.')
       return
@@ -661,6 +729,7 @@ const WebApp = () => {
 
     const durationMs = getCaptureDurationMs()
     startProgressTimeline(durationMs)
+    startLiveCountdown()
 
     if (selectedMode === 'Foto' || !window.MediaRecorder) {
       captureTimerRef.current = setTimeout(() => {
