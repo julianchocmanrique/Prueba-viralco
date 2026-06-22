@@ -585,6 +585,17 @@ const WebApp = () => {
     context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height)
   }
 
+  const drawContainImage = (context, image, x, y, width, height) => {
+    const imageRatio = image.width / image.height
+    const targetRatio = width / height
+    const targetWidth = imageRatio > targetRatio ? width : height * imageRatio
+    const targetHeight = imageRatio > targetRatio ? width / imageRatio : height
+    const targetX = x + (width - targetWidth) / 2
+    const targetY = y + (height - targetHeight) / 2
+
+    context.drawImage(image, targetX, targetY, targetWidth, targetHeight)
+  }
+
   const roundedRectPath = (context, x, y, width, height, radius) => {
     if (context.roundRect) {
       context.roundRect(x, y, width, height, radius)
@@ -676,8 +687,10 @@ const WebApp = () => {
     context.fillStyle = '#071225'
     context.fillRect(0, 0, width, height)
 
+    let templateImage = null
+
     try {
-      const templateImage = await loadCanvasImage(getTemplateImageUrl())
+      templateImage = await loadCanvasImage(getTemplateImageUrl())
       context.globalAlpha = 0.32
       drawCoverImage(context, templateImage, 0, 0, width, height)
       context.globalAlpha = 1
@@ -689,7 +702,7 @@ const WebApp = () => {
     gradient.addColorStop(0, selectedTemplate.tone)
     gradient.addColorStop(0.48, '#0a4de8')
     gradient.addColorStop(1, '#051027')
-    context.globalAlpha = 0.78
+    context.globalAlpha = 0.58
     context.fillStyle = gradient
     context.fillRect(0, 0, width, height)
     context.globalAlpha = 1
@@ -710,10 +723,18 @@ const WebApp = () => {
       if (image) {
         drawCoverImage(context, image, slot.x, slot.y, slot.width, slot.height)
       }
+
+      if (templateImage) {
+        context.globalAlpha = 0.22
+        drawCoverImage(context, templateImage, slot.x, slot.y, slot.width, slot.height)
+        context.globalAlpha = 0.96
+        drawContainImage(context, templateImage, slot.x, slot.y, slot.width, slot.height)
+        context.globalAlpha = 1
+      }
       context.restore()
 
       context.lineWidth = Math.max(8, width * 0.012)
-      context.strokeStyle = '#ffffff'
+      context.strokeStyle = templateImage ? 'rgba(255,255,255,0.9)' : '#ffffff'
       context.beginPath()
       roundedRectPath(context, slot.x, slot.y, slot.width, slot.height, radius)
       context.stroke()
@@ -1257,6 +1278,16 @@ const WebApp = () => {
     }
   }
 
+  const chooseTemplate = (template) => {
+    setSelectedTemplate(template)
+    setPhotoFrames([])
+    setPhotoPrintUrl('')
+    if (selectedMode === 'Foto') {
+      setCapturePhase('idle')
+      setActivityMessage(`Plantilla ${template.name} seleccionada. Vuelve a tomar la foto final.`)
+    }
+  }
+
   const getLayoutPreviewSlots = (layout) => {
     if (layout === 'Tira 2x6') {
       return [
@@ -1730,7 +1761,7 @@ const WebApp = () => {
                   return (
                     <Pressable
                       key={template.id}
-                      onPress={() => setSelectedTemplate(template)}
+                      onPress={() => chooseTemplate(template)}
                       style={[styles.mobileTemplateCard, active && styles.mobileTemplateActive]}
                     >
                       <Image source={template.image} style={styles.mobileTemplateImage} />
@@ -2091,7 +2122,7 @@ const WebApp = () => {
                     return (
                       <Pressable
                         key={template.id}
-                        onPress={() => setSelectedTemplate(template)}
+                        onPress={() => chooseTemplate(template)}
                         style={[styles.templateCard, active && styles.templateCardActive]}
                       >
                         <Image source={template.image} style={styles.templateImage} />
