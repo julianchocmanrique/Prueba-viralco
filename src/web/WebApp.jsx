@@ -217,11 +217,13 @@ const WebApp = () => {
   const [cameraError, setCameraError] = useState('')
   const [recordingUrl, setRecordingUrl] = useState('')
   const [photoPrintUrl, setPhotoPrintUrl] = useState('')
+  const [captureProgressIndex, setCaptureProgressIndex] = useState(0)
   const desktopVideoRef = useRef(null)
   const mobileVideoRef = useRef(null)
   const streamRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const captureTimerRef = useRef(null)
+  const progressTimerRef = useRef(null)
   const [modeConfigValues, setModeConfigValues] = useState(
     captureModes.reduce(
       (values, mode) => ({
@@ -244,6 +246,7 @@ const WebApp = () => {
   const controlLabel = `${selectedConfigValue} ${modeDetails.control.unit}`
   const hasRecording = captureCount > 0 || capturePhase === 'complete'
   const hasCamera = Boolean(cameraStream)
+  const outputReady = capturePhase === 'complete'
   const displayCountdown =
     selectedMode === 'GIF'
       ? `1/${selectedConfigValue}`
@@ -258,6 +261,56 @@ const WebApp = () => {
       : selectedMode === '360'
         ? `${selectedConfigValue}s giro`
         : `${selectedConfigValue}${modeDetails.control.unit}`
+  const progressActiveCount = outputReady
+    ? modeDetails.progress.length
+    : isCapturing
+      ? Math.max(1, captureProgressIndex + 1)
+      : 0
+  const modeActionCards =
+    selectedMode === 'Foto'
+      ? [
+          ['Temporizador', controlLabel],
+          ['Resultado', 'Foto fija JPG'],
+          ['Impresion', printLayout],
+          ['Entrega', 'WhatsApp / QR / Email'],
+        ]
+      : selectedMode === 'GIF'
+        ? [
+            ['Secuencia', `${selectedConfigValue} poses`],
+            ['Ritmo', 'Rafaga automatica'],
+            ['Resultado', 'Animacion loop'],
+            ['Entrega', 'WhatsApp / QR / SMS'],
+          ]
+        : selectedMode === 'Boomerang'
+          ? [
+              ['Duracion', controlLabel],
+              ['Movimiento', 'Ida + reversa'],
+              ['Resultado', 'Loop corto'],
+              ['Entrega', 'WhatsApp / QR / SMS'],
+            ]
+          : selectedMode === 'Video'
+            ? [
+                ['Duracion', controlLabel],
+                ['Audio', audioEnabled ? 'Activo' : 'Apagado'],
+                ['Resultado', 'Clip vertical'],
+                ['Entrega', 'WhatsApp / QR / Drive'],
+              ]
+            : [
+                ['Duracion', controlLabel],
+                ['Guia', 'Giro completo'],
+                ['Resultado', 'Clip 360'],
+                ['Entrega', 'WhatsApp / QR / Email'],
+              ]
+  const resultLabel =
+    selectedMode === 'Foto'
+      ? 'Foto lista para imprimir o enviar'
+      : selectedMode === 'GIF'
+        ? `${selectedConfigValue} fotos listas para animar`
+        : selectedMode === 'Boomerang'
+          ? 'Loop corto listo para compartir'
+          : selectedMode === 'Video'
+            ? `${selectedConfigValue}s de video con ${audioEnabled ? 'audio' : 'audio apagado'}`
+            : `${selectedConfigValue}s de recorrido 360`
 
   useEffect(() => {
     ;[desktopVideoRef.current, mobileVideoRef.current].forEach((video) => {
@@ -274,6 +327,10 @@ const WebApp = () => {
     () => () => {
       if (captureTimerRef.current) {
         clearTimeout(captureTimerRef.current)
+      }
+
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current)
       }
 
       if (mediaRecorderRef.current?.state === 'recording') {
@@ -300,6 +357,12 @@ const WebApp = () => {
       captureTimerRef.current = null
     }
 
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current)
+      progressTimerRef.current = null
+    }
+
+    setCaptureProgressIndex(modeDetails.progress.length - 1)
     setCapturePhase('complete')
     setCaptureCount((count) => count + 1)
     setActivityMessage(message)
@@ -309,6 +372,7 @@ const WebApp = () => {
   const chooseMode = (mode) => {
     setSelectedMode(mode)
     setCapturePhase('idle')
+    setCaptureProgressIndex(0)
     setActivityMessage(`${captureModeDetails[mode].title}: listo para capturar`)
   }
 
@@ -338,6 +402,21 @@ const WebApp = () => {
     }
 
     return selectedConfigValue * 1000
+  }
+
+  const startProgressTimeline = (durationMs) => {
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current)
+      progressTimerRef.current = null
+    }
+
+    setCaptureProgressIndex(0)
+    const steps = Math.max(1, modeDetails.progress.length)
+    const intervalMs = Math.max(450, Math.floor(durationMs / steps))
+
+    progressTimerRef.current = setInterval(() => {
+      setCaptureProgressIndex((index) => Math.min(index + 1, steps - 1))
+    }, intervalMs)
   }
 
   const capturePhotoFrame = () => {
@@ -564,6 +643,7 @@ const WebApp = () => {
     setCameraError('')
     setRecordingUrl('')
     setPhotoPrintUrl('')
+    setCaptureProgressIndex(0)
     setCapturePhase('capturing')
     setActivityMessage('Solicitando permiso de camara del celular...')
 
@@ -580,6 +660,7 @@ const WebApp = () => {
     setActivityMessage(`${modeDetails.primary} con camara activa (${controlLabel})`)
 
     const durationMs = getCaptureDurationMs()
+    startProgressTimeline(durationMs)
 
     if (selectedMode === 'Foto' || !window.MediaRecorder) {
       captureTimerRef.current = setTimeout(() => {
@@ -851,6 +932,66 @@ const WebApp = () => {
     </Pressable>
   )
 
+  const renderCaptureMedia = (variant) => {
+    const isMobilePreview = variant === 'mobile'
+    const videoRef = isMobilePreview ? mobileVideoRef : desktopVideoRef
+    const imageStyle = isMobilePreview ? styles.mobileCameraImage : styles.cameraImage
+    const videoStyle = isMobilePreview ? styles.mobileCameraVideo : styles.cameraVideo
+
+    if (outputReady && selectedMode === 'Foto' && photoPrintUrl) {
+      return <Image source={{ uri: photoPrintUrl }} style={imageStyle} />
+    }
+
+    if (outputReady && recordingUrl) {
+      return (
+        <video
+          src={recordingUrl}
+          controls
+          playsInline
+          muted
+          loop={selectedMode === 'GIF' || selectedMode === 'Boomerang'}
+          style={videoStyle}
+        />
+      )
+    }
+
+    if (hasCamera) {
+      return (
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          style={{ ...videoStyle, transform: mirrorPreview ? 'scaleX(-1)' : 'none' }}
+        />
+      )
+    }
+
+    return <Image source={selectedTemplate.image} style={imageStyle} />
+  }
+
+  const renderMobileModeActionCards = () => (
+    <View style={styles.mobileCaptureOptionGrid}>
+      {modeActionCards.map(([label, value]) => (
+        <View key={label} style={styles.mobileCaptureOptionCard}>
+          <Text style={styles.mobileCaptureOptionLabel}>{label}</Text>
+          <Text style={styles.mobileCaptureOptionValue}>{value}</Text>
+        </View>
+      ))}
+    </View>
+  )
+
+  const renderDesktopModeActionCards = () => (
+    <View style={styles.captureOptionGrid}>
+      {modeActionCards.map(([label, value]) => (
+        <View key={label} style={styles.captureOptionCard}>
+          <Text style={styles.captureOptionLabel}>{label}</Text>
+          <Text style={styles.captureOptionValue}>{value}</Text>
+        </View>
+      ))}
+    </View>
+  )
+
   const summaryRows = [
     ['Evento', eventName],
     ['Captura', `${selectedMode} - ${controlLabel}`],
@@ -918,17 +1059,7 @@ const WebApp = () => {
   const renderMobilePreview = () => (
     <>
       <View style={styles.mobileCameraCard}>
-        {hasCamera ? (
-          <video
-            ref={mobileVideoRef}
-            playsInline
-            muted
-            autoPlay
-            style={{ ...styles.mobileCameraVideo, transform: mirrorPreview ? 'scaleX(-1)' : 'none' }}
-          />
-        ) : (
-          <Image source={selectedTemplate.image} style={styles.mobileCameraImage} />
-        )}
+        {renderCaptureMedia('mobile')}
         <View style={styles.mobileCameraShade} />
         <View style={[styles.mobileCountdown, isCapturing && styles.mobileCountdownActive]}>
           <Text style={styles.mobileCountdownText}>{displayCountdown}</Text>
@@ -941,13 +1072,12 @@ const WebApp = () => {
         {cameraError && <Text style={styles.mobileCameraError}>{cameraError}</Text>}
         <View style={styles.mobileProgress}>
           {modeDetails.progress.map((step, index) => {
-            const active = isCapturing || capturePhase === 'complete'
             return (
               <View key={step} style={styles.mobileProgressItem}>
                 <View
                   style={[
                     styles.mobileProgressDot,
-                    active && index < (isCapturing ? 2 : 3) && styles.mobileProgressDotActive,
+                    index < progressActiveCount && styles.mobileProgressDotActive,
                   ]}
                 />
                 <Text style={styles.mobileProgressText}>{step}</Text>
@@ -971,7 +1101,7 @@ const WebApp = () => {
         <Text style={styles.mobileActivityLabel}>Estado</Text>
         <Text style={styles.mobileActivityText}>{activityMessage}</Text>
         <Text style={styles.mobileActivityMeta}>
-          {recordingUrl ? 'Video temporal guardado en el navegador' : `${captureCount} capturas en esta sesion`}
+          {outputReady ? resultLabel : `${captureCount} capturas en esta sesion`}
         </Text>
       </View>
     </>
@@ -1262,10 +1392,14 @@ const WebApp = () => {
         {activeTab === 'grabar' && (
           <>
             <View style={styles.mobileSection}>
-              <Text style={styles.mobileSectionTitle}>Antes de grabar</Text>
+              <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>Antes de grabar</Text>
+                <Text style={styles.mobileAccentText}>{selectedMode}</Text>
+              </View>
               <Text style={styles.mobileMutedText}>
-                Acepta el permiso de camara, revisa el encuadre y manten el celular estable.
+                Acepta el permiso de camara, revisa el encuadre y usa las opciones propias de este modo.
               </Text>
+              {renderMobileModeActionCards()}
             </View>
             {renderMobilePreview()}
             {renderMobileStepNav()}
@@ -1596,6 +1730,7 @@ const WebApp = () => {
                     habilita Salida.
                   </Text>
                 </View>
+                {renderDesktopModeActionCards()}
                 <Pressable
                   onPress={startCapture}
                   disabled={isCapturing}
@@ -1681,17 +1816,7 @@ const WebApp = () => {
 
           <View style={styles.previewColumn}>
             <View style={styles.cameraFrame}>
-              {hasCamera ? (
-                <video
-                  ref={desktopVideoRef}
-                  playsInline
-                  muted
-                  autoPlay
-                  style={{ ...styles.cameraVideo, transform: mirrorPreview ? 'scaleX(-1)' : 'none' }}
-                />
-              ) : (
-                <Image source={selectedTemplate.image} style={styles.cameraImage} />
-              )}
+              {renderCaptureMedia('desktop')}
               <View style={styles.cameraOverlay}>
                 <Text style={[styles.countdown, isCapturing && styles.countdownActive]}>
                   {displayCountdown}
@@ -1709,15 +1834,22 @@ const WebApp = () => {
                     <View
                       style={[
                         styles.progressBar,
-                        (isCapturing || capturePhase === 'complete') &&
-                          index < (isCapturing ? 2 : 3) &&
-                          styles.progressBarActive,
+                        index < progressActiveCount && styles.progressBarActive,
                       ]}
                     />
                     <Text style={styles.progressStepText}>{step}</Text>
                   </View>
                 ))}
               </View>
+            </View>
+            <View style={styles.previewResultPanel}>
+              <Text style={styles.previewResultLabel}>Preview de salida</Text>
+              <Text style={styles.previewResultTitle}>{outputReady ? resultLabel : modeDetails.output}</Text>
+              <Text style={styles.previewResultText}>
+                {outputReady
+                  ? `Listo para ${availableTools.join(', ')}.`
+                  : `Al grabar se genera una vista previa de ${selectedMode} antes de compartir.`}
+              </Text>
             </View>
           </View>
         </View>
@@ -2216,6 +2348,35 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: '700',
     marginTop: 3,
+  },
+  mobileCaptureOptionGrid: {
+    marginTop: 12,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 8,
+  },
+  mobileCaptureOptionCard: {
+    minHeight: 76,
+    borderRadius: 8,
+    backgroundColor: '#f7f9fc',
+    borderWidth: 1,
+    borderColor: '#dfe7f2',
+    padding: 10,
+    justifyContent: 'space-between',
+  },
+  mobileCaptureOptionLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  mobileCaptureOptionValue: {
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+    marginTop: 8,
   },
   mobileSection: {
     borderRadius: 8,
@@ -2725,6 +2886,33 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 4,
   },
+  captureOptionGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  captureOptionCard: {
+    minHeight: 90,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 13,
+    justifyContent: 'space-between',
+  },
+  captureOptionLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  captureOptionValue: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '900',
+    marginTop: 10,
+  },
   configControl: {
     backgroundColor: '#eef5ff',
     borderWidth: 1,
@@ -3045,6 +3233,33 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textShadowColor: 'rgba(0,0,0,0.44)',
     textShadowRadius: 4,
+  },
+  previewResultPanel: {
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    backgroundColor: '#ffffff',
+    padding: 16,
+  },
+  previewResultLabel: {
+    color: colors.red,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  previewResultTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  previewResultText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    marginTop: 4,
   },
   sideTools: {
     position: 'absolute',
