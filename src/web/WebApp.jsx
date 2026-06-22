@@ -647,13 +647,6 @@ const WebApp = () => {
             )
           })}
         </View>
-        <View style={styles.mobileQuickActions}>
-          {modeDetails.tools.map((tool) => (
-            <Pressable key={tool} onPress={() => runTool(tool)} style={styles.mobileQuickButton}>
-              <Text style={styles.mobileQuickText}>{tool}</Text>
-            </Pressable>
-          ))}
-        </View>
       </View>
 
       <Pressable
@@ -1552,7 +1545,7 @@ const styles = StyleSheet.create({
   mobileCountdown: {
     position: 'absolute',
     alignSelf: 'center',
-    top: 128,
+    top: '50%',
     width: 138,
     height: 138,
     borderRadius: 69,
@@ -1561,6 +1554,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.88)',
     justifyContent: 'center',
     alignItems: 'center',
+    transform: [{ translateY: -69 }],
   },
   mobileCountdownActive: {
     backgroundColor: '#ffffff',
@@ -1604,7 +1598,7 @@ const styles = StyleSheet.create({
   mobileCameraCopy: {
     position: 'absolute',
     alignSelf: 'center',
-    top: 282,
+    bottom: 58,
     color: '#ffffff',
     fontSize: 18,
     lineHeight: 23,
@@ -1633,7 +1627,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 14,
     right: 14,
-    bottom: 68,
+    bottom: 18,
     flexDirection: 'row',
     gap: 8,
   },
@@ -1657,27 +1651,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     textShadowColor: 'rgba(0,0,0,0.35)',
     textShadowRadius: 3,
-  },
-  mobileQuickActions: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    bottom: 12,
-    flexDirection: 'row',
-    gap: 8,
-  },
-  mobileQuickButton: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  mobileQuickText: {
-    color: colors.ink,
-    fontSize: 12,
-    fontWeight: '900',
   },
   mobileCaptureButton: {
     minHeight: 54,
