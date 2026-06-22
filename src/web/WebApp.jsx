@@ -56,7 +56,6 @@ const templates = [
 
 const captureModes = ['Foto', 'GIF', 'Boomerang', 'Video', '360']
 const filters = ['Original', 'Glam', 'B/N', 'Brannan', 'Vintage']
-const shareSteps = ['Capturar', 'Revisar', 'Imprimir', 'Compartir']
 const setupTabs = [
   {
     id: 'evento',
@@ -196,7 +195,6 @@ const WebApp = () => {
   )
   const isMobile = width < 760
   const modeDetails = captureModeDetails[selectedMode]
-  const activeSteps = modeDetails.steps || shareSteps
   const isCapturing = capturePhase === 'capturing'
   const currentTabIndex = setupTabs.findIndex((tab) => tab.id === activeTab)
   const currentTab = setupTabs[currentTabIndex] || setupTabs[0]
@@ -735,16 +733,6 @@ const WebApp = () => {
               ))}
             </View>
 
-            <View style={styles.mobileSection}>
-              <Text style={styles.mobileSectionTitle}>Flujo</Text>
-              {activeSteps.map((step, index) => (
-                <View key={step} style={styles.mobileStep}>
-                  <Text style={styles.mobileStepNumber}>{index + 1}</Text>
-                  <Text style={styles.mobileStepText}>{step}</Text>
-                </View>
-              ))}
-            </View>
-
             {renderMobileStepNav()}
           </>
         )}
@@ -1009,16 +997,6 @@ const WebApp = () => {
                     <Text style={styles.settingText}>{setting}</Text>
                   </View>
                 ))}
-                <View style={styles.steps}>
-                  {activeSteps.map((step, index) => (
-                    <View key={step} style={styles.stepItem}>
-                      <View style={styles.stepNumber}>
-                        <Text style={styles.stepNumberText}>{index + 1}</Text>
-                      </View>
-                      <Text style={styles.stepText}>{step}</Text>
-                    </View>
-                  ))}
-                </View>
               </>
             )}
 
