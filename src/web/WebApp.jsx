@@ -61,7 +61,41 @@ const orientations = ['Vertical', 'Horizontal', 'Cuadrado']
 const qualityOptions = ['HD', 'Full HD', '4K']
 const backgroundOptions = ['Original', 'Desenfoque', 'Color marca', 'Green screen']
 const overlayOptions = ['Sin overlay', 'Marco Viralco', 'Logo + fecha', 'Sponsor']
-const printLayouts = ['Digital', 'Tira 2x6', 'Postal 4x6']
+const printLayouts = ['Digital', 'Tira 2x6', 'Postal 4x6', 'Varias fotos']
+const printLayoutDetails = {
+  Digital: {
+    name: 'Digital',
+    note: 'Una foto vertical con plantilla completa.',
+    slots: 1,
+    width: 1200,
+    height: 1500,
+    printAspect: '4 / 5',
+  },
+  'Tira 2x6': {
+    name: 'Tira 2x6',
+    note: 'Tres fotos apiladas para tira impresa.',
+    slots: 3,
+    width: 600,
+    height: 1800,
+    printAspect: '2 / 6',
+  },
+  'Postal 4x6': {
+    name: 'Postal 4x6',
+    note: 'Una foto grande horizontal tipo postal.',
+    slots: 1,
+    width: 1800,
+    height: 1200,
+    printAspect: '4 / 6',
+  },
+  'Varias fotos': {
+    name: 'Varias fotos',
+    note: 'Collage de cuatro fotos en una plantilla.',
+    slots: 4,
+    width: 1600,
+    height: 1200,
+    printAspect: '4 / 3',
+  },
+}
 const setupTabs = [
   {
     id: 'evento',
@@ -217,6 +251,7 @@ const WebApp = () => {
   const [cameraError, setCameraError] = useState('')
   const [recordingUrl, setRecordingUrl] = useState('')
   const [photoPrintUrl, setPhotoPrintUrl] = useState('')
+  const [photoFrames, setPhotoFrames] = useState([])
   const [captureProgressIndex, setCaptureProgressIndex] = useState(0)
   const [liveCountdown, setLiveCountdown] = useState('')
   const desktopVideoRef = useRef(null)
@@ -246,6 +281,9 @@ const WebApp = () => {
   const canGoNext = currentTabIndex < setupTabs.length - 1
   const selectedConfigValue = modeConfigValues[selectedMode]
   const controlLabel = `${selectedConfigValue} ${modeDetails.control.unit}`
+  const selectedPrintLayout = printLayoutDetails[printLayout] || printLayoutDetails.Digital
+  const photoFramesNeeded = selectedMode === 'Foto' ? selectedPrintLayout.slots : 1
+  const photoFramesReady = Math.min(photoFrames.length, photoFramesNeeded)
   const hasRecording = captureCount > 0 || capturePhase === 'complete'
   const hasCamera = Boolean(cameraStream)
   const outputReady = capturePhase === 'complete'
@@ -273,8 +311,8 @@ const WebApp = () => {
     selectedMode === 'Foto'
       ? [
           ['Temporizador', controlLabel],
-          ['Resultado', 'Foto fija JPG'],
-          ['Impresion', printLayout],
+          ['Formato final', printLayout],
+          ['Fotos necesarias', `${photoFramesNeeded}`],
           ['Entrega', 'WhatsApp / QR / Email'],
         ]
       : selectedMode === 'GIF'
@@ -306,7 +344,7 @@ const WebApp = () => {
               ]
   const resultLabel =
     selectedMode === 'Foto'
-      ? 'Foto lista para imprimir o enviar'
+      ? `${printLayout} listo con plantilla ${selectedTemplate.name}`
       : selectedMode === 'GIF'
         ? `${selectedConfigValue} fotos listas para animar`
         : selectedMode === 'Boomerang'
@@ -387,6 +425,8 @@ const WebApp = () => {
     setCapturePhase('idle')
     setCaptureProgressIndex(0)
     setLiveCountdown('')
+    setPhotoFrames([])
+    setPhotoPrintUrl('')
     setActivityMessage(`${captureModeDetails[mode].title}: listo para capturar`)
   }
 
@@ -517,6 +557,187 @@ const WebApp = () => {
     return canvas.toDataURL('image/jpeg', 0.92)
   }
 
+  const getTemplateImageUrl = () =>
+    typeof selectedTemplate.image === 'string' ? selectedTemplate.image : selectedTemplate.image?.uri || ''
+
+  const loadCanvasImage = (source) =>
+    new Promise((resolve, reject) => {
+      if (!source || typeof window === 'undefined' || !window.Image) {
+        reject(new Error('Imagen no disponible'))
+        return
+      }
+
+      const image = new window.Image()
+      image.crossOrigin = 'anonymous'
+      image.onload = () => resolve(image)
+      image.onerror = reject
+      image.src = source
+    })
+
+  const drawCoverImage = (context, image, x, y, width, height) => {
+    const imageRatio = image.width / image.height
+    const targetRatio = width / height
+    const sourceWidth = imageRatio > targetRatio ? image.height * targetRatio : image.width
+    const sourceHeight = imageRatio > targetRatio ? image.height : image.width / targetRatio
+    const sourceX = (image.width - sourceWidth) / 2
+    const sourceY = (image.height - sourceHeight) / 2
+
+    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height)
+  }
+
+  const roundedRectPath = (context, x, y, width, height, radius) => {
+    if (context.roundRect) {
+      context.roundRect(x, y, width, height, radius)
+      return
+    }
+
+    const safeRadius = Math.min(radius, width / 2, height / 2)
+    context.moveTo(x + safeRadius, y)
+    context.lineTo(x + width - safeRadius, y)
+    context.quadraticCurveTo(x + width, y, x + width, y + safeRadius)
+    context.lineTo(x + width, y + height - safeRadius)
+    context.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height)
+    context.lineTo(x + safeRadius, y + height)
+    context.quadraticCurveTo(x, y + height, x, y + height - safeRadius)
+    context.lineTo(x, y + safeRadius)
+    context.quadraticCurveTo(x, y, x + safeRadius, y)
+  }
+
+  const getPhotoSlots = (layout, width, height) => {
+    if (layout === 'Tira 2x6') {
+      const margin = width * 0.075
+      const gap = height * 0.025
+      const header = height * 0.095
+      const footer = height * 0.075
+      const slotHeight = (height - header - footer - gap * 2 - margin * 2) / 3
+
+      return [0, 1, 2].map((index) => ({
+        x: margin,
+        y: header + margin + index * (slotHeight + gap),
+        width: width - margin * 2,
+        height: slotHeight,
+      }))
+    }
+
+    if (layout === 'Varias fotos') {
+      const margin = width * 0.06
+      const gap = width * 0.035
+      const header = height * 0.12
+      const footer = height * 0.08
+      const slotWidth = (width - margin * 2 - gap) / 2
+      const slotHeight = (height - header - footer - margin * 2 - gap) / 2
+
+      return [0, 1, 2, 3].map((index) => ({
+        x: margin + (index % 2) * (slotWidth + gap),
+        y: header + margin + Math.floor(index / 2) * (slotHeight + gap),
+        width: slotWidth,
+        height: slotHeight,
+      }))
+    }
+
+    if (layout === 'Postal 4x6') {
+      const margin = width * 0.055
+      return [
+        {
+          x: margin,
+          y: height * 0.16,
+          width: width - margin * 2,
+          height: height * 0.68,
+        },
+      ]
+    }
+
+    const margin = width * 0.07
+    return [
+      {
+        x: margin,
+        y: height * 0.17,
+        width: width - margin * 2,
+        height: height * 0.66,
+      },
+    ]
+  }
+
+  const composePhotoOutput = async (frames) => {
+    if (typeof document === 'undefined' || !frames.length) {
+      return frames[0] || ''
+    }
+
+    const { width, height } = selectedPrintLayout
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+
+    if (!context) {
+      return frames[0] || ''
+    }
+
+    context.fillStyle = '#071225'
+    context.fillRect(0, 0, width, height)
+
+    try {
+      const templateImage = await loadCanvasImage(getTemplateImageUrl())
+      context.globalAlpha = 0.32
+      drawCoverImage(context, templateImage, 0, 0, width, height)
+      context.globalAlpha = 1
+    } catch {
+      context.globalAlpha = 1
+    }
+
+    const gradient = context.createLinearGradient(0, 0, width, height)
+    gradient.addColorStop(0, selectedTemplate.tone)
+    gradient.addColorStop(0.48, '#0a4de8')
+    gradient.addColorStop(1, '#051027')
+    context.globalAlpha = 0.78
+    context.fillStyle = gradient
+    context.fillRect(0, 0, width, height)
+    context.globalAlpha = 1
+
+    const frameImages = await Promise.all(frames.map((frame) => loadCanvasImage(frame).catch(() => null)))
+    const slots = getPhotoSlots(printLayout, width, height)
+
+    slots.forEach((slot, index) => {
+      const image = frameImages[index] || frameImages[index % frameImages.length]
+      const radius = Math.max(18, width * 0.018)
+
+      context.save()
+      context.beginPath()
+      roundedRectPath(context, slot.x, slot.y, slot.width, slot.height, radius)
+      context.clip()
+      context.fillStyle = '#101419'
+      context.fillRect(slot.x, slot.y, slot.width, slot.height)
+      if (image) {
+        drawCoverImage(context, image, slot.x, slot.y, slot.width, slot.height)
+      }
+      context.restore()
+
+      context.lineWidth = Math.max(8, width * 0.012)
+      context.strokeStyle = '#ffffff'
+      context.beginPath()
+      roundedRectPath(context, slot.x, slot.y, slot.width, slot.height, radius)
+      context.stroke()
+    })
+
+    context.fillStyle = '#ffffff'
+    context.font = `900 ${Math.round(width * (printLayout === 'Tira 2x6' ? 0.062 : 0.04))}px Arial`
+    context.textAlign = 'left'
+    context.fillText(eventName || 'Viralco', width * 0.07, height * 0.075)
+    context.font = `800 ${Math.round(width * (printLayout === 'Tira 2x6' ? 0.035 : 0.022))}px Arial`
+    context.fillStyle = 'rgba(255,255,255,0.82)'
+    context.fillText(`${selectedTemplate.name} / ${selectedFilter} / ${printLayout}`, width * 0.07, height * 0.11)
+
+    context.textAlign = 'right'
+    context.font = `900 ${Math.round(width * (printLayout === 'Tira 2x6' ? 0.05 : 0.032))}px Arial`
+    context.fillStyle = '#ffffff'
+    context.fillText('Viralco', width * 0.93, height * 0.94)
+    context.font = `800 ${Math.round(width * (printLayout === 'Tira 2x6' ? 0.03 : 0.02))}px Arial`
+    context.fillStyle = 'rgba(255,255,255,0.72)'
+    context.fillText('Producciones', width * 0.93, height * 0.97)
+
+    return canvas.toDataURL('image/jpeg', 0.94)
+  }
+
   const escapeHtml = (value) =>
     String(value)
       .replace(/&/g, '&amp;')
@@ -526,8 +747,7 @@ const WebApp = () => {
       .replace(/'/g, '&#039;')
 
   const buildPrintablePhoto = () => {
-    const templateImageUrl =
-      typeof selectedTemplate.image === 'string' ? selectedTemplate.image : selectedTemplate.image?.uri || ''
+    const templateImageUrl = getTemplateImageUrl()
     const imageUrl = escapeHtml(photoPrintUrl || templateImageUrl)
     const safeEventName = escapeHtml(eventName)
     const safeFilter = escapeHtml(selectedFilter)
@@ -535,6 +755,7 @@ const WebApp = () => {
     const layoutLabel = printLayout === 'Digital' ? 'Foto digital' : printLayout
     const safeLayoutLabel = escapeHtml(layoutLabel)
     const repeatedPhotos = Array.from({ length: Math.max(1, copies) }, (_, index) => index)
+    const printColumns = copies === 1 ? '1fr' : 'repeat(2, minmax(0, 1fr))'
 
     return `<!doctype html>
 <html>
@@ -594,14 +815,14 @@ const WebApp = () => {
       }
       .photos {
         display: grid;
-        grid-template-columns: ${printLayout === 'Tira 2x6' ? '1fr' : 'repeat(2, minmax(0, 1fr))'};
+        grid-template-columns: ${printColumns};
         gap: 12px;
       }
       .photo {
         border: 8px solid #fff;
         outline: 1px solid #d8dee8;
         background: #101419;
-        aspect-ratio: ${printLayout === 'Tira 2x6' ? '2 / 6' : '4 / 3'};
+        aspect-ratio: ${selectedPrintLayout.printAspect};
         overflow: hidden;
       }
       .photo img {
@@ -707,9 +928,15 @@ const WebApp = () => {
   }
 
   const startCapture = async () => {
+    const shouldResetPhotoFrames =
+      selectedMode !== 'Foto' || capturePhase === 'complete' || photoFrames.length >= photoFramesNeeded
+
     setCameraError('')
     setRecordingUrl('')
     setPhotoPrintUrl('')
+    if (shouldResetPhotoFrames) {
+      setPhotoFrames([])
+    }
     setCaptureProgressIndex(0)
     setCapturePhase('capturing')
     setActivityMessage('Solicitando permiso de camara del celular...')
@@ -732,12 +959,47 @@ const WebApp = () => {
     startLiveCountdown()
 
     if (selectedMode === 'Foto' || !window.MediaRecorder) {
-      captureTimerRef.current = setTimeout(() => {
+      captureTimerRef.current = setTimeout(async () => {
         if (selectedMode === 'Foto') {
-          setPhotoPrintUrl(capturePhotoFrame())
+          const frame = capturePhotoFrame()
+          const currentFrames = shouldResetPhotoFrames ? [] : photoFrames
+          const nextFrames = [...currentFrames, frame].filter(Boolean).slice(-photoFramesNeeded)
+          setPhotoFrames(nextFrames)
+
+          if (nextFrames.length < photoFramesNeeded) {
+            if (captureTimerRef.current) {
+              clearTimeout(captureTimerRef.current)
+              captureTimerRef.current = null
+            }
+
+            if (progressTimerRef.current) {
+              clearInterval(progressTimerRef.current)
+              progressTimerRef.current = null
+            }
+
+            if (countdownTimerRef.current) {
+              clearInterval(countdownTimerRef.current)
+              countdownTimerRef.current = null
+            }
+
+            setLiveCountdown('')
+            setCaptureProgressIndex(0)
+            setCapturePhase('idle')
+            setActivityMessage(
+              `Foto ${nextFrames.length} de ${photoFramesNeeded} guardada para ${printLayout}. Toma la siguiente.`,
+            )
+            return
+          }
+
+          const finalPhoto = await composePhotoOutput(nextFrames)
+          setPhotoPrintUrl(finalPhoto || frame)
         }
 
-        finishCapture(`${modeDetails.output} con camara del celular (${controlLabel})`)
+        finishCapture(
+          selectedMode === 'Foto'
+            ? `${printLayout} final con plantilla ${selectedTemplate.name}`
+            : `${modeDetails.output} con camara del celular (${controlLabel})`,
+        )
       }, durationMs)
       return
     }
@@ -985,6 +1247,85 @@ const WebApp = () => {
     </View>
   )
 
+  const choosePrintLayout = (layout) => {
+    setPrintLayout(layout)
+    setPhotoFrames([])
+    setPhotoPrintUrl('')
+    if (selectedMode === 'Foto') {
+      setCapturePhase('idle')
+      setActivityMessage(`${layout} seleccionado. Graba ${printLayoutDetails[layout].slots} foto${printLayoutDetails[layout].slots === 1 ? '' : 's'}.`)
+    }
+  }
+
+  const getLayoutPreviewSlots = (layout) => {
+    if (layout === 'Tira 2x6') {
+      return [
+        { left: '13%', top: '15%', width: '74%', height: '22%' },
+        { left: '13%', top: '39%', width: '74%', height: '22%' },
+        { left: '13%', top: '63%', width: '74%', height: '22%' },
+      ]
+    }
+
+    if (layout === 'Varias fotos') {
+      return [
+        { left: '10%', top: '18%', width: '37%', height: '28%' },
+        { left: '53%', top: '18%', width: '37%', height: '28%' },
+        { left: '10%', top: '52%', width: '37%', height: '28%' },
+        { left: '53%', top: '52%', width: '37%', height: '28%' },
+      ]
+    }
+
+    if (layout === 'Postal 4x6') {
+      return [{ left: '9%', top: '25%', width: '82%', height: '52%' }]
+    }
+
+    return [{ left: '14%', top: '20%', width: '72%', height: '58%' }]
+  }
+
+  const renderPhotoLayoutCards = (variant = 'desktop') => {
+    const isMobileLayout = variant === 'mobile'
+
+    return (
+      <View style={isMobileLayout ? styles.mobileLayoutGrid : styles.photoLayoutGrid}>
+        {printLayouts.map((layout) => {
+          const detail = printLayoutDetails[layout]
+          const active = printLayout === layout
+
+          return (
+            <Pressable
+              key={layout}
+              onPress={() => choosePrintLayout(layout)}
+              style={[
+                isMobileLayout ? styles.mobileLayoutCard : styles.photoLayoutCard,
+                active && (isMobileLayout ? styles.mobileLayoutCardActive : styles.photoLayoutCardActive),
+              ]}
+            >
+              <View
+                style={[
+                  isMobileLayout ? styles.mobileLayoutPreview : styles.photoLayoutPreview,
+                  layout === 'Tira 2x6' && styles.photoLayoutPreviewStrip,
+                ]}
+              >
+                <View style={[styles.photoLayoutPreviewTint, { backgroundColor: selectedTemplate.tone }]} />
+                {getLayoutPreviewSlots(layout).map((slot, index) => (
+                  <View key={`${layout}-${index}`} style={[styles.photoLayoutPreviewSlot, slot]}>
+                    <Text style={styles.photoLayoutPreviewSlotText}>{index + 1}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={isMobileLayout ? styles.mobileLayoutTitle : styles.photoLayoutTitle}>
+                {detail.name}
+              </Text>
+              <Text style={isMobileLayout ? styles.mobileLayoutNote : styles.photoLayoutNote}>
+                {detail.note}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+    )
+  }
+
   const renderMobileToggle = (label, value, onChange) => (
     <Pressable onPress={() => onChange(!value)} style={styles.mobileSettingRow}>
       <View style={[styles.mobileSettingDot, value && styles.mobileSettingDotActive]} />
@@ -1008,7 +1349,7 @@ const WebApp = () => {
     const videoStyle = isMobilePreview ? styles.mobileCameraVideo : styles.cameraVideo
 
     if (outputReady && selectedMode === 'Foto' && photoPrintUrl) {
-      return <Image source={{ uri: photoPrintUrl }} style={imageStyle} />
+      return <Image source={{ uri: photoPrintUrl }} style={[imageStyle, styles.finalCameraImage]} />
     }
 
     if (outputReady && recordingUrl) {
@@ -1170,7 +1511,11 @@ const WebApp = () => {
         <Text style={styles.mobileActivityLabel}>Estado</Text>
         <Text style={styles.mobileActivityText}>{activityMessage}</Text>
         <Text style={styles.mobileActivityMeta}>
-          {outputReady ? resultLabel : `${captureCount} capturas en esta sesion`}
+          {outputReady
+            ? resultLabel
+            : selectedMode === 'Foto'
+              ? `${photoFramesReady}/${photoFramesNeeded} fotos para ${printLayout}`
+              : `${captureCount} capturas en esta sesion`}
         </Text>
       </View>
     </>
@@ -1402,7 +1747,12 @@ const WebApp = () => {
                 <Text style={styles.mobileAccentText}>{canPrintSelectedMode ? printLayout : 'Digital'}</Text>
               </View>
               {canPrintSelectedMode ? (
-                renderMobileOptions(printLayouts, printLayout, setPrintLayout)
+                <>
+                  {renderPhotoLayoutCards('mobile')}
+                  <Text style={styles.mobileControlLimit}>
+                    {photoFramesReady}/{photoFramesNeeded} fotos listas para este formato
+                  </Text>
+                </>
               ) : (
                 <Text style={styles.mobileMutedText}>
                   Este modo se entrega como archivo digital y no muestra opciones de impresion.
@@ -1491,6 +1841,21 @@ const WebApp = () => {
 
             {hasRecording && (
               <View style={styles.mobileSection}>
+                {selectedMode === 'Foto' && photoPrintUrl && (
+                  <View style={styles.mobileFinalPhotoBox}>
+                    <Text style={styles.mobileSectionTitle}>Foto final</Text>
+                    <Image
+                      source={{ uri: photoPrintUrl }}
+                      style={[
+                        styles.mobileFinalPhoto,
+                        { aspectRatio: selectedPrintLayout.width / selectedPrintLayout.height },
+                      ]}
+                    />
+                    <Text style={styles.mobileMutedText}>
+                      {printLayout} con plantilla {selectedTemplate.name}
+                    </Text>
+                  </View>
+                )}
                 <Text style={styles.mobileSectionTitle}>Entrega</Text>
                 <Text style={styles.mobileMutedText}>
                   Selecciona como va a recibir el invitado el resultado final.
@@ -1746,7 +2111,12 @@ const WebApp = () => {
                     : 'Este modo se entrega como archivo digital y no muestra opciones de impresion.'}
                 </Text>
                 {canPrintSelectedMode ? (
-                  renderDesktopOptions(printLayouts, printLayout, setPrintLayout)
+                  <>
+                    {renderPhotoLayoutCards('desktop')}
+                    <Text style={styles.configLimit}>
+                      {photoFramesReady}/{photoFramesNeeded} fotos listas para este formato
+                    </Text>
+                  </>
                 ) : (
                   <View style={styles.settingRow}>
                     <View style={[styles.settingDot, styles.settingDotActive]} />
@@ -1828,6 +2198,26 @@ const WebApp = () => {
 
                 {hasRecording && (
                   <>
+                    {selectedMode === 'Foto' && photoPrintUrl && (
+                      <>
+                        <Text style={styles.panelLabel}>Foto final</Text>
+                        <View style={styles.finalPhotoPanel}>
+                          <Image
+                            source={{ uri: photoPrintUrl }}
+                            style={[
+                              styles.finalPhotoImage,
+                              { aspectRatio: selectedPrintLayout.width / selectedPrintLayout.height },
+                            ]}
+                          />
+                          <View style={styles.finalPhotoMeta}>
+                            <Text style={styles.settingSummaryTitle}>{printLayout}</Text>
+                            <Text style={styles.settingSummaryText}>
+                              Plantilla {selectedTemplate.name}, filtro {selectedFilter}, lista para imprimir o enviar.
+                            </Text>
+                          </View>
+                        </View>
+                      </>
+                    )}
                     <Text style={styles.panelLabel}>Canales de entrega</Text>
                     <View style={styles.shareGrid}>
                       {availableTools.map((tool) => renderDesktopShareCard(tool))}
@@ -2718,6 +3108,58 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     padding: 9,
   },
+  mobileLayoutGrid: {
+    marginTop: 12,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  mobileLayoutCard: {
+    minHeight: 184,
+    borderRadius: 8,
+    backgroundColor: '#f7f9fc',
+    borderWidth: 1,
+    borderColor: '#dfe7f2',
+    padding: 10,
+  },
+  mobileLayoutCardActive: {
+    borderColor: colors.red,
+    boxShadow: '0 8px 18px rgba(10, 77, 232, 0.22)',
+  },
+  mobileLayoutPreview: {
+    height: 96,
+    borderRadius: 8,
+    backgroundColor: '#071225',
+    position: 'relative',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(10, 77, 232, 0.18)',
+  },
+  mobileLayoutTitle: {
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+    marginTop: 9,
+  },
+  mobileLayoutNote: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  mobileFinalPhotoBox: {
+    marginBottom: 14,
+    gap: 10,
+  },
+  mobileFinalPhoto: {
+    width: '100%',
+    aspectRatio: 4 / 5,
+    borderRadius: 8,
+    resizeMode: 'contain',
+    backgroundColor: '#071225',
+  },
   mobileSummaryRow: {
     marginTop: 10,
     padding: 12,
@@ -2982,6 +3424,88 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginTop: 10,
   },
+  photoLayoutGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  photoLayoutCard: {
+    minHeight: 198,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 12,
+  },
+  photoLayoutCardActive: {
+    borderColor: colors.red,
+    boxShadow: '0 8px 24px rgba(10, 77, 232, 0.22)',
+  },
+  photoLayoutPreview: {
+    height: 104,
+    backgroundColor: '#071225',
+    position: 'relative',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#dbe4f0',
+  },
+  photoLayoutPreviewStrip: {
+    width: 74,
+    alignSelf: 'center',
+  },
+  photoLayoutPreviewTint: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    opacity: 0.74,
+  },
+  photoLayoutPreviewSlot: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoLayoutPreviewSlotText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  photoLayoutTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '900',
+    marginTop: 10,
+  },
+  photoLayoutNote: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  finalPhotoPanel: {
+    minHeight: 178,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 12,
+    flexDirection: 'row',
+    gap: 14,
+    alignItems: 'center',
+  },
+  finalPhotoImage: {
+    width: 132,
+    height: 158,
+    resizeMode: 'contain',
+    backgroundColor: '#071225',
+  },
+  finalPhotoMeta: {
+    flex: 1,
+  },
   configControl: {
     backgroundColor: '#eef5ff',
     borderWidth: 1,
@@ -3200,6 +3724,11 @@ const styles = StyleSheet.create({
     minHeight: 470,
     resizeMode: 'cover',
     opacity: 0.86,
+  },
+  finalCameraImage: {
+    resizeMode: 'contain',
+    backgroundColor: '#071225',
+    opacity: 1,
   },
   cameraVideo: {
     width: '100%',
