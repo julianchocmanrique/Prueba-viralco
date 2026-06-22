@@ -116,7 +116,7 @@ const setupTabs = [
 const toolDetails = {
   WhatsApp: { title: 'WhatsApp', note: 'Abre WhatsApp con un mensaje listo para enviar.', accent: '#17a75b' },
   QR: { title: 'QR de descarga', note: 'Abre un QR para descargar o compartir el enlace.', accent: '#0a4de8' },
-  Print: { title: 'Impresion', note: 'Abre la impresion del navegador para enviar copias.', accent: '#222936' },
+  Print: { title: 'Impresion', note: 'Imprime solo la foto final, no la pantalla de la app.', accent: '#222936' },
   Mail: { title: 'Email', note: 'Abre un correo con asunto y mensaje preparados.', accent: '#39a9ff' },
   SMS: { title: 'SMS', note: 'Prepara un mensaje de texto con el enlace.', accent: '#7b61ff' },
   Drive: { title: 'Drive', note: 'Abre Google Drive para guardar la entrega.', accent: '#f5a400' },
@@ -184,7 +184,7 @@ const captureModeDetails = {
     output: 'Clip 360 listo',
     progress: ['Cuenta', 'Giro', 'Render'],
     steps: ['Iniciar giro', 'Renderizar', 'Revisar', 'Compartir'],
-    tools: ['WhatsApp', 'QR', 'Print', 'Mail'],
+    tools: ['WhatsApp', 'QR', 'Mail'],
     settings: ['Giro completo', 'Render rapido', 'Overlay del evento'],
     control: { label: 'Duracion del giro', min: 4, max: 20, defaultValue: 10, unit: 's' },
   },
@@ -216,6 +216,7 @@ const WebApp = () => {
   const [cameraStream, setCameraStream] = useState(null)
   const [cameraError, setCameraError] = useState('')
   const [recordingUrl, setRecordingUrl] = useState('')
+  const [photoPrintUrl, setPhotoPrintUrl] = useState('')
   const desktopVideoRef = useRef(null)
   const mobileVideoRef = useRef(null)
   const streamRef = useRef(null)
@@ -232,6 +233,8 @@ const WebApp = () => {
   )
   const isMobile = width < 760
   const modeDetails = captureModeDetails[selectedMode]
+  const canPrintSelectedMode = selectedMode === 'Foto'
+  const availableTools = modeDetails.tools.filter((tool) => tool !== 'Print' || canPrintSelectedMode)
   const isCapturing = capturePhase === 'capturing'
   const currentTabIndex = setupTabs.findIndex((tab) => tab.id === activeTab)
   const currentTab = setupTabs[currentTabIndex] || setupTabs[0]
@@ -337,6 +340,205 @@ const WebApp = () => {
     return selectedConfigValue * 1000
   }
 
+  const capturePhotoFrame = () => {
+    if (typeof document === 'undefined') {
+      return ''
+    }
+
+    const video = (isMobile ? mobileVideoRef.current : desktopVideoRef.current) ||
+      mobileVideoRef.current ||
+      desktopVideoRef.current
+
+    if (!video?.videoWidth || !video?.videoHeight) {
+      return ''
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const context = canvas.getContext('2d')
+
+    if (!context) {
+      return ''
+    }
+
+    if (mirrorPreview) {
+      context.translate(canvas.width, 0)
+      context.scale(-1, 1)
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', 0.92)
+  }
+
+  const escapeHtml = (value) =>
+    String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;')
+
+  const buildPrintablePhoto = () => {
+    const templateImageUrl =
+      typeof selectedTemplate.image === 'string' ? selectedTemplate.image : selectedTemplate.image?.uri || ''
+    const imageUrl = escapeHtml(photoPrintUrl || templateImageUrl)
+    const safeEventName = escapeHtml(eventName)
+    const safeFilter = escapeHtml(selectedFilter)
+    const safeTemplateName = escapeHtml(selectedTemplate.name)
+    const layoutLabel = printLayout === 'Digital' ? 'Foto digital' : printLayout
+    const safeLayoutLabel = escapeHtml(layoutLabel)
+    const repeatedPhotos = Array.from({ length: Math.max(1, copies) }, (_, index) => index)
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Impresion Viralco - ${safeEventName}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: #f3f5f8;
+        color: #111827;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+      .sheet {
+        width: 100%;
+        min-height: 100vh;
+        padding: 22px;
+        display: grid;
+        gap: 18px;
+        place-items: center;
+      }
+      .print-card {
+        width: min(92vw, 620px);
+        background: #fff;
+        padding: 22px;
+        border: 1px solid #d8dee8;
+      }
+      .brand {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 18px;
+        font-weight: 900;
+      }
+      .brand-mark {
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        background: #0a4de8;
+        color: #fff;
+        font-size: 24px;
+      }
+      .event {
+        flex: 1;
+      }
+      .event-title {
+        font-size: 18px;
+        line-height: 23px;
+      }
+      .event-meta {
+        color: #596273;
+        font-size: 12px;
+        margin-top: 3px;
+      }
+      .photos {
+        display: grid;
+        grid-template-columns: ${printLayout === 'Tira 2x6' ? '1fr' : 'repeat(2, minmax(0, 1fr))'};
+        gap: 12px;
+      }
+      .photo {
+        border: 8px solid #fff;
+        outline: 1px solid #d8dee8;
+        background: #101419;
+        aspect-ratio: ${printLayout === 'Tira 2x6' ? '2 / 6' : '4 / 3'};
+        overflow: hidden;
+      }
+      .photo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .footer {
+        margin-top: 16px;
+        display: flex;
+        justify-content: space-between;
+        color: #596273;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      @media print {
+        body { background: #fff; }
+        .sheet { padding: 0; min-height: auto; display: block; }
+        .print-card {
+          width: 100%;
+          min-height: 100vh;
+          border: 0;
+          padding: 0.35in;
+          break-after: page;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="sheet">
+      <section class="print-card">
+        <header class="brand">
+          <div class="brand-mark">V</div>
+          <div class="event">
+            <div class="event-title">${safeEventName}</div>
+            <div class="event-meta">${safeLayoutLabel} / ${safeFilter} / ${safeTemplateName}</div>
+          </div>
+        </header>
+        <div class="photos">
+          ${repeatedPhotos
+            .map(
+              () => `<figure class="photo"><img src="${imageUrl}" alt="Foto Viralco" /></figure>`,
+            )
+            .join('')}
+        </div>
+        <footer class="footer">
+          <span>Viralco Producciones</span>
+          <span>${copies} copia${copies === 1 ? '' : 's'}</span>
+        </footer>
+      </section>
+    </main>
+    <script>
+      window.addEventListener('load', () => {
+        setTimeout(() => window.print(), 250)
+      })
+    </script>
+  </body>
+</html>`
+  }
+
+  const printPhotoOutput = () => {
+    if (!canPrintSelectedMode) {
+      setActivityMessage('La impresion solo esta disponible para Foto')
+      return
+    }
+
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const printWindow = window.open('', '_blank')
+
+    if (!printWindow) {
+      setActivityMessage('El navegador bloqueo la ventana de impresion')
+      return
+    }
+
+    printWindow.document.open()
+    printWindow.document.write(buildPrintablePhoto())
+    printWindow.document.close()
+  }
+
   const requestCameraStream = async () => {
     if (!navigator?.mediaDevices?.getUserMedia) {
       throw new Error('Este navegador no permite abrir camara desde la web')
@@ -361,6 +563,7 @@ const WebApp = () => {
   const startCapture = async () => {
     setCameraError('')
     setRecordingUrl('')
+    setPhotoPrintUrl('')
     setCapturePhase('capturing')
     setActivityMessage('Solicitando permiso de camara del celular...')
 
@@ -380,6 +583,10 @@ const WebApp = () => {
 
     if (selectedMode === 'Foto' || !window.MediaRecorder) {
       captureTimerRef.current = setTimeout(() => {
+        if (selectedMode === 'Foto') {
+          setPhotoPrintUrl(capturePhotoFrame())
+        }
+
         finishCapture(`${modeDetails.output} con camara del celular (${controlLabel})`)
       }, durationMs)
       return
@@ -417,6 +624,11 @@ const WebApp = () => {
       return
     }
 
+    if (tool === 'Print' && !canPrintSelectedMode) {
+      setActivityMessage('La impresion solo esta disponible para Foto')
+      return
+    }
+
     const pageUrl =
       typeof window !== 'undefined'
         ? window.location.href
@@ -432,7 +644,7 @@ const WebApp = () => {
     const messages = {
       WhatsApp: 'WhatsApp abierto con mensaje preparado',
       QR: 'QR abierto para descarga',
-      Print: `${copies} copia${copies === 1 ? '' : 's'} lista${copies === 1 ? '' : 's'} para impresion`,
+      Print: `${copies} copia${copies === 1 ? '' : 's'} de la foto lista${copies === 1 ? '' : 's'} para impresion`,
       Mail: 'Correo abierto con mensaje preparado',
       SMS: 'SMS preparado con enlace',
       Drive: 'Google Drive abierto para guardar entrega',
@@ -446,8 +658,8 @@ const WebApp = () => {
       openExternal(`https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodedUrl}`)
     }
 
-    if (tool === 'Print' && typeof window !== 'undefined') {
-      window.print()
+    if (tool === 'Print') {
+      printPhotoOutput()
     }
 
     if (tool === 'Mail' && typeof window !== 'undefined') {
@@ -643,9 +855,9 @@ const WebApp = () => {
     ['Evento', eventName],
     ['Captura', `${selectedMode} - ${controlLabel}`],
     ['Camara', `${cameraSource}, ${orientation}, ${captureQuality}`],
-    ['Diseno', `${selectedTemplate.name}, ${selectedFilter}, ${printLayout}`],
+    ['Diseno', `${selectedTemplate.name}, ${selectedFilter}, ${canPrintSelectedMode ? printLayout : 'Digital'}`],
     ['Efectos', `${backgroundMode}, ${overlayMode}, retoque ${beautyLevel}%`],
-    ['Salida', hasRecording ? modeDetails.tools.join(' / ') : 'Pendiente de grabar'],
+    ['Salida', hasRecording ? availableTools.join(' / ') : 'Pendiente de grabar'],
   ]
 
   const renderMobileTabs = () => (
@@ -988,9 +1200,15 @@ const WebApp = () => {
             <View style={styles.mobileSection}>
               <View style={styles.mobileSectionHeader}>
                 <Text style={styles.mobileSectionTitle}>Formato final</Text>
-                <Text style={styles.mobileAccentText}>{printLayout}</Text>
+                <Text style={styles.mobileAccentText}>{canPrintSelectedMode ? printLayout : 'Digital'}</Text>
               </View>
-              {renderMobileOptions(printLayouts, printLayout, setPrintLayout)}
+              {canPrintSelectedMode ? (
+                renderMobileOptions(printLayouts, printLayout, setPrintLayout)
+              ) : (
+                <Text style={styles.mobileMutedText}>
+                  Este modo se entrega como archivo digital y no muestra opciones de impresion.
+                </Text>
+              )}
             </View>
 
             {renderMobileStepNav()}
@@ -1075,12 +1293,12 @@ const WebApp = () => {
                   Selecciona como va a recibir el invitado el resultado final.
                 </Text>
                 <View style={styles.mobileShareGrid}>
-                  {modeDetails.tools.map((tool) => renderMobileShareCard(tool))}
+                  {availableTools.map((tool) => renderMobileShareCard(tool))}
                 </View>
               </View>
             )}
 
-            {hasRecording && (
+            {hasRecording && canPrintSelectedMode && (
               <View style={styles.mobileSection}>
                 <Text style={styles.mobileSectionTitle}>Copias</Text>
                 <View style={styles.mobileCopies}>
@@ -1319,8 +1537,19 @@ const WebApp = () => {
                 </View>
 
                 <Text style={styles.panelLabel}>Formato final</Text>
-                <Text style={styles.panelHelp}>Define si la salida se prepara para digital o impresion.</Text>
-                {renderDesktopOptions(printLayouts, printLayout, setPrintLayout)}
+                <Text style={styles.panelHelp}>
+                  {canPrintSelectedMode
+                    ? 'Define si la salida se prepara para digital o impresion.'
+                    : 'Este modo se entrega como archivo digital y no muestra opciones de impresion.'}
+                </Text>
+                {canPrintSelectedMode ? (
+                  renderDesktopOptions(printLayouts, printLayout, setPrintLayout)
+                ) : (
+                  <View style={styles.settingRow}>
+                    <View style={[styles.settingDot, styles.settingDotActive]} />
+                    <Text style={styles.settingText}>Entrega digital</Text>
+                  </View>
+                )}
               </>
             )}
 
@@ -1397,31 +1626,35 @@ const WebApp = () => {
                   <>
                     <Text style={styles.panelLabel}>Canales de entrega</Text>
                     <View style={styles.shareGrid}>
-                      {modeDetails.tools.map((tool) => renderDesktopShareCard(tool))}
+                      {availableTools.map((tool) => renderDesktopShareCard(tool))}
                     </View>
 
-                    <Text style={styles.panelLabel}>Copias de impresion</Text>
-                    <View style={styles.copyRow}>
-                      {[1, 2, 3, 4, 5].map((number) => (
-                        <Pressable
-                          key={number}
-                          onPress={() => setCopies(number)}
-                          style={[styles.copyButton, copies === number && styles.copyButtonActive]}
-                        >
-                          <Text
-                            style={[
-                              styles.copyButtonText,
-                              copies === number && styles.copyButtonTextActive,
-                            ]}
-                          >
-                            {number}
-                          </Text>
+                    {canPrintSelectedMode && (
+                      <>
+                        <Text style={styles.panelLabel}>Copias de impresion</Text>
+                        <View style={styles.copyRow}>
+                          {[1, 2, 3, 4, 5].map((number) => (
+                            <Pressable
+                              key={number}
+                              onPress={() => setCopies(number)}
+                              style={[styles.copyButton, copies === number && styles.copyButtonActive]}
+                            >
+                              <Text
+                                style={[
+                                  styles.copyButtonText,
+                                  copies === number && styles.copyButtonTextActive,
+                                ]}
+                              >
+                                {number}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                        <Pressable onPress={() => runTool('Print')} style={styles.printButton}>
+                          <Text style={styles.printButtonText}>Probar impresion</Text>
                         </Pressable>
-                      ))}
-                    </View>
-                    <Pressable onPress={() => runTool('Print')} style={styles.printButton}>
-                      <Text style={styles.printButtonText}>Probar impresion</Text>
-                    </Pressable>
+                      </>
+                    )}
                   </>
                 )}
               </>
