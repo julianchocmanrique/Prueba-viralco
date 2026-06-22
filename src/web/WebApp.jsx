@@ -90,11 +90,12 @@ const setupTabs = [
 ]
 
 const toolDetails = {
-  QR: { title: 'QR de descarga', note: 'Crea un codigo para que el invitado descargue su archivo.' },
-  Print: { title: 'Impresion', note: 'Envia las copias seleccionadas a la impresora del evento.' },
-  Mail: { title: 'Email', note: 'Prepara el envio por correo con el archivo final.' },
-  SMS: { title: 'SMS', note: 'Genera un enlace corto para compartir por mensaje.' },
-  Drive: { title: 'Drive', note: 'Guarda el video en una carpeta de entrega.' },
+  WhatsApp: { title: 'WhatsApp', note: 'Abre WhatsApp con un mensaje listo para enviar.', accent: '#17a75b' },
+  QR: { title: 'QR de descarga', note: 'Abre un QR para descargar o compartir el enlace.', accent: '#0a4de8' },
+  Print: { title: 'Impresion', note: 'Abre la impresion del navegador para enviar copias.', accent: '#222936' },
+  Mail: { title: 'Email', note: 'Abre un correo con asunto y mensaje preparados.', accent: '#39a9ff' },
+  SMS: { title: 'SMS', note: 'Prepara un mensaje de texto con el enlace.', accent: '#7b61ff' },
+  Drive: { title: 'Drive', note: 'Abre Google Drive para guardar la entrega.', accent: '#f5a400' },
 }
 
 const captureModeDetails = {
@@ -107,7 +108,7 @@ const captureModeDetails = {
     output: 'Foto capturada',
     progress: ['Enfoque', 'Flash', 'Preview'],
     steps: ['Tomar foto', 'Elegir filtro', 'Imprimir', 'Compartir'],
-    tools: ['QR', 'Print', 'Mail'],
+    tools: ['WhatsApp', 'QR', 'Print', 'Mail'],
     settings: ['Cuenta regresiva 3s', 'Flash suave', 'Una foto por invitado'],
     control: { label: 'Cuenta regresiva', min: 1, max: 10, defaultValue: 3, unit: 's' },
   },
@@ -120,7 +121,7 @@ const captureModeDetails = {
     output: 'GIF listo',
     progress: ['Pose 1', 'Pose 2', 'Pose 3'],
     steps: ['Capturar 3 fotos', 'Animar', 'Revisar', 'Compartir'],
-    tools: ['QR', 'SMS', 'Mail'],
+    tools: ['WhatsApp', 'QR', 'SMS', 'Mail'],
     settings: ['3 poses automaticas', 'Velocidad media', 'Loop infinito'],
     control: { label: 'Cantidad de fotos', min: 2, max: 6, defaultValue: 3, unit: 'fotos' },
   },
@@ -133,7 +134,7 @@ const captureModeDetails = {
     output: 'Boomerang listo',
     progress: ['Grabar', 'Reversa', 'Loop'],
     steps: ['Grabar clip', 'Crear loop', 'Revisar', 'Compartir'],
-    tools: ['QR', 'Mail', 'SMS'],
+    tools: ['WhatsApp', 'QR', 'Mail', 'SMS'],
     settings: ['Clip de 2 segundos', 'Reversa automatica', 'Loop exportable'],
     control: { label: 'Duracion del clip', min: 1, max: 5, defaultValue: 2, unit: 's' },
   },
@@ -146,7 +147,7 @@ const captureModeDetails = {
     output: 'Video guardado',
     progress: ['Rec', 'Procesar', 'Preview'],
     steps: ['Grabar', 'Revisar audio', 'Guardar', 'Compartir'],
-    tools: ['QR', 'Mail', 'Drive'],
+    tools: ['WhatsApp', 'QR', 'Mail', 'Drive'],
     settings: ['Grabacion 8s', 'Audio activo', 'Formato vertical'],
     control: { label: 'Duracion del video', min: 3, max: 15, defaultValue: 8, unit: 's' },
   },
@@ -159,7 +160,7 @@ const captureModeDetails = {
     output: 'Clip 360 listo',
     progress: ['Cuenta', 'Giro', 'Render'],
     steps: ['Iniciar giro', 'Renderizar', 'Revisar', 'Compartir'],
-    tools: ['QR', 'Print', 'Mail'],
+    tools: ['WhatsApp', 'QR', 'Print', 'Mail'],
     settings: ['Giro completo', 'Render rapido', 'Overlay del evento'],
     control: { label: 'Duracion del giro', min: 4, max: 20, defaultValue: 10, unit: 's' },
   },
@@ -380,13 +381,51 @@ const WebApp = () => {
       return
     }
 
-    const messages = {
-      QR: 'QR generado para descarga',
-      Print: `${copies} copia${copies === 1 ? '' : 's'} enviada${copies === 1 ? '' : 's'} a impresion`,
-      Mail: 'Formulario de email abierto',
-      SMS: 'Link preparado para SMS',
-      Drive: 'Video guardado en cola de entrega',
+    const pageUrl =
+      typeof window !== 'undefined'
+        ? window.location.href
+        : 'https://www.viralcoproducciones.com/prueba-viralco/'
+    const shareText = `${eventName}: ${modeDetails.output} de Viralco listo para compartir. ${pageUrl}`
+    const encodedText = encodeURIComponent(shareText)
+    const encodedUrl = encodeURIComponent(pageUrl)
+    const openExternal = (url) => {
+      if (typeof window === 'undefined') return
+      window.open(url, '_blank', 'noopener,noreferrer')
     }
+
+    const messages = {
+      WhatsApp: 'WhatsApp abierto con mensaje preparado',
+      QR: 'QR abierto para descarga',
+      Print: `${copies} copia${copies === 1 ? '' : 's'} lista${copies === 1 ? '' : 's'} para impresion`,
+      Mail: 'Correo abierto con mensaje preparado',
+      SMS: 'SMS preparado con enlace',
+      Drive: 'Google Drive abierto para guardar entrega',
+    }
+
+    if (tool === 'WhatsApp') {
+      openExternal(`https://wa.me/?text=${encodedText}`)
+    }
+
+    if (tool === 'QR') {
+      openExternal(`https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodedUrl}`)
+    }
+
+    if (tool === 'Print' && typeof window !== 'undefined') {
+      window.print()
+    }
+
+    if (tool === 'Mail' && typeof window !== 'undefined') {
+      window.location.href = `mailto:?subject=${encodeURIComponent(`Captura Viralco - ${eventName}`)}&body=${encodedText}`
+    }
+
+    if (tool === 'SMS' && typeof window !== 'undefined') {
+      window.location.href = `sms:?&body=${encodedText}`
+    }
+
+    if (tool === 'Drive') {
+      openExternal('https://drive.google.com/drive/my-drive')
+    }
+
     setCapturePhase('complete')
     setActivityMessage(messages[tool] || `${tool} listo`)
   }
@@ -482,6 +521,36 @@ const WebApp = () => {
       <Text style={styles.flowText}>{currentTab.helper}</Text>
     </View>
   )
+
+  const renderMobileShareCard = (tool) => {
+    const detail = toolDetails[tool] || { title: tool, note: 'Canal de entrega disponible.', accent: colors.red }
+
+    return (
+      <Pressable key={tool} onPress={() => runTool(tool)} style={styles.mobileShareCard}>
+        <View style={[styles.mobileShareIcon, { backgroundColor: detail.accent }]}>
+          <Text style={styles.mobileShareIconText}>{detail.title.slice(0, 2).toUpperCase()}</Text>
+        </View>
+        <View style={styles.mobileShareBody}>
+          <Text style={styles.mobileShareTitle}>{detail.title}</Text>
+          <Text style={styles.mobileShareNote}>{detail.note}</Text>
+        </View>
+      </Pressable>
+    )
+  }
+
+  const renderDesktopShareCard = (tool) => {
+    const detail = toolDetails[tool] || { title: tool, note: 'Canal de entrega disponible.', accent: colors.red }
+
+    return (
+      <Pressable key={tool} onPress={() => runTool(tool)} style={styles.shareCard}>
+        <View style={[styles.shareIcon, { backgroundColor: detail.accent }]}>
+          <Text style={styles.shareIconText}>{detail.title.slice(0, 2).toUpperCase()}</Text>
+        </View>
+        <Text style={styles.shareTitle}>{detail.title}</Text>
+        <Text style={styles.shareNote}>{detail.note}</Text>
+      </Pressable>
+    )
+  }
 
   const renderMobileTabs = () => (
     <ScrollView
@@ -836,16 +905,8 @@ const WebApp = () => {
                 <Text style={styles.mobileMutedText}>
                   Selecciona como va a recibir el invitado el resultado final.
                 </Text>
-                <View style={styles.mobileModes}>
-                  {modeDetails.tools.map((tool) => (
-                    <Pressable
-                      key={tool}
-                      onPress={() => runTool(tool)}
-                      style={styles.mobileModeButton}
-                    >
-                      <Text style={styles.mobileModeText}>{toolDetails[tool]?.title || tool}</Text>
-                    </Pressable>
-                  ))}
+                <View style={styles.mobileShareGrid}>
+                  {modeDetails.tools.map((tool) => renderMobileShareCard(tool))}
                 </View>
               </View>
             )}
@@ -1087,12 +1148,8 @@ const WebApp = () => {
                 {hasRecording && (
                   <>
                     <Text style={styles.panelLabel}>Canales de entrega</Text>
-                    <View style={styles.modeRow}>
-                      {modeDetails.tools.map((tool) => (
-                        <Pressable key={tool} onPress={() => runTool(tool)} style={styles.modeButton}>
-                          <Text style={styles.modeButtonText}>{toolDetails[tool]?.title || tool}</Text>
-                        </Pressable>
-                      ))}
+                    <View style={styles.shareGrid}>
+                      {modeDetails.tools.map((tool) => renderDesktopShareCard(tool))}
                     </View>
 
                     <Text style={styles.panelLabel}>Copias de impresion</Text>
@@ -1722,6 +1779,49 @@ const styles = StyleSheet.create({
   },
   mobileModeTextActive: {
     color: '#ffffff',
+  },
+  mobileShareGrid: {
+    marginTop: 12,
+    gap: 10,
+  },
+  mobileShareCard: {
+    minHeight: 78,
+    borderRadius: 8,
+    backgroundColor: '#f7f9fc',
+    borderWidth: 1,
+    borderColor: '#dfe7f2',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  mobileShareIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileShareIconText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  mobileShareBody: {
+    flex: 1,
+  },
+  mobileShareTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '900',
+  },
+  mobileShareNote: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 3,
   },
   mobileTwoCards: {
     flexDirection: 'row',
@@ -2452,6 +2552,45 @@ const styles = StyleSheet.create({
   },
   modeButtonTextActive: {
     color: '#ffffff',
+  },
+  shareGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  shareCard: {
+    minHeight: 132,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 14,
+    justifyContent: 'space-between',
+  },
+  shareIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareIconText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  shareTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '900',
+    marginTop: 10,
+  },
+  shareNote: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 4,
   },
   printPanel: {
     minHeight: 90,
