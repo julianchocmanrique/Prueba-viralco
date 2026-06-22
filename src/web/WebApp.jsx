@@ -56,6 +56,12 @@ const templates = [
 
 const captureModes = ['Foto', 'GIF', 'Boomerang', 'Video', '360']
 const filters = ['Original', 'Glam', 'B/N', 'Brannan', 'Vintage']
+const cameraSources = ['Frontal', 'Trasera', 'USB/DSLR']
+const orientations = ['Vertical', 'Horizontal', 'Cuadrado']
+const qualityOptions = ['HD', 'Full HD', '4K']
+const backgroundOptions = ['Original', 'Desenfoque', 'Color marca', 'Green screen']
+const overlayOptions = ['Sin overlay', 'Marco Viralco', 'Logo + fecha', 'Sponsor']
+const printLayouts = ['Digital', 'Tira 2x6', 'Postal 4x6']
 const setupTabs = [
   {
     id: 'evento',
@@ -64,16 +70,28 @@ const setupTabs = [
     helper: 'Define el evento y el formato que va a usar el invitado.',
   },
   {
-    id: 'config',
-    label: 'Config',
+    id: 'captura',
+    label: 'Captura',
     title: 'Ajustes del modo',
-    helper: 'Controla tiempos, cantidad de tomas y comportamiento del modo elegido.',
+    helper: 'Controla tiempos, cantidad de tomas, revision y guardado original.',
+  },
+  {
+    id: 'camara',
+    label: 'Camara',
+    title: 'Fuente y calidad',
+    helper: 'Define camara frontal/trasera, orientacion, calidad y espejo de vista previa.',
   },
   {
     id: 'diseno',
     label: 'Diseno',
-    title: 'Filtro y plantilla',
-    helper: 'Escoge la apariencia final antes de abrir la camara.',
+    title: 'Plantilla y salida visual',
+    helper: 'Escoge filtro, plantilla y formato de impresion o entrega digital.',
+  },
+  {
+    id: 'efectos',
+    label: 'Efectos',
+    title: 'Fondos y overlays',
+    helper: 'Prepara fondo, overlay, retoque y opciones que vera el invitado.',
   },
   {
     id: 'grabar',
@@ -86,6 +104,12 @@ const setupTabs = [
     label: 'Salida',
     title: 'Entrega final',
     helper: 'Despues de grabar, habilita QR, envio digital e impresion.',
+  },
+  {
+    id: 'resumen',
+    label: 'Resumen',
+    title: 'Evento listo',
+    helper: 'Revisa todo antes de usarlo en el evento real.',
   },
 ]
 
@@ -177,6 +201,18 @@ const WebApp = () => {
   const [activityMessage, setActivityMessage] = useState('Camara lista')
   const [captureCount, setCaptureCount] = useState(0)
   const [activeTab, setActiveTab] = useState('evento')
+  const [cameraSource, setCameraSource] = useState('Frontal')
+  const [orientation, setOrientation] = useState('Vertical')
+  const [captureQuality, setCaptureQuality] = useState('Full HD')
+  const [mirrorPreview, setMirrorPreview] = useState(true)
+  const [stabilization, setStabilization] = useState(true)
+  const [retakeEnabled, setRetakeEnabled] = useState(true)
+  const [saveOriginal, setSaveOriginal] = useState(true)
+  const [audioEnabled, setAudioEnabled] = useState(true)
+  const [printLayout, setPrintLayout] = useState('Digital')
+  const [backgroundMode, setBackgroundMode] = useState('Original')
+  const [overlayMode, setOverlayMode] = useState('Marco Viralco')
+  const [beautyLevel, setBeautyLevel] = useState(30)
   const [cameraStream, setCameraStream] = useState(null)
   const [cameraError, setCameraError] = useState('')
   const [recordingUrl, setRecordingUrl] = useState('')
@@ -310,11 +346,11 @@ const WebApp = () => {
 
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: { ideal: 'user' },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        facingMode: { ideal: cameraSource === 'Trasera' ? 'environment' : 'user' },
+        width: { ideal: captureQuality === '4K' ? 3840 : captureQuality === 'Full HD' ? 1920 : 1280 },
+        height: { ideal: captureQuality === '4K' ? 2160 : captureQuality === 'Full HD' ? 1080 : 720 },
       },
-      audio: selectedMode === 'Video',
+      audio: selectedMode === 'Video' && audioEnabled,
     })
 
     streamRef.current = stream
@@ -443,10 +479,13 @@ const WebApp = () => {
   }
 
   const getNextLabel = () => {
-    if (activeTab === 'evento') return 'Configurar modo'
-    if (activeTab === 'config') return 'Elegir diseno'
-    if (activeTab === 'diseno') return 'Ir a grabar'
+    if (activeTab === 'evento') return 'Configurar captura'
+    if (activeTab === 'captura') return 'Configurar camara'
+    if (activeTab === 'camara') return 'Elegir diseno'
+    if (activeTab === 'diseno') return 'Elegir efectos'
+    if (activeTab === 'efectos') return 'Ir a grabar'
     if (activeTab === 'grabar') return hasRecording ? 'Ver salida' : 'Esperando captura'
+    if (activeTab === 'salida') return 'Ver resumen'
     return 'Finalizado'
   }
 
@@ -552,6 +591,63 @@ const WebApp = () => {
     )
   }
 
+  const renderMobileOptions = (options, value, onChange) => (
+    <View style={styles.mobileModes}>
+      {options.map((option) => (
+        <Pressable
+          key={option}
+          onPress={() => onChange(option)}
+          style={[styles.mobileModeButton, value === option && styles.mobileModeButtonActive]}
+        >
+          <Text style={[styles.mobileModeText, value === option && styles.mobileModeTextActive]}>
+            {option}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  )
+
+  const renderDesktopOptions = (options, value, onChange) => (
+    <View style={styles.modeRow}>
+      {options.map((option) => (
+        <Pressable
+          key={option}
+          onPress={() => onChange(option)}
+          style={[styles.modeButton, value === option && styles.modeButtonActive]}
+        >
+          <Text style={[styles.modeButtonText, value === option && styles.modeButtonTextActive]}>
+            {option}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  )
+
+  const renderMobileToggle = (label, value, onChange) => (
+    <Pressable onPress={() => onChange(!value)} style={styles.mobileSettingRow}>
+      <View style={[styles.mobileSettingDot, value && styles.mobileSettingDotActive]} />
+      <Text style={styles.mobileSettingText}>{label}</Text>
+      <Text style={styles.mobileToggleText}>{value ? 'Activo' : 'Off'}</Text>
+    </Pressable>
+  )
+
+  const renderDesktopToggle = (label, value, onChange) => (
+    <Pressable onPress={() => onChange(!value)} style={styles.settingRow}>
+      <View style={[styles.settingDot, value && styles.settingDotActive]} />
+      <Text style={styles.settingText}>{label}</Text>
+      <Text style={styles.settingToggleText}>{value ? 'Activo' : 'Off'}</Text>
+    </Pressable>
+  )
+
+  const summaryRows = [
+    ['Evento', eventName],
+    ['Captura', `${selectedMode} - ${controlLabel}`],
+    ['Camara', `${cameraSource}, ${orientation}, ${captureQuality}`],
+    ['Diseno', `${selectedTemplate.name}, ${selectedFilter}, ${printLayout}`],
+    ['Efectos', `${backgroundMode}, ${overlayMode}, retoque ${beautyLevel}%`],
+    ['Salida', hasRecording ? modeDetails.tools.join(' / ') : 'Pendiente de grabar'],
+  ]
+
   const renderMobileTabs = () => (
     <ScrollView
       horizontal
@@ -616,7 +712,7 @@ const WebApp = () => {
             playsInline
             muted
             autoPlay
-            style={styles.mobileCameraVideo}
+            style={{ ...styles.mobileCameraVideo, transform: mirrorPreview ? 'scaleX(-1)' : 'none' }}
           />
         ) : (
           <Image source={selectedTemplate.image} style={styles.mobileCameraImage} />
@@ -763,7 +859,7 @@ const WebApp = () => {
           </>
         )}
 
-        {activeTab === 'config' && (
+        {activeTab === 'captura' && (
           <>
             <View style={styles.mobileSection}>
               <View style={styles.mobileSectionHeader}>
@@ -787,12 +883,40 @@ const WebApp = () => {
                   {modeDetails.control.unit}
                 </Text>
               </View>
+              {renderMobileToggle('Permitir repetir captura', retakeEnabled, setRetakeEnabled)}
+              {renderMobileToggle('Guardar original sin filtro', saveOriginal, setSaveOriginal)}
+              {selectedMode === 'Video' &&
+                renderMobileToggle('Grabar audio en video', audioEnabled, setAudioEnabled)}
               {modeDetails.settings.map((setting) => (
                 <View key={setting} style={styles.mobileSettingRow}>
                   <View style={styles.mobileSettingDot} />
                   <Text style={styles.mobileSettingText}>{setting}</Text>
                 </View>
               ))}
+            </View>
+
+            {renderMobileStepNav()}
+          </>
+        )}
+
+        {activeTab === 'camara' && (
+          <>
+            <View style={styles.mobileSection}>
+              <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>Camara</Text>
+                <Text style={styles.mobileAccentText}>{cameraSource}</Text>
+              </View>
+              <Text style={styles.mobileMutedText}>
+                Elige la camara y calidad antes de abrir el permiso del celular.
+              </Text>
+              <Text style={styles.mobileSubLabel}>Fuente</Text>
+              {renderMobileOptions(cameraSources, cameraSource, setCameraSource)}
+              <Text style={styles.mobileSubLabel}>Orientacion</Text>
+              {renderMobileOptions(orientations, orientation, setOrientation)}
+              <Text style={styles.mobileSubLabel}>Calidad</Text>
+              {renderMobileOptions(qualityOptions, captureQuality, setCaptureQuality)}
+              {renderMobileToggle('Espejo en vista previa', mirrorPreview, setMirrorPreview)}
+              {renderMobileToggle('Estabilizacion / encuadre guiado', stabilization, setStabilization)}
             </View>
 
             {renderMobileStepNav()}
@@ -861,6 +985,58 @@ const WebApp = () => {
               </View>
             </View>
 
+            <View style={styles.mobileSection}>
+              <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>Formato final</Text>
+                <Text style={styles.mobileAccentText}>{printLayout}</Text>
+              </View>
+              {renderMobileOptions(printLayouts, printLayout, setPrintLayout)}
+            </View>
+
+            {renderMobileStepNav()}
+          </>
+        )}
+
+        {activeTab === 'efectos' && (
+          <>
+            <View style={styles.mobileSection}>
+              <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>Fondo</Text>
+                <Text style={styles.mobileAccentText}>{backgroundMode}</Text>
+              </View>
+              <Text style={styles.mobileMutedText}>
+                Prepara el acabado que se aplica despues de la captura.
+              </Text>
+              {renderMobileOptions(backgroundOptions, backgroundMode, setBackgroundMode)}
+            </View>
+
+            <View style={styles.mobileSection}>
+              <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>Overlay</Text>
+                <Text style={styles.mobileAccentText}>{overlayMode}</Text>
+              </View>
+              {renderMobileOptions(overlayOptions, overlayMode, setOverlayMode)}
+              <View style={styles.mobileConfigControl}>
+                <Text style={styles.mobileControlLabel}>Retoque invitado</Text>
+                <View style={styles.mobileControlStepper}>
+                  <Pressable
+                    onPress={() => setBeautyLevel((value) => Math.max(0, value - 10))}
+                    style={styles.mobileStepButton}
+                  >
+                    <Text style={styles.mobileStepButtonText}>-</Text>
+                  </Pressable>
+                  <Text style={styles.mobileControlValue}>{beautyLevel}%</Text>
+                  <Pressable
+                    onPress={() => setBeautyLevel((value) => Math.min(100, value + 10))}
+                    style={styles.mobileStepButton}
+                  >
+                    <Text style={styles.mobileStepButtonText}>+</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.mobileControlLimit}>Min 0 / Max 100%</Text>
+              </View>
+            </View>
+
             {renderMobileStepNav()}
           </>
         )}
@@ -870,7 +1046,7 @@ const WebApp = () => {
             <View style={styles.mobileSection}>
               <Text style={styles.mobileSectionTitle}>Antes de grabar</Text>
               <Text style={styles.mobileMutedText}>
-                Acepta el permiso de camara, revisa el encuadre y mantén el celular estable.
+                Acepta el permiso de camara, revisa el encuadre y manten el celular estable.
               </Text>
             </View>
             {renderMobilePreview()}
@@ -940,6 +1116,24 @@ const WebApp = () => {
               </Pressable>
             )}
             {hasRecording && renderMobileStepNav()}
+          </>
+        )}
+
+        {activeTab === 'resumen' && (
+          <>
+            <View style={styles.mobileSection}>
+              <Text style={styles.mobileSectionTitle}>Resumen del evento</Text>
+              <Text style={styles.mobileMutedText}>
+                Revisa la configuracion completa antes de operar el booth.
+              </Text>
+              {summaryRows.map(([label, value]) => (
+                <View key={label} style={styles.mobileSummaryRow}>
+                  <Text style={styles.mobileSummaryLabel}>{label}</Text>
+                  <Text style={styles.mobileSummaryValue}>{value}</Text>
+                </View>
+              ))}
+            </View>
+            {renderMobileStepNav()}
           </>
         )}
       </ScrollView>
@@ -1023,7 +1217,7 @@ const WebApp = () => {
               </>
             )}
 
-            {activeTab === 'config' && (
+            {activeTab === 'captura' && (
               <>
                 <View style={styles.settingSummary}>
                   <Text style={styles.settingSummaryTitle}>{modeDetails.title}</Text>
@@ -1045,12 +1239,35 @@ const WebApp = () => {
                     {modeDetails.control.unit}
                   </Text>
                 </View>
+                {renderDesktopToggle('Permitir repetir captura', retakeEnabled, setRetakeEnabled)}
+                {renderDesktopToggle('Guardar original sin filtro', saveOriginal, setSaveOriginal)}
+                {selectedMode === 'Video' &&
+                  renderDesktopToggle('Grabar audio en video', audioEnabled, setAudioEnabled)}
                 {modeDetails.settings.map((setting) => (
                   <View key={setting} style={styles.settingRow}>
                     <View style={styles.settingDot} />
                     <Text style={styles.settingText}>{setting}</Text>
                   </View>
                 ))}
+              </>
+            )}
+
+            {activeTab === 'camara' && (
+              <>
+                <View style={styles.settingSummary}>
+                  <Text style={styles.settingSummaryTitle}>Camara y calidad</Text>
+                  <Text style={styles.settingSummaryText}>
+                    Configura fuente, orientacion y resolucion antes de abrir la camara real.
+                  </Text>
+                </View>
+                <Text style={styles.panelLabel}>Fuente de camara</Text>
+                {renderDesktopOptions(cameraSources, cameraSource, setCameraSource)}
+                <Text style={styles.panelLabel}>Orientacion</Text>
+                {renderDesktopOptions(orientations, orientation, setOrientation)}
+                <Text style={styles.panelLabel}>Calidad</Text>
+                {renderDesktopOptions(qualityOptions, captureQuality, setCaptureQuality)}
+                {renderDesktopToggle('Espejo en vista previa', mirrorPreview, setMirrorPreview)}
+                {renderDesktopToggle('Estabilizacion / encuadre guiado', stabilization, setStabilization)}
               </>
             )}
 
@@ -1099,6 +1316,44 @@ const WebApp = () => {
                       </Pressable>
                     )
                   })}
+                </View>
+
+                <Text style={styles.panelLabel}>Formato final</Text>
+                <Text style={styles.panelHelp}>Define si la salida se prepara para digital o impresion.</Text>
+                {renderDesktopOptions(printLayouts, printLayout, setPrintLayout)}
+              </>
+            )}
+
+            {activeTab === 'efectos' && (
+              <>
+                <View style={styles.settingSummary}>
+                  <Text style={styles.settingSummaryTitle}>Efectos del invitado</Text>
+                  <Text style={styles.settingSummaryText}>
+                    Prepara fondos, overlays y retoque antes de la captura.
+                  </Text>
+                </View>
+                <Text style={styles.panelLabel}>Fondo</Text>
+                {renderDesktopOptions(backgroundOptions, backgroundMode, setBackgroundMode)}
+                <Text style={styles.panelLabel}>Overlay</Text>
+                {renderDesktopOptions(overlayOptions, overlayMode, setOverlayMode)}
+                <View style={styles.configControl}>
+                  <Text style={styles.configControlLabel}>Retoque invitado</Text>
+                  <View style={styles.configControlRow}>
+                    <Pressable
+                      onPress={() => setBeautyLevel((value) => Math.max(0, value - 10))}
+                      style={styles.configStepButton}
+                    >
+                      <Text style={styles.configStepText}>-</Text>
+                    </Pressable>
+                    <Text style={styles.configValue}>{beautyLevel}%</Text>
+                    <Pressable
+                      onPress={() => setBeautyLevel((value) => Math.min(100, value + 10))}
+                      style={styles.configStepButton}
+                    >
+                      <Text style={styles.configStepText}>+</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.configLimit}>Min 0 / Max 100%</Text>
                 </View>
               </>
             )}
@@ -1171,6 +1426,22 @@ const WebApp = () => {
                 )}
               </>
             )}
+            {activeTab === 'resumen' && (
+              <>
+                <View style={styles.settingSummary}>
+                  <Text style={styles.settingSummaryTitle}>Resumen final</Text>
+                  <Text style={styles.settingSummaryText}>
+                    Todo queda ordenado para revisar antes de operar en evento.
+                  </Text>
+                </View>
+                {summaryRows.map(([label, value]) => (
+                  <View key={label} style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>{label}</Text>
+                    <Text style={styles.summaryValue}>{value}</Text>
+                  </View>
+                ))}
+              </>
+            )}
             {activeTab !== 'salida' && renderDesktopStepNav()}
             {activeTab === 'salida' && hasRecording && renderDesktopStepNav()}
           </View>
@@ -1183,7 +1454,7 @@ const WebApp = () => {
                   playsInline
                   muted
                   autoPlay
-                  style={styles.cameraVideo}
+                  style={{ ...styles.cameraVideo, transform: mirrorPreview ? 'scaleX(-1)' : 'none' }}
                 />
               ) : (
                 <Image source={selectedTemplate.image} style={styles.cameraImage} />
@@ -1446,6 +1717,9 @@ const styles = StyleSheet.create({
     width: 9,
     height: 9,
     borderRadius: 5,
+    backgroundColor: '#aeb7c4',
+  },
+  mobileSettingDotActive: {
     backgroundColor: colors.red,
   },
   mobileSettingText: {
@@ -1454,6 +1728,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
     fontWeight: '800',
+  },
+  mobileToggleText: {
+    color: colors.red,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  mobileSubLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    marginTop: 14,
+    textTransform: 'uppercase',
   },
   mobileConfigControl: {
     marginTop: 12,
@@ -1968,6 +2255,28 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     padding: 9,
   },
+  mobileSummaryRow: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#f7f9fc',
+    borderWidth: 1,
+    borderColor: '#dfe7f2',
+  },
+  mobileSummaryLabel: {
+    color: colors.red,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  mobileSummaryValue: {
+    color: colors.ink,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+    marginTop: 4,
+  },
   page: {
     minHeight: '100vh',
     backgroundColor: colors.bg,
@@ -2055,7 +2364,7 @@ const styles = StyleSheet.create({
   desktopTabs: {
     marginTop: 18,
     display: 'grid',
-    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))',
     gap: 10,
   },
   desktopTabButton: {
@@ -2243,12 +2552,41 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
+    backgroundColor: '#aeb7c4',
+  },
+  settingDotActive: {
     backgroundColor: colors.red,
   },
   settingText: {
+    flex: 1,
     color: colors.ink,
     fontSize: 14,
     fontWeight: '800',
+  },
+  settingToggleText: {
+    color: colors.red,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  summaryRow: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 13,
+  },
+  summaryLabel: {
+    color: colors.red,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  summaryValue: {
+    color: colors.ink,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+    marginTop: 4,
   },
   disabledButton: {
     opacity: 0.46,
