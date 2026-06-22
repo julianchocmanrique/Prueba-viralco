@@ -58,12 +58,45 @@ const captureModes = ['Foto', 'GIF', 'Boomerang', 'Video', '360']
 const filters = ['Original', 'Glam', 'B/N', 'Brannan', 'Vintage']
 const shareSteps = ['Capturar', 'Revisar', 'Imprimir', 'Compartir']
 const setupTabs = [
-  { id: 'evento', label: 'Evento', title: 'Nombre y captura' },
-  { id: 'config', label: 'Config', title: 'Configuracion del modo' },
-  { id: 'diseno', label: 'Diseno', title: 'Plantilla y filtro' },
-  { id: 'grabar', label: 'Grabar', title: 'Prueba de captura' },
-  { id: 'salida', label: 'Salida', title: 'Entrega e impresion' },
+  {
+    id: 'evento',
+    label: 'Evento',
+    title: 'Nombre y captura',
+    helper: 'Define el evento y el formato que va a usar el invitado.',
+  },
+  {
+    id: 'config',
+    label: 'Config',
+    title: 'Ajustes del modo',
+    helper: 'Controla tiempos, cantidad de tomas y comportamiento del modo elegido.',
+  },
+  {
+    id: 'diseno',
+    label: 'Diseno',
+    title: 'Filtro y plantilla',
+    helper: 'Escoge la apariencia final antes de abrir la camara.',
+  },
+  {
+    id: 'grabar',
+    label: 'Grabar',
+    title: 'Captura real',
+    helper: 'Pide permiso de camara, prueba el encuadre y genera la captura.',
+  },
+  {
+    id: 'salida',
+    label: 'Salida',
+    title: 'Entrega final',
+    helper: 'Despues de grabar, habilita QR, envio digital e impresion.',
+  },
 ]
+
+const toolDetails = {
+  QR: { title: 'QR de descarga', note: 'Crea un codigo para que el invitado descargue su archivo.' },
+  Print: { title: 'Impresion', note: 'Envia las copias seleccionadas a la impresora del evento.' },
+  Mail: { title: 'Email', note: 'Prepara el envio por correo con el archivo final.' },
+  SMS: { title: 'SMS', note: 'Genera un enlace corto para compartir por mensaje.' },
+  Drive: { title: 'Drive', note: 'Guarda el video en una carpeta de entrega.' },
+}
 
 const captureModeDetails = {
   Foto: {
@@ -165,6 +198,10 @@ const WebApp = () => {
   const modeDetails = captureModeDetails[selectedMode]
   const activeSteps = modeDetails.steps || shareSteps
   const isCapturing = capturePhase === 'capturing'
+  const currentTabIndex = setupTabs.findIndex((tab) => tab.id === activeTab)
+  const currentTab = setupTabs[currentTabIndex] || setupTabs[0]
+  const canGoBack = currentTabIndex > 0
+  const canGoNext = currentTabIndex < setupTabs.length - 1
   const selectedConfigValue = modeConfigValues[selectedMode]
   const controlLabel = `${selectedConfigValue} ${modeDetails.control.unit}`
   const hasRecording = captureCount > 0 || capturePhase === 'complete'
@@ -362,6 +399,92 @@ const WebApp = () => {
     setActiveTab(nextTab.id)
   }
 
+  const goToPreviousTab = () => {
+    const currentIndex = setupTabs.findIndex((tab) => tab.id === activeTab)
+    const previousTab = setupTabs[Math.max(currentIndex - 1, 0)]
+    setActiveTab(previousTab.id)
+  }
+
+  const getNextLabel = () => {
+    if (activeTab === 'evento') return 'Configurar modo'
+    if (activeTab === 'config') return 'Elegir diseno'
+    if (activeTab === 'diseno') return 'Ir a grabar'
+    if (activeTab === 'grabar') return hasRecording ? 'Ver salida' : 'Esperando captura'
+    return 'Finalizado'
+  }
+
+  const renderMobileStepNav = () => (
+    <View style={styles.mobileStepNav}>
+      <Pressable
+        onPress={goToPreviousTab}
+        disabled={!canGoBack}
+        style={[styles.mobileSecondaryButton, !canGoBack && styles.mobileButtonDisabled]}
+      >
+        <Text style={[styles.mobileSecondaryText, !canGoBack && styles.mobileButtonDisabledText]}>
+          Atras
+        </Text>
+      </Pressable>
+      <Pressable
+        onPress={goToNextTab}
+        disabled={(!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording)}
+        style={[
+          styles.mobileStepNavPrimary,
+          ((!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording)) &&
+            styles.mobileButtonDisabled,
+        ]}
+      >
+        <Text
+          style={[
+            styles.mobileStepNavPrimaryText,
+            ((!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording)) &&
+              styles.mobileButtonDisabledText,
+          ]}
+        >
+          {getNextLabel()}
+        </Text>
+      </Pressable>
+    </View>
+  )
+
+  const renderDesktopStepNav = () => (
+    <View style={styles.desktopStepNav}>
+      <Pressable
+        onPress={goToPreviousTab}
+        disabled={!canGoBack}
+        style={[styles.secondaryButton, !canGoBack && styles.disabledButton]}
+      >
+        <Text style={[styles.secondaryButtonText, !canGoBack && styles.disabledText]}>Atras</Text>
+      </Pressable>
+      <Pressable
+        onPress={goToNextTab}
+        disabled={(!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording)}
+        style={[
+          styles.printButton,
+          ((!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording)) &&
+            styles.printButtonDisabled,
+        ]}
+      >
+        <Text style={styles.printButtonText}>{getNextLabel()}</Text>
+      </Pressable>
+    </View>
+  )
+
+  const renderMobileFlowIntro = () => (
+    <View style={styles.mobileFlowIntro}>
+      <Text style={styles.mobileFlowStep}>Paso {currentTabIndex + 1} de {setupTabs.length}</Text>
+      <Text style={styles.mobileFlowTitle}>{currentTab.title}</Text>
+      <Text style={styles.mobileFlowText}>{currentTab.helper}</Text>
+    </View>
+  )
+
+  const renderDesktopFlowIntro = () => (
+    <View style={styles.flowIntro}>
+      <Text style={styles.flowStep}>Paso {currentTabIndex + 1} de {setupTabs.length}</Text>
+      <Text style={styles.flowTitle}>{currentTab.title}</Text>
+      <Text style={styles.flowText}>{currentTab.helper}</Text>
+    </View>
+  )
+
   const renderMobileTabs = () => (
     <ScrollView
       horizontal
@@ -372,10 +495,14 @@ const WebApp = () => {
         <Pressable
           key={tab.id}
           onPress={() => setActiveTab(tab.id)}
-          style={[styles.mobileTabButton, activeTab === tab.id && styles.mobileTabButtonActive]}
+          style={[
+            styles.mobileTabButton,
+            index < currentTabIndex && styles.mobileTabButtonDone,
+            activeTab === tab.id && styles.mobileTabButtonActive,
+          ]}
         >
           <Text style={[styles.mobileTabNumber, activeTab === tab.id && styles.mobileTabTextActive]}>
-            {index + 1}
+            {index < currentTabIndex ? 'OK' : index + 1}
           </Text>
           <Text style={[styles.mobileTabText, activeTab === tab.id && styles.mobileTabTextActive]}>
             {tab.label}
@@ -391,10 +518,14 @@ const WebApp = () => {
         <Pressable
           key={tab.id}
           onPress={() => setActiveTab(tab.id)}
-          style={[styles.desktopTabButton, activeTab === tab.id && styles.desktopTabButtonActive]}
+          style={[
+            styles.desktopTabButton,
+            index < currentTabIndex && styles.desktopTabButtonDone,
+            activeTab === tab.id && styles.desktopTabButtonActive,
+          ]}
         >
           <Text style={[styles.desktopTabIndex, activeTab === tab.id && styles.desktopTabTextActive]}>
-            {index + 1}
+            {index < currentTabIndex ? 'OK' : index + 1}
           </Text>
           <View>
             <Text style={[styles.desktopTabLabel, activeTab === tab.id && styles.desktopTabTextActive]}>
@@ -519,11 +650,15 @@ const WebApp = () => {
         </View>
 
         {renderMobileTabs()}
+        {renderMobileFlowIntro()}
 
         {activeTab === 'evento' && (
           <>
             <View style={styles.mobileSection}>
               <Text style={styles.mobileSectionTitle}>Nombre del evento</Text>
+              <Text style={styles.mobileMutedText}>
+                Este nombre aparece en el estado de captura y ayuda a identificar la sesion.
+              </Text>
               <TextInput
                 value={eventName}
                 onChangeText={setEventName}
@@ -538,6 +673,9 @@ const WebApp = () => {
                 <Text style={styles.mobileSectionTitle}>Tipo de captura</Text>
                 <Text style={styles.mobileAccentText}>{selectedMode}</Text>
               </View>
+              <Text style={styles.mobileMutedText}>
+                Escoge primero el formato. La siguiente pestaña cambia sus controles segun esta seleccion.
+              </Text>
               <View style={styles.mobileModes}>
                 {captureModes.map((mode) => (
                   <Pressable
@@ -561,9 +699,7 @@ const WebApp = () => {
               </View>
             </View>
 
-            <Pressable onPress={goToNextTab} style={styles.mobileCaptureButton}>
-              <Text style={styles.mobileCaptureButtonText}>Continuar configuracion</Text>
-            </Pressable>
+            {renderMobileStepNav()}
           </>
         )}
 
@@ -574,6 +710,7 @@ const WebApp = () => {
                 <Text style={styles.mobileSectionTitle}>{modeDetails.title}</Text>
                 <Text style={styles.mobileAccentText}>{displayBadge}</Text>
               </View>
+              <Text style={styles.mobileMutedText}>{modeDetails.instruction}</Text>
               <View style={styles.mobileConfigControl}>
                 <Text style={styles.mobileControlLabel}>{modeDetails.control.label}</Text>
                 <View style={styles.mobileControlStepper}>
@@ -608,9 +745,7 @@ const WebApp = () => {
               ))}
             </View>
 
-            <Pressable onPress={goToNextTab} style={styles.mobileCaptureButton}>
-              <Text style={styles.mobileCaptureButtonText}>Continuar diseno</Text>
-            </Pressable>
+            {renderMobileStepNav()}
           </>
         )}
 
@@ -621,6 +756,9 @@ const WebApp = () => {
                 <Text style={styles.mobileSectionTitle}>Filtros</Text>
                 <Text style={styles.mobileAccentText}>{selectedFilter}</Text>
               </View>
+              <Text style={styles.mobileMutedText}>
+                El filtro se aplica antes de generar la salida final.
+              </Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -653,6 +791,9 @@ const WebApp = () => {
                 <Text style={styles.mobileSectionTitle}>Plantillas</Text>
                 <Text style={styles.mobileAccentText}>{selectedTemplate.name}</Text>
               </View>
+              <Text style={styles.mobileMutedText}>
+                La plantilla define el estilo visual que vera el invitado al recibir su archivo.
+              </Text>
               <View style={styles.mobileTemplateGrid}>
                 {templates.map((template) => {
                   const active = selectedTemplate.id === template.id
@@ -670,13 +811,22 @@ const WebApp = () => {
               </View>
             </View>
 
-            <Pressable onPress={goToNextTab} style={styles.mobileCaptureButton}>
-              <Text style={styles.mobileCaptureButtonText}>Continuar a grabar</Text>
-            </Pressable>
+            {renderMobileStepNav()}
           </>
         )}
 
-        {activeTab === 'grabar' && renderMobilePreview()}
+        {activeTab === 'grabar' && (
+          <>
+            <View style={styles.mobileSection}>
+              <Text style={styles.mobileSectionTitle}>Antes de grabar</Text>
+              <Text style={styles.mobileMutedText}>
+                Acepta el permiso de camara, revisa el encuadre y mantén el celular estable.
+              </Text>
+            </View>
+            {renderMobilePreview()}
+            {renderMobileStepNav()}
+          </>
+        )}
 
         {activeTab === 'salida' && (
           <>
@@ -695,6 +845,9 @@ const WebApp = () => {
             {hasRecording && (
               <View style={styles.mobileSection}>
                 <Text style={styles.mobileSectionTitle}>Entrega</Text>
+                <Text style={styles.mobileMutedText}>
+                  Selecciona como va a recibir el invitado el resultado final.
+                </Text>
                 <View style={styles.mobileModes}>
                   {modeDetails.tools.map((tool) => (
                     <Pressable
@@ -702,7 +855,7 @@ const WebApp = () => {
                       onPress={() => runTool(tool)}
                       style={styles.mobileModeButton}
                     >
-                      <Text style={styles.mobileModeText}>{tool}</Text>
+                      <Text style={styles.mobileModeText}>{toolDetails[tool]?.title || tool}</Text>
                     </Pressable>
                   ))}
                 </View>
@@ -744,6 +897,7 @@ const WebApp = () => {
                 <Text style={styles.mobileCaptureButtonText}>Grabar primero</Text>
               </Pressable>
             )}
+            {hasRecording && renderMobileStepNav()}
           </>
         )}
       </ScrollView>
@@ -790,10 +944,12 @@ const WebApp = () => {
             <Text style={styles.desktopSectionTitle}>
               {setupTabs.find((tab) => tab.id === activeTab)?.title}
             </Text>
+            {renderDesktopFlowIntro()}
 
             {activeTab === 'evento' && (
               <>
                 <Text style={styles.panelLabel}>Nombre del evento</Text>
+                <Text style={styles.panelHelp}>Este nombre acompaña la sesion y aparece en los mensajes de estado.</Text>
                 <TextInput
                   value={eventName}
                   onChangeText={setEventName}
@@ -803,6 +959,7 @@ const WebApp = () => {
                 />
 
                 <Text style={styles.panelLabel}>Tipo de captura</Text>
+                <Text style={styles.panelHelp}>Elige el formato antes de configurar tiempos y salida.</Text>
                 <View style={styles.modeRow}>
                   {captureModes.map((mode) => (
                     <Pressable
@@ -868,6 +1025,7 @@ const WebApp = () => {
             {activeTab === 'diseno' && (
               <>
                 <Text style={styles.panelLabel}>Filtro</Text>
+                <Text style={styles.panelHelp}>Define el acabado visual antes de grabar.</Text>
                 <View style={styles.filterGrid}>
                   {filters.map((filter) => (
                     <Pressable
@@ -891,6 +1049,7 @@ const WebApp = () => {
                 </View>
 
                 <Text style={styles.panelLabel}>Plantilla</Text>
+                <Text style={styles.panelHelp}>Selecciona una plantilla base para el evento.</Text>
                 <View style={styles.templateGrid}>
                   {templates.map((template) => {
                     const active = selectedTemplate.id === template.id
@@ -953,7 +1112,7 @@ const WebApp = () => {
                     <View style={styles.modeRow}>
                       {modeDetails.tools.map((tool) => (
                         <Pressable key={tool} onPress={() => runTool(tool)} style={styles.modeButton}>
-                          <Text style={styles.modeButtonText}>{tool}</Text>
+                          <Text style={styles.modeButtonText}>{toolDetails[tool]?.title || tool}</Text>
                         </Pressable>
                       ))}
                     </View>
@@ -984,6 +1143,8 @@ const WebApp = () => {
                 )}
               </>
             )}
+            {activeTab !== 'salida' && renderDesktopStepNav()}
+            {activeTab === 'salida' && hasRecording && renderDesktopStepNav()}
           </View>
 
           <View style={styles.previewColumn}>
@@ -1179,8 +1340,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
     borderColor: colors.red,
   },
+  mobileTabButtonDone: {
+    backgroundColor: 'rgba(57, 169, 255, 0.18)',
+    borderColor: 'rgba(57, 169, 255, 0.42)',
+  },
   mobileTabNumber: {
-    width: 20,
+    width: 24,
     height: 20,
     borderRadius: 10,
     backgroundColor: 'rgba(255,255,255,0.16)',
@@ -1197,6 +1362,34 @@ const styles = StyleSheet.create({
   },
   mobileTabTextActive: {
     color: '#ffffff',
+  },
+  mobileFlowIntro: {
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e8ebef',
+    boxShadow: '0 12px 30px rgba(0,0,0,0.18)',
+  },
+  mobileFlowStep: {
+    color: colors.red,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  mobileFlowTitle: {
+    color: colors.ink,
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  mobileFlowText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    marginTop: 5,
   },
   mobileLightInput: {
     marginTop: 12,
@@ -1629,6 +1822,47 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
+  mobileStepNav: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  mobileSecondaryButton: {
+    flex: 0.82,
+    minHeight: 50,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileSecondaryText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  mobileStepNavPrimary: {
+    flex: 1.18,
+    minHeight: 50,
+    borderRadius: 8,
+    backgroundColor: colors.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  mobileStepNavPrimaryText: {
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mobileButtonDisabled: {
+    opacity: 0.46,
+  },
+  mobileButtonDisabledText: {
+    color: 'rgba(255,255,255,0.72)',
+  },
   mobileFilterScroll: {
     gap: 8,
     paddingTop: 12,
@@ -1788,6 +2022,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
     borderColor: colors.red,
   },
+  desktopTabButtonDone: {
+    borderColor: '#b8d5ff',
+    backgroundColor: '#eef5ff',
+  },
   desktopTabIndex: {
     width: 28,
     height: 28,
@@ -1839,6 +2077,32 @@ const styles = StyleSheet.create({
     lineHeight: 29,
     fontWeight: '900',
     marginBottom: 4,
+  },
+  flowIntro: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 14,
+  },
+  flowStep: {
+    color: colors.red,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  flowTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  flowText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    marginTop: 4,
   },
   desktopInput: {
     minHeight: 48,
@@ -2227,6 +2491,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+  panelHelp: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: -8,
+  },
   copyRow: {
     flexDirection: 'row',
     gap: 8,
@@ -2266,6 +2537,27 @@ const styles = StyleSheet.create({
   printButtonText: {
     color: '#ffffff',
     fontSize: 16,
+    fontWeight: '900',
+  },
+  desktopStepNav: {
+    marginTop: 'auto',
+    paddingTop: 6,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  secondaryButton: {
+    minHeight: 50,
+    minWidth: 126,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: colors.ink,
+    fontSize: 15,
     fontWeight: '900',
   },
   panel: {
