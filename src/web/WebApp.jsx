@@ -56,6 +56,40 @@ const templates = [
 
 const captureModes = ['Foto', 'GIF', 'Boomerang', 'Video', '360']
 const filters = ['Original', 'Glam', 'B/N', 'Brannan', 'Vintage']
+const experienceStyles = [
+  {
+    id: 'premium',
+    name: 'Premium',
+    mood: 'Limpio y elegante',
+    accent: '#0a4de8',
+    surface: '#eef5ff',
+    dark: '#071225',
+  },
+  {
+    id: 'neon',
+    name: 'Neon',
+    mood: 'Energia de fiesta',
+    accent: '#d72cff',
+    surface: '#f5e8ff',
+    dark: '#180523',
+  },
+  {
+    id: 'editorial',
+    name: 'Editorial',
+    mood: 'Foto social sobria',
+    accent: '#00a870',
+    surface: '#e8f8f1',
+    dark: '#072018',
+  },
+  {
+    id: 'celebracion',
+    name: 'Celebracion',
+    mood: 'Color y movimiento',
+    accent: '#ff9f1c',
+    surface: '#fff3df',
+    dark: '#261604',
+  },
+]
 const cameraSources = ['Frontal', 'Trasera', 'USB/DSLR']
 const orientations = ['Vertical', 'Horizontal', 'Cuadrado']
 const qualityOptions = ['HD', 'Full HD', '4K']
@@ -273,6 +307,7 @@ const WebApp = () => {
   const [selectedTemplate, setSelectedTemplate] = useState(templates[1])
   const [selectedMode, setSelectedMode] = useState('360')
   const [selectedFilter, setSelectedFilter] = useState('Original')
+  const [selectedExperienceStyle, setSelectedExperienceStyle] = useState('premium')
   const [copies, setCopies] = useState(1)
   const [eventName, setEventName] = useState('Viralco live booth')
   const [capturePhase, setCapturePhase] = useState('idle')
@@ -335,6 +370,8 @@ const WebApp = () => {
   const selectedPrintLayout = printLayoutDetails[printLayout] || printLayoutDetails.Digital
   const selectedExportPreset =
     exportPresets.find((preset) => preset.id === exportPreset) || exportPresets[0]
+  const visualStyle =
+    experienceStyles.find((style) => style.id === selectedExperienceStyle) || experienceStyles[0]
   const overlayReady = overlayMode !== 'Sin overlay'
   const overlayStatus = overlayImageUrl ? overlayFileName : `${selectedTemplate.name} como preview`
   const photoFramesNeeded = selectedMode === 'Foto' ? selectedPrintLayout.slots : 1
@@ -1592,6 +1629,114 @@ const WebApp = () => {
     )
   }
 
+  const renderExperienceStyleCards = (variant = 'desktop') => {
+    const isMobileLayout = variant === 'mobile'
+
+    return (
+      <View style={isMobileLayout ? styles.mobileExperienceGrid : styles.experienceGrid}>
+        {experienceStyles.map((style) => {
+          const active = style.id === selectedExperienceStyle
+
+          return (
+            <Pressable
+              key={style.id}
+              onPress={() => {
+                setSelectedExperienceStyle(style.id)
+                setActivityMessage(`Estilo ${style.name} aplicado al flujo visual`)
+              }}
+              style={[
+                isMobileLayout ? styles.mobileExperienceCard : styles.experienceCard,
+                active && (isMobileLayout ? styles.mobileExperienceCardActive : styles.experienceCardActive),
+              ]}
+            >
+              <View style={isMobileLayout ? styles.mobileExperienceSwatches : styles.experienceSwatches}>
+                <View style={[styles.experienceSwatch, { backgroundColor: style.accent }]} />
+                <View style={[styles.experienceSwatch, { backgroundColor: style.surface }]} />
+                <View style={[styles.experienceSwatch, { backgroundColor: style.dark }]} />
+              </View>
+              <Text style={isMobileLayout ? styles.mobileExperienceName : styles.experienceName}>
+                {style.name}
+              </Text>
+              <Text style={isMobileLayout ? styles.mobileExperienceMood : styles.experienceMood}>
+                {style.mood}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+    )
+  }
+
+  const renderLiveExperiencePreview = (variant = 'desktop') => {
+    const isMobileLayout = variant === 'mobile'
+    const previewStyles = isMobileLayout
+      ? {
+          shell: styles.mobileLivePreview,
+          stage: styles.mobileLiveStage,
+          top: styles.mobileLiveTop,
+          title: styles.mobileLiveTitle,
+          badge: styles.mobileLiveBadge,
+          media: styles.mobileLiveMedia,
+          image: styles.mobileLiveImage,
+          overlay: styles.mobileLiveOverlay,
+          dock: styles.mobileLiveDock,
+          action: styles.mobileLiveAction,
+          actionText: styles.mobileLiveActionText,
+          meta: styles.mobileLiveMeta,
+          metaText: styles.mobileLiveMetaText,
+        }
+      : {
+          shell: styles.livePreview,
+          stage: styles.liveStage,
+          top: styles.liveTop,
+          title: styles.liveTitle,
+          badge: styles.liveBadge,
+          media: styles.liveMedia,
+          image: styles.liveImage,
+          overlay: styles.liveOverlay,
+          dock: styles.liveDock,
+          action: styles.liveAction,
+          actionText: styles.liveActionText,
+          meta: styles.liveMeta,
+          metaText: styles.liveMetaText,
+        }
+
+    return (
+      <View style={[previewStyles.shell, { backgroundColor: visualStyle.dark }]}>
+        <View style={previewStyles.stage}>
+          <View style={previewStyles.top}>
+            <Text style={previewStyles.title}>{eventName || 'Viralco'}</Text>
+            <Text style={[previewStyles.badge, { backgroundColor: visualStyle.accent }]}>
+              {selectedMode}
+            </Text>
+          </View>
+          <View style={[previewStyles.media, { backgroundColor: visualStyle.surface }]}>
+            <Image source={selectedTemplate.image} style={previewStyles.image} />
+            {overlayReady && (
+              <Image
+                source={{ uri: overlayImageUrl || getTemplateImageUrl() }}
+                style={[previewStyles.overlay, { opacity: overlayOpacity / 100 }]}
+              />
+            )}
+          </View>
+          <View style={previewStyles.dock}>
+            {availableTools.slice(0, 4).map((tool) => (
+              <View key={tool} style={[previewStyles.action, { borderColor: visualStyle.accent }]}>
+                <Text style={[previewStyles.actionText, { color: visualStyle.accent }]}>
+                  {tool.slice(0, 2).toUpperCase()}
+                </Text>
+              </View>
+            ))}
+          </View>
+          <View style={previewStyles.meta}>
+            <Text style={previewStyles.metaText}>{visualStyle.name}</Text>
+            <Text style={previewStyles.metaText}>{selectedExportPreset.size}</Text>
+          </View>
+        </View>
+      </View>
+    )
+  }
+
   const renderMobileToggle = (label, value, onChange) => (
     <Pressable onPress={() => onChange(!value)} style={styles.mobileSettingRow}>
       <View style={[styles.mobileSettingDot, value && styles.mobileSettingDotActive]} />
@@ -1674,7 +1819,7 @@ const WebApp = () => {
     ['Camara', `${cameraSource}, ${orientation}, ${captureQuality}`],
     [
       'Diseno',
-      `${selectedTemplate.name}, ${selectedFilter}, ${selectedExportPreset.size}, ${
+      `${visualStyle.name}, ${selectedTemplate.name}, ${selectedFilter}, ${selectedExportPreset.size}, ${
         canPrintSelectedMode ? printLayout : 'Digital'
       }`,
     ],
@@ -1989,6 +2134,18 @@ const WebApp = () => {
                   </Pressable>
                 ))}
               </ScrollView>
+            </View>
+
+            <View style={styles.mobileSection}>
+              <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>Estilo visual</Text>
+                <Text style={styles.mobileAccentText}>{visualStyle.name}</Text>
+              </View>
+              <Text style={styles.mobileMutedText}>
+                Cambia la energia de la experiencia que ve el invitado en pantalla.
+              </Text>
+              {renderExperienceStyleCards('mobile')}
+              {renderLiveExperiencePreview('mobile')}
             </View>
 
             <View style={styles.mobileSection}>
@@ -2412,6 +2569,13 @@ const WebApp = () => {
                   ))}
                 </View>
 
+                <Text style={styles.panelLabel}>Estilo visual</Text>
+                <Text style={styles.panelHelp}>
+                  Cambia la sensacion de la experiencia del invitado sin tocar la plantilla base.
+                </Text>
+                {renderExperienceStyleCards('desktop')}
+                {renderLiveExperiencePreview('desktop')}
+
                 <Text style={styles.panelLabel}>Plantilla</Text>
                 <Text style={styles.panelHelp}>Selecciona una plantilla base para el evento.</Text>
                 <View style={styles.templateGrid}>
@@ -2692,6 +2856,7 @@ const WebApp = () => {
                   : `Al grabar se genera una vista previa de ${selectedMode} antes de compartir.`}
               </Text>
             </View>
+            {renderLiveExperiencePreview('desktop')}
           </View>
         </View>
       </View>
@@ -3461,6 +3626,136 @@ const styles = StyleSheet.create({
   mobileFilterTextActive: {
     color: '#ffffff',
   },
+  mobileExperienceGrid: {
+    marginTop: 12,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 9,
+  },
+  mobileExperienceCard: {
+    minHeight: 116,
+    borderRadius: 8,
+    backgroundColor: '#f7f9fc',
+    borderWidth: 1,
+    borderColor: '#dfe7f2',
+    padding: 10,
+    justifyContent: 'space-between',
+  },
+  mobileExperienceCardActive: {
+    borderColor: colors.red,
+    boxShadow: '0 8px 18px rgba(10, 77, 232, 0.22)',
+  },
+  mobileExperienceSwatches: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  experienceSwatch: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  mobileExperienceName: {
+    color: colors.ink,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+    marginTop: 10,
+  },
+  mobileExperienceMood: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  mobileLivePreview: {
+    marginTop: 12,
+    borderRadius: 8,
+    padding: 12,
+    overflow: 'hidden',
+  },
+  mobileLiveStage: {
+    minHeight: 360,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    padding: 12,
+    justifyContent: 'space-between',
+  },
+  mobileLiveTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  mobileLiveTitle: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '900',
+  },
+  mobileLiveBadge: {
+    color: '#ffffff',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  mobileLiveMedia: {
+    height: 220,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+    marginVertical: 12,
+  },
+  mobileLiveImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  mobileLiveOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    resizeMode: 'contain',
+  },
+  mobileLiveDock: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  mobileLiveAction: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileLiveActionText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  mobileLiveMeta: {
+    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  mobileLiveMetaText: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '800',
+  },
   mobileTemplateGrid: {
     marginTop: 12,
     display: 'grid',
@@ -4082,6 +4377,123 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: '700',
     marginTop: 8,
+  },
+  experienceGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: 10,
+  },
+  experienceCard: {
+    minHeight: 122,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 12,
+    justifyContent: 'space-between',
+  },
+  experienceCardActive: {
+    borderColor: colors.red,
+    boxShadow: '0 8px 24px rgba(10, 77, 232, 0.22)',
+  },
+  experienceSwatches: {
+    flexDirection: 'row',
+    gap: 7,
+  },
+  experienceName: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '900',
+    marginTop: 12,
+  },
+  experienceMood: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  livePreview: {
+    backgroundColor: '#071225',
+    padding: 16,
+    minHeight: 420,
+  },
+  liveStage: {
+    minHeight: 388,
+    backgroundColor: '#ffffff',
+    padding: 16,
+    justifyContent: 'space-between',
+  },
+  liveTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  liveTitle: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: '900',
+  },
+  liveBadge: {
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  liveMedia: {
+    height: 250,
+    overflow: 'hidden',
+    position: 'relative',
+    marginVertical: 16,
+  },
+  liveImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  liveOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    resizeMode: 'contain',
+  },
+  liveDock: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  liveAction: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  liveActionText: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  liveMeta: {
+    marginTop: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  liveMetaText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
   },
   overlayPreview: {
     minHeight: 220,
