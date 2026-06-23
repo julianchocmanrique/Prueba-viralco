@@ -134,6 +134,12 @@ const installChecklist = [
   'Elegir layout activo',
   'Probar QR e impresion',
 ]
+const overlayQualityChecks = [
+  'PNG con transparencia',
+  'Medida igual al preset',
+  'Foto dentro del area segura',
+  'Prueba impresa antes del evento',
+]
 const setupTabs = [
   {
     id: 'evento',
@@ -287,6 +293,10 @@ const WebApp = () => {
   const [overlayMode, setOverlayMode] = useState('Canva PNG transparente')
   const [overlayImportSource, setOverlayImportSource] = useState('Canva PNG')
   const [boothPlatform, setBoothPlatform] = useState('LumaBooth')
+  const [overlayFileName, setOverlayFileName] = useState('baby-shower-overlay.png')
+  const [overlayImageUrl, setOverlayImageUrl] = useState('')
+  const [overlayOpacity, setOverlayOpacity] = useState(90)
+  const [overlaySafeArea, setOverlaySafeArea] = useState(12)
   const [beautyLevel, setBeautyLevel] = useState(30)
   const [cameraStream, setCameraStream] = useState(null)
   const [cameraError, setCameraError] = useState('')
@@ -325,6 +335,8 @@ const WebApp = () => {
   const selectedPrintLayout = printLayoutDetails[printLayout] || printLayoutDetails.Digital
   const selectedExportPreset =
     exportPresets.find((preset) => preset.id === exportPreset) || exportPresets[0]
+  const overlayReady = overlayMode !== 'Sin overlay'
+  const overlayStatus = overlayImageUrl ? overlayFileName : `${selectedTemplate.name} como preview`
   const photoFramesNeeded = selectedMode === 'Foto' ? selectedPrintLayout.slots : 1
   const photoFramesReady = Math.min(photoFrames.length, photoFramesNeeded)
   const hasRecording = captureCount > 0 || capturePhase === 'complete'
@@ -437,6 +449,15 @@ const WebApp = () => {
       }
     },
     [recordingUrl],
+  )
+
+  useEffect(
+    () => () => {
+      if (overlayImageUrl) {
+        URL.revokeObjectURL(overlayImageUrl)
+      }
+    },
+    [overlayImageUrl],
   )
 
   const finishCapture = (message) => {
@@ -603,6 +624,27 @@ const WebApp = () => {
   const getTemplateImageUrl = () =>
     typeof selectedTemplate.image === 'string' ? selectedTemplate.image : selectedTemplate.image?.uri || ''
 
+  const handleOverlayFile = (event) => {
+    const file = event?.target?.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    if (overlayImageUrl) {
+      URL.revokeObjectURL(overlayImageUrl)
+    }
+
+    setOverlayImageUrl(URL.createObjectURL(file))
+    setOverlayFileName(file.name)
+    setOverlayMode('Canva PNG transparente')
+    setOverlayImportSource('Archivos')
+    setPhotoFrames([])
+    setPhotoPrintUrl('')
+    setCapturePhase('idle')
+    setActivityMessage(`${file.name} cargado como overlay PNG`)
+  }
+
   const loadCanvasImage = (source) =>
     new Promise((resolve, reject) => {
       if (!source || typeof window === 'undefined' || !window.Image) {
@@ -731,6 +773,7 @@ const WebApp = () => {
     context.fillRect(0, 0, width, height)
 
     let templateImage = null
+    let overlayImage = null
 
     try {
       templateImage = await loadCanvasImage(getTemplateImageUrl())
@@ -739,6 +782,10 @@ const WebApp = () => {
       context.globalAlpha = 1
     } catch {
       context.globalAlpha = 1
+    }
+
+    if (overlayReady) {
+      overlayImage = await loadCanvasImage(overlayImageUrl || getTemplateImageUrl()).catch(() => null)
     }
 
     const gradient = context.createLinearGradient(0, 0, width, height)
@@ -767,17 +814,17 @@ const WebApp = () => {
         drawCoverImage(context, image, slot.x, slot.y, slot.width, slot.height)
       }
 
-      if (templateImage) {
-        context.globalAlpha = 0.22
-        drawCoverImage(context, templateImage, slot.x, slot.y, slot.width, slot.height)
-        context.globalAlpha = 0.96
-        drawContainImage(context, templateImage, slot.x, slot.y, slot.width, slot.height)
+      if (overlayImage) {
+        context.globalAlpha = Math.max(0.15, overlayOpacity / 100) * 0.32
+        drawCoverImage(context, overlayImage, slot.x, slot.y, slot.width, slot.height)
+        context.globalAlpha = overlayOpacity / 100
+        drawContainImage(context, overlayImage, slot.x, slot.y, slot.width, slot.height)
         context.globalAlpha = 1
       }
       context.restore()
 
       context.lineWidth = Math.max(8, width * 0.012)
-      context.strokeStyle = templateImage ? 'rgba(255,255,255,0.9)' : '#ffffff'
+      context.strokeStyle = overlayImage ? 'rgba(255,255,255,0.9)' : '#ffffff'
       context.beginPath()
       roundedRectPath(context, slot.x, slot.y, slot.width, slot.height, radius)
       context.stroke()
@@ -789,7 +836,7 @@ const WebApp = () => {
     context.fillText(eventName || 'Viralco', width * 0.07, height * 0.075)
     context.font = `800 ${Math.round(width * (printLayout === 'Tira 2x6' ? 0.035 : 0.022))}px Arial`
     context.fillStyle = 'rgba(255,255,255,0.82)'
-    context.fillText(`${selectedTemplate.name} / ${selectedFilter} / ${printLayout}`, width * 0.07, height * 0.11)
+    context.fillText(`${selectedTemplate.name} / ${selectedFilter} / ${overlayMode}`, width * 0.07, height * 0.11)
 
     context.textAlign = 'right'
     context.font = `900 ${Math.round(width * (printLayout === 'Tira 2x6' ? 0.05 : 0.032))}px Arial`
@@ -1470,6 +1517,81 @@ const WebApp = () => {
     </View>
   )
 
+  const renderOverlayPreview = (variant = 'desktop') => {
+    const isMobileLayout = variant === 'mobile'
+    const sectionStyles = isMobileLayout
+      ? {
+          wrap: styles.mobileOverlayPreview,
+          media: styles.mobileOverlayMedia,
+          image: styles.mobileOverlayImage,
+          safe: styles.mobileOverlaySafeArea,
+          meta: styles.mobileOverlayMeta,
+          file: styles.mobileOverlayFile,
+          note: styles.mobileOverlayNote,
+          upload: styles.mobileUploadButton,
+          uploadText: styles.mobileUploadButtonText,
+        }
+      : {
+          wrap: styles.overlayPreview,
+          media: styles.overlayMedia,
+          image: styles.overlayImage,
+          safe: styles.overlaySafeArea,
+          meta: styles.overlayMeta,
+          file: styles.overlayFile,
+          note: styles.overlayNote,
+          upload: styles.uploadButton,
+          uploadText: styles.uploadButtonText,
+        }
+
+    return (
+      <View style={sectionStyles.wrap}>
+        <View style={sectionStyles.media}>
+          <Image
+            source={{ uri: overlayImageUrl || getTemplateImageUrl() }}
+            style={[sectionStyles.image, { opacity: overlayReady ? overlayOpacity / 100 : 0.28 }]}
+          />
+          <View
+            pointerEvents="none"
+            style={[
+              sectionStyles.safe,
+              {
+                top: `${overlaySafeArea}%`,
+                right: `${overlaySafeArea}%`,
+                bottom: `${overlaySafeArea}%`,
+                left: `${overlaySafeArea}%`,
+              },
+            ]}
+          />
+        </View>
+        <View style={sectionStyles.meta}>
+          <Text style={sectionStyles.file}>{overlayStatus}</Text>
+          <Text style={sectionStyles.note}>
+            {selectedExportPreset.size} / {overlayOpacity}% opacidad / {overlaySafeArea}% margen seguro
+          </Text>
+          <label style={sectionStyles.upload}>
+            <Text style={sectionStyles.uploadText}>Cargar PNG</Text>
+            <input accept="image/png,image/webp,image/jpeg" type="file" onChange={handleOverlayFile} style={{ display: 'none' }} />
+          </label>
+        </View>
+      </View>
+    )
+  }
+
+  const renderOverlayQualityChecks = (variant = 'desktop') => {
+    const isMobileLayout = variant === 'mobile'
+
+    return (
+      <View style={isMobileLayout ? styles.mobileQualityGrid : styles.qualityGrid}>
+        {overlayQualityChecks.map((check) => (
+          <View key={check} style={isMobileLayout ? styles.mobileQualityItem : styles.qualityItem}>
+            <View style={isMobileLayout ? styles.mobileQualityDot : styles.qualityDot} />
+            <Text style={isMobileLayout ? styles.mobileQualityText : styles.qualityText}>{check}</Text>
+          </View>
+        ))}
+      </View>
+    )
+  }
+
   const renderMobileToggle = (label, value, onChange) => (
     <Pressable onPress={() => onChange(!value)} style={styles.mobileSettingRow}>
       <View style={[styles.mobileSettingDot, value && styles.mobileSettingDotActive]} />
@@ -1556,7 +1678,10 @@ const WebApp = () => {
         canPrintSelectedMode ? printLayout : 'Digital'
       }`,
     ],
-    ['Overlay', `${overlayMode} desde ${overlayImportSource} para ${boothPlatform}`],
+    [
+      'Overlay',
+      `${overlayStatus}, ${overlayMode} desde ${overlayImportSource} para ${boothPlatform}, ${overlayOpacity}% / area ${overlaySafeArea}%`,
+    ],
     ['Efectos', `${backgroundMode}, retoque ${beautyLevel}%`],
     ['Salida', hasRecording ? availableTools.join(' / ') : 'Pendiente de grabar'],
   ]
@@ -1944,6 +2069,46 @@ const WebApp = () => {
               {renderMobileOptions(overlayImportSources, overlayImportSource, setOverlayImportSource)}
               <Text style={styles.mobileSubLabel}>Plataforma</Text>
               {renderMobileOptions(boothPlatforms, boothPlatform, setBoothPlatform)}
+              {renderOverlayPreview('mobile')}
+              <Text style={styles.mobileSubLabel}>Ajuste fino</Text>
+              <View style={styles.mobileControlPair}>
+                <View style={styles.mobileMiniControl}>
+                  <Text style={styles.mobileControlLabel}>Opacidad</Text>
+                  <View style={styles.mobileControlStepper}>
+                    <Pressable
+                      onPress={() => setOverlayOpacity((value) => Math.max(20, value - 10))}
+                      style={styles.mobileStepButton}
+                    >
+                      <Text style={styles.mobileStepButtonText}>-</Text>
+                    </Pressable>
+                    <Text style={styles.mobileControlValue}>{overlayOpacity}%</Text>
+                    <Pressable
+                      onPress={() => setOverlayOpacity((value) => Math.min(100, value + 10))}
+                      style={styles.mobileStepButton}
+                    >
+                      <Text style={styles.mobileStepButtonText}>+</Text>
+                    </Pressable>
+                  </View>
+                </View>
+                <View style={styles.mobileMiniControl}>
+                  <Text style={styles.mobileControlLabel}>Area segura</Text>
+                  <View style={styles.mobileControlStepper}>
+                    <Pressable
+                      onPress={() => setOverlaySafeArea((value) => Math.max(4, value - 2))}
+                      style={styles.mobileStepButton}
+                    >
+                      <Text style={styles.mobileStepButtonText}>-</Text>
+                    </Pressable>
+                    <Text style={styles.mobileControlValue}>{overlaySafeArea}%</Text>
+                    <Pressable
+                      onPress={() => setOverlaySafeArea((value) => Math.min(24, value + 2))}
+                      style={styles.mobileStepButton}
+                    >
+                      <Text style={styles.mobileStepButtonText}>+</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
               <View style={styles.mobileConfigControl}>
                 <Text style={styles.mobileControlLabel}>Retoque invitado</Text>
                 <View style={styles.mobileControlStepper}>
@@ -1963,6 +2128,7 @@ const WebApp = () => {
                 </View>
                 <Text style={styles.mobileControlLimit}>Min 0 / Max 100%</Text>
               </View>
+              {renderOverlayQualityChecks('mobile')}
               {renderMobileInstallChecklist()}
             </View>
 
@@ -2311,6 +2477,46 @@ const WebApp = () => {
                 {renderDesktopOptions(overlayImportSources, overlayImportSource, setOverlayImportSource)}
                 <Text style={styles.panelLabel}>Plataforma destino</Text>
                 {renderDesktopOptions(boothPlatforms, boothPlatform, setBoothPlatform)}
+                {renderOverlayPreview('desktop')}
+                <Text style={styles.panelLabel}>Ajuste fino</Text>
+                <View style={styles.controlSplit}>
+                  <View style={styles.configControl}>
+                    <Text style={styles.configControlLabel}>Opacidad overlay</Text>
+                    <View style={styles.configControlRow}>
+                      <Pressable
+                        onPress={() => setOverlayOpacity((value) => Math.max(20, value - 10))}
+                        style={styles.configStepButton}
+                      >
+                        <Text style={styles.configStepText}>-</Text>
+                      </Pressable>
+                      <Text style={styles.configValue}>{overlayOpacity}%</Text>
+                      <Pressable
+                        onPress={() => setOverlayOpacity((value) => Math.min(100, value + 10))}
+                        style={styles.configStepButton}
+                      >
+                        <Text style={styles.configStepText}>+</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                  <View style={styles.configControl}>
+                    <Text style={styles.configControlLabel}>Area segura</Text>
+                    <View style={styles.configControlRow}>
+                      <Pressable
+                        onPress={() => setOverlaySafeArea((value) => Math.max(4, value - 2))}
+                        style={styles.configStepButton}
+                      >
+                        <Text style={styles.configStepText}>-</Text>
+                      </Pressable>
+                      <Text style={styles.configValue}>{overlaySafeArea}%</Text>
+                      <Pressable
+                        onPress={() => setOverlaySafeArea((value) => Math.min(24, value + 2))}
+                        style={styles.configStepButton}
+                      >
+                        <Text style={styles.configStepText}>+</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
                 <View style={styles.configControl}>
                   <Text style={styles.configControlLabel}>Retoque invitado</Text>
                   <View style={styles.configControlRow}>
@@ -2330,6 +2536,7 @@ const WebApp = () => {
                   </View>
                   <Text style={styles.configLimit}>Min 0 / Max 100%</Text>
                 </View>
+                {renderOverlayQualityChecks('desktop')}
                 {renderDesktopInstallChecklist()}
               </>
             )}
@@ -3366,6 +3573,106 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 5,
   },
+  mobileOverlayPreview: {
+    marginTop: 12,
+    borderRadius: 8,
+    backgroundColor: '#f7f9fc',
+    borderWidth: 1,
+    borderColor: '#dfe7f2',
+    overflow: 'hidden',
+  },
+  mobileOverlayMedia: {
+    height: 220,
+    position: 'relative',
+    backgroundColor: '#dfe7f2',
+    backgroundImage:
+      'linear-gradient(45deg, rgba(255,255,255,0.85) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.85) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.85) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.85) 75%)',
+    backgroundSize: '24px 24px',
+    backgroundPosition: '0 0, 0 12px, 12px -12px, -12px 0px',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileOverlayImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'contain',
+  },
+  mobileOverlaySafeArea: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: colors.red,
+    borderStyle: 'dashed',
+    backgroundColor: 'rgba(10,77,232,0.06)',
+  },
+  mobileOverlayMeta: {
+    padding: 11,
+    gap: 5,
+  },
+  mobileOverlayFile: {
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  mobileOverlayNote: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+  },
+  mobileUploadButton: {
+    marginTop: 6,
+    minHeight: 38,
+    borderRadius: 8,
+    backgroundColor: colors.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+    cursor: 'pointer',
+  },
+  mobileUploadButtonText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  mobileControlPair: {
+    marginTop: 10,
+    gap: 10,
+  },
+  mobileMiniControl: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#eef5ff',
+    borderWidth: 1,
+    borderColor: '#b8d5ff',
+  },
+  mobileQualityGrid: {
+    marginTop: 12,
+    gap: 8,
+  },
+  mobileQualityItem: {
+    minHeight: 38,
+    borderRadius: 8,
+    backgroundColor: '#f7f9fc',
+    borderWidth: 1,
+    borderColor: '#dfe7f2',
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  mobileQualityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.red,
+  },
+  mobileQualityText: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
   mobileChecklist: {
     marginTop: 12,
     gap: 8,
@@ -3776,6 +4083,70 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 8,
   },
+  overlayPreview: {
+    minHeight: 220,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    flexDirection: 'row',
+    overflow: 'hidden',
+  },
+  overlayMedia: {
+    width: 190,
+    position: 'relative',
+    backgroundColor: '#dfe7f2',
+    backgroundImage:
+      'linear-gradient(45deg, rgba(255,255,255,0.85) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.85) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.85) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.85) 75%)',
+    backgroundSize: '24px 24px',
+    backgroundPosition: '0 0, 0 12px, 12px -12px, -12px 0px',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  overlayImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'contain',
+  },
+  overlaySafeArea: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: colors.red,
+    borderStyle: 'dashed',
+    backgroundColor: 'rgba(10,77,232,0.06)',
+  },
+  overlayMeta: {
+    flex: 1,
+    padding: 14,
+    justifyContent: 'center',
+    gap: 8,
+  },
+  overlayFile: {
+    color: colors.ink,
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '900',
+  },
+  overlayNote: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  uploadButton: {
+    marginTop: 4,
+    minHeight: 42,
+    width: 132,
+    borderRadius: 8,
+    backgroundColor: colors.red,
+    justifyContent: 'center',
+    alignItems: 'center',
+    cursor: 'pointer',
+  },
+  uploadButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
   finalPhotoPanel: {
     minHeight: 178,
     backgroundColor: '#ffffff',
@@ -3800,6 +4171,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#b8d5ff',
     padding: 14,
+  },
+  controlSplit: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
   },
   configControlLabel: {
     color: colors.ink,
@@ -3920,6 +4296,34 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 13,
     lineHeight: 17,
+    fontWeight: '800',
+  },
+  qualityGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 8,
+  },
+  qualityItem: {
+    minHeight: 40,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  qualityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.red,
+  },
+  qualityText: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '800',
   },
   disabledButton: {
