@@ -60,7 +60,9 @@ const cameraSources = ['Frontal', 'Trasera', 'USB/DSLR']
 const orientations = ['Vertical', 'Horizontal', 'Cuadrado']
 const qualityOptions = ['HD', 'Full HD', '4K']
 const backgroundOptions = ['Original', 'Desenfoque', 'Color marca', 'Green screen']
-const overlayOptions = ['Sin overlay', 'Marco Viralco', 'Logo + fecha', 'Sponsor']
+const overlayOptions = ['Sin overlay', 'Canva PNG transparente', 'Marco Viralco', 'Logo + fecha', 'Sponsor']
+const overlayImportSources = ['Canva PNG', 'Fototeca', 'Archivos', 'Google Drive']
+const boothPlatforms = ['LumaBooth', 'DSLR Booth', 'Mirror Booth', 'Viralco web']
 const printLayouts = ['Digital', 'Tira 2x6', 'Postal 4x6', 'Varias fotos']
 const printLayoutDetails = {
   Digital: {
@@ -96,6 +98,42 @@ const printLayoutDetails = {
     printAspect: '4 / 3',
   },
 }
+const exportPresets = [
+  {
+    id: 'mirror-portrait',
+    name: 'Mirror Booth',
+    size: '1200 x 1800 px',
+    note: 'Overlay vertical transparente como el flujo del video.',
+    layout: 'Digital',
+  },
+  {
+    id: 'strip-2x6',
+    name: 'Tira 2x6',
+    size: '600 x 1800 px',
+    note: 'Tres fotos apiladas para imprimir o guardar.',
+    layout: 'Tira 2x6',
+  },
+  {
+    id: 'postcard-4x6',
+    name: 'Postal 4x6',
+    size: '1800 x 1200 px',
+    note: 'Postal horizontal para marcos grandes.',
+    layout: 'Postal 4x6',
+  },
+  {
+    id: 'social-vertical',
+    name: 'Historia vertical',
+    size: '1080 x 1920 px',
+    note: 'Entrega digital para WhatsApp e historias.',
+    layout: 'Digital',
+  },
+]
+const installChecklist = [
+  'Exportar PNG con fondo transparente',
+  'Subir como superposicion',
+  'Elegir layout activo',
+  'Probar QR e impresion',
+]
 const setupTabs = [
   {
     id: 'evento',
@@ -118,14 +156,14 @@ const setupTabs = [
   {
     id: 'diseno',
     label: 'Diseno',
-    title: 'Plantilla y salida visual',
-    helper: 'Escoge filtro, plantilla y formato de impresion o entrega digital.',
+    title: 'Plantilla y exportacion',
+    helper: 'Escoge filtro, plantilla, tamano de exportacion y formato de entrega.',
   },
   {
     id: 'efectos',
-    label: 'Efectos',
-    title: 'Fondos y overlays',
-    helper: 'Prepara fondo, overlay, retoque y opciones que vera el invitado.',
+    label: 'Overlay',
+    title: 'Fondos y superposicion',
+    helper: 'Prepara el overlay transparente, su origen y la plataforma donde se instalara.',
   },
   {
     id: 'grabar',
@@ -244,8 +282,11 @@ const WebApp = () => {
   const [saveOriginal, setSaveOriginal] = useState(true)
   const [audioEnabled, setAudioEnabled] = useState(true)
   const [printLayout, setPrintLayout] = useState('Digital')
+  const [exportPreset, setExportPreset] = useState(exportPresets[0].id)
   const [backgroundMode, setBackgroundMode] = useState('Original')
-  const [overlayMode, setOverlayMode] = useState('Marco Viralco')
+  const [overlayMode, setOverlayMode] = useState('Canva PNG transparente')
+  const [overlayImportSource, setOverlayImportSource] = useState('Canva PNG')
+  const [boothPlatform, setBoothPlatform] = useState('LumaBooth')
   const [beautyLevel, setBeautyLevel] = useState(30)
   const [cameraStream, setCameraStream] = useState(null)
   const [cameraError, setCameraError] = useState('')
@@ -282,6 +323,8 @@ const WebApp = () => {
   const selectedConfigValue = modeConfigValues[selectedMode]
   const controlLabel = `${selectedConfigValue} ${modeDetails.control.unit}`
   const selectedPrintLayout = printLayoutDetails[printLayout] || printLayoutDetails.Digital
+  const selectedExportPreset =
+    exportPresets.find((preset) => preset.id === exportPreset) || exportPresets[0]
   const photoFramesNeeded = selectedMode === 'Foto' ? selectedPrintLayout.slots : 1
   const photoFramesReady = Math.min(photoFrames.length, photoFramesNeeded)
   const hasRecording = captureCount > 0 || capturePhase === 'complete'
@@ -1288,6 +1331,19 @@ const WebApp = () => {
     }
   }
 
+  const chooseExportPreset = (preset) => {
+    setExportPreset(preset.id)
+    setPhotoFrames([])
+    setPhotoPrintUrl('')
+
+    if (selectedMode === 'Foto' && preset.layout) {
+      setPrintLayout(preset.layout)
+      setCapturePhase('idle')
+    }
+
+    setActivityMessage(`${preset.name} configurado a ${preset.size} con PNG transparente`)
+  }
+
   const getLayoutPreviewSlots = (layout) => {
     if (layout === 'Tira 2x6') {
       return [
@@ -1356,6 +1412,63 @@ const WebApp = () => {
       </View>
     )
   }
+
+  const renderExportPresetCards = (variant = 'desktop') => {
+    const isMobileLayout = variant === 'mobile'
+
+    return (
+      <View style={isMobileLayout ? styles.mobilePresetGrid : styles.exportPresetGrid}>
+        {exportPresets.map((preset) => {
+          const active = selectedExportPreset.id === preset.id
+
+          return (
+            <Pressable
+              key={preset.id}
+              onPress={() => chooseExportPreset(preset)}
+              style={[
+                isMobileLayout ? styles.mobilePresetCard : styles.exportPresetCard,
+                active && (isMobileLayout ? styles.mobilePresetCardActive : styles.exportPresetCardActive),
+              ]}
+            >
+              <View style={isMobileLayout ? styles.mobilePresetHeader : styles.exportPresetHeader}>
+                <Text style={isMobileLayout ? styles.mobilePresetName : styles.exportPresetName}>
+                  {preset.name}
+                </Text>
+                <Text style={isMobileLayout ? styles.mobilePresetSize : styles.exportPresetSize}>
+                  {preset.size}
+                </Text>
+              </View>
+              <Text style={isMobileLayout ? styles.mobilePresetNote : styles.exportPresetNote}>
+                {preset.note}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+    )
+  }
+
+  const renderMobileInstallChecklist = () => (
+    <View style={styles.mobileChecklist}>
+      {installChecklist.map((item, index) => (
+        <View key={item} style={styles.mobileChecklistRow}>
+          <Text style={styles.mobileChecklistNumber}>{index + 1}</Text>
+          <Text style={styles.mobileChecklistText}>{item}</Text>
+        </View>
+      ))}
+    </View>
+  )
+
+  const renderDesktopInstallChecklist = () => (
+    <View style={styles.installChecklist}>
+      {installChecklist.map((item, index) => (
+        <View key={item} style={styles.installChecklistRow}>
+          <Text style={styles.installChecklistNumber}>{index + 1}</Text>
+          <Text style={styles.installChecklistText}>{item}</Text>
+        </View>
+      ))}
+    </View>
+  )
 
   const renderMobileToggle = (label, value, onChange) => (
     <Pressable onPress={() => onChange(!value)} style={styles.mobileSettingRow}>
@@ -1437,8 +1550,14 @@ const WebApp = () => {
     ['Evento', eventName],
     ['Captura', `${selectedMode} - ${controlLabel}`],
     ['Camara', `${cameraSource}, ${orientation}, ${captureQuality}`],
-    ['Diseno', `${selectedTemplate.name}, ${selectedFilter}, ${canPrintSelectedMode ? printLayout : 'Digital'}`],
-    ['Efectos', `${backgroundMode}, ${overlayMode}, retoque ${beautyLevel}%`],
+    [
+      'Diseno',
+      `${selectedTemplate.name}, ${selectedFilter}, ${selectedExportPreset.size}, ${
+        canPrintSelectedMode ? printLayout : 'Digital'
+      }`,
+    ],
+    ['Overlay', `${overlayMode} desde ${overlayImportSource} para ${boothPlatform}`],
+    ['Efectos', `${backgroundMode}, retoque ${beautyLevel}%`],
     ['Salida', hasRecording ? availableTools.join(' / ') : 'Pendiente de grabar'],
   ]
 
@@ -1777,6 +1896,10 @@ const WebApp = () => {
                 <Text style={styles.mobileSectionTitle}>Formato final</Text>
                 <Text style={styles.mobileAccentText}>{canPrintSelectedMode ? printLayout : 'Digital'}</Text>
               </View>
+              <Text style={styles.mobileMutedText}>
+                Usa un tamano listo para exportar desde Canva como PNG transparente.
+              </Text>
+              {renderExportPresetCards('mobile')}
               {canPrintSelectedMode ? (
                 <>
                   {renderPhotoLayoutCards('mobile')}
@@ -1813,7 +1936,14 @@ const WebApp = () => {
                 <Text style={styles.mobileSectionTitle}>Overlay</Text>
                 <Text style={styles.mobileAccentText}>{overlayMode}</Text>
               </View>
+              <Text style={styles.mobileMutedText}>
+                El video usa un PNG transparente cargado como superposicion; esta seccion deja listo ese paso.
+              </Text>
               {renderMobileOptions(overlayOptions, overlayMode, setOverlayMode)}
+              <Text style={styles.mobileSubLabel}>Origen</Text>
+              {renderMobileOptions(overlayImportSources, overlayImportSource, setOverlayImportSource)}
+              <Text style={styles.mobileSubLabel}>Plataforma</Text>
+              {renderMobileOptions(boothPlatforms, boothPlatform, setBoothPlatform)}
               <View style={styles.mobileConfigControl}>
                 <Text style={styles.mobileControlLabel}>Retoque invitado</Text>
                 <View style={styles.mobileControlStepper}>
@@ -1833,6 +1963,7 @@ const WebApp = () => {
                 </View>
                 <Text style={styles.mobileControlLimit}>Min 0 / Max 100%</Text>
               </View>
+              {renderMobileInstallChecklist()}
             </View>
 
             {renderMobileStepNav()}
@@ -1949,6 +2080,7 @@ const WebApp = () => {
                   <Text style={styles.mobileSummaryValue}>{value}</Text>
                 </View>
               ))}
+              {renderMobileInstallChecklist()}
             </View>
             {renderMobileStepNav()}
           </>
@@ -2141,6 +2273,12 @@ const WebApp = () => {
                     ? 'Define si la salida se prepara para digital o impresion.'
                     : 'Este modo se entrega como archivo digital y no muestra opciones de impresion.'}
                 </Text>
+                <Text style={styles.panelLabel}>Tamano de exportacion</Text>
+                <Text style={styles.panelHelp}>
+                  Presets inspirados en el flujo del video: crear en Canva, descargar PNG transparente y
+                  subirlo como superposicion.
+                </Text>
+                {renderExportPresetCards('desktop')}
                 {canPrintSelectedMode ? (
                   <>
                     {renderPhotoLayoutCards('desktop')}
@@ -2169,6 +2307,10 @@ const WebApp = () => {
                 {renderDesktopOptions(backgroundOptions, backgroundMode, setBackgroundMode)}
                 <Text style={styles.panelLabel}>Overlay</Text>
                 {renderDesktopOptions(overlayOptions, overlayMode, setOverlayMode)}
+                <Text style={styles.panelLabel}>Origen del overlay</Text>
+                {renderDesktopOptions(overlayImportSources, overlayImportSource, setOverlayImportSource)}
+                <Text style={styles.panelLabel}>Plataforma destino</Text>
+                {renderDesktopOptions(boothPlatforms, boothPlatform, setBoothPlatform)}
                 <View style={styles.configControl}>
                   <Text style={styles.configControlLabel}>Retoque invitado</Text>
                   <View style={styles.configControlRow}>
@@ -2188,6 +2330,7 @@ const WebApp = () => {
                   </View>
                   <Text style={styles.configLimit}>Min 0 / Max 100%</Text>
                 </View>
+                {renderDesktopInstallChecklist()}
               </>
             )}
 
@@ -2298,6 +2441,7 @@ const WebApp = () => {
                     <Text style={styles.summaryValue}>{value}</Text>
                   </View>
                 ))}
+                {renderDesktopInstallChecklist()}
               </>
             )}
             {activeTab !== 'salida' && renderDesktopStepNav()}
@@ -3180,6 +3324,81 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 3,
   },
+  mobilePresetGrid: {
+    marginTop: 12,
+    gap: 9,
+  },
+  mobilePresetCard: {
+    borderRadius: 8,
+    backgroundColor: '#f7f9fc',
+    borderWidth: 1,
+    borderColor: '#dfe7f2',
+    padding: 11,
+  },
+  mobilePresetCardActive: {
+    borderColor: colors.red,
+    boxShadow: '0 8px 18px rgba(10, 77, 232, 0.22)',
+  },
+  mobilePresetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    alignItems: 'center',
+  },
+  mobilePresetName: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  mobilePresetSize: {
+    color: colors.red,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  mobilePresetNote: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 5,
+  },
+  mobileChecklist: {
+    marginTop: 12,
+    gap: 8,
+  },
+  mobileChecklistRow: {
+    minHeight: 42,
+    borderRadius: 8,
+    backgroundColor: '#f7f9fc',
+    borderWidth: 1,
+    borderColor: '#dfe7f2',
+    padding: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  mobileChecklistNumber: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.red,
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 24,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mobileChecklistText: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
   mobileFinalPhotoBox: {
     marginBottom: 14,
     gap: 10,
@@ -3518,6 +3737,45 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 4,
   },
+  exportPresetGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  exportPresetCard: {
+    minHeight: 104,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 13,
+    justifyContent: 'space-between',
+  },
+  exportPresetCardActive: {
+    borderColor: colors.red,
+    boxShadow: '0 8px 24px rgba(10, 77, 232, 0.22)',
+  },
+  exportPresetHeader: {
+    gap: 5,
+  },
+  exportPresetName: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '900',
+  },
+  exportPresetSize: {
+    color: colors.red,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  exportPresetNote: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 8,
+  },
   finalPhotoPanel: {
     minHeight: 178,
     backgroundColor: '#ffffff',
@@ -3632,6 +3890,37 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '800',
     marginTop: 4,
+  },
+  installChecklist: {
+    gap: 8,
+  },
+  installChecklistRow: {
+    minHeight: 42,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  installChecklistNumber: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.red,
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 24,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  installChecklistText: {
+    flex: 1,
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   disabledButton: {
     opacity: 0.46,
