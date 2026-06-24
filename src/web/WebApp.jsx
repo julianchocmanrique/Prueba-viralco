@@ -54,6 +54,7 @@ const templates = [
   },
 ]
 
+const eventTypes = ['Boda', 'Cumpleanos', 'Corporativo', 'Baby shower', 'Grado', 'Fiesta privada']
 const captureModes = ['Foto', 'GIF', 'Boomerang', 'Video', '360']
 const filters = ['Original', 'Glam', 'B/N', 'Brannan', 'Vintage']
 const experienceStyles = [
@@ -178,8 +179,8 @@ const setupTabs = [
   {
     id: 'evento',
     label: 'Evento',
-    title: 'Nombre y captura',
-    helper: 'Define el evento y el formato que va a usar el invitado.',
+    title: 'Nombre y tipo de evento',
+    helper: 'Primero completa solo estos dos datos para desbloquear el resto.',
   },
   {
     id: 'captura',
@@ -309,9 +310,10 @@ const WebApp = () => {
   const [selectedFilter, setSelectedFilter] = useState('Original')
   const [selectedExperienceStyle, setSelectedExperienceStyle] = useState('premium')
   const [copies, setCopies] = useState(1)
-  const [eventName, setEventName] = useState('Viralco live booth')
+  const [eventName, setEventName] = useState('')
+  const [eventType, setEventType] = useState('')
   const [capturePhase, setCapturePhase] = useState('idle')
-  const [activityMessage, setActivityMessage] = useState('Camara lista')
+  const [activityMessage, setActivityMessage] = useState('Completa nombre y tipo de evento')
   const [captureCount, setCaptureCount] = useState(0)
   const [activeTab, setActiveTab] = useState('evento')
   const [cameraSource, setCameraSource] = useState('Frontal')
@@ -365,6 +367,9 @@ const WebApp = () => {
   const currentTab = setupTabs[currentTabIndex] || setupTabs[0]
   const canGoBack = currentTabIndex > 0
   const canGoNext = currentTabIndex < setupTabs.length - 1
+  const eventBasicsComplete = Boolean(eventName.trim() && eventType)
+  const eventTitle = eventName.trim() || 'Evento Viralco'
+  const isTabLocked = (index) => index > 0 && !eventBasicsComplete
   const selectedConfigValue = modeConfigValues[selectedMode]
   const controlLabel = `${selectedConfigValue} ${modeDetails.control.unit}`
   const selectedPrintLayout = printLayoutDetails[printLayout] || printLayoutDetails.Digital
@@ -377,6 +382,9 @@ const WebApp = () => {
   const photoFramesNeeded = selectedMode === 'Foto' ? selectedPrintLayout.slots : 1
   const photoFramesReady = Math.min(photoFrames.length, photoFramesNeeded)
   const hasRecording = captureCount > 0 || capturePhase === 'complete'
+  const nextDisabled =
+    (activeTab === 'evento' && !eventBasicsComplete) ||
+    ((!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording))
   const hasCamera = Boolean(cameraStream)
   const outputReady = capturePhase === 'complete'
   const idleCountdown =
@@ -870,7 +878,7 @@ const WebApp = () => {
     context.fillStyle = '#ffffff'
     context.font = `900 ${Math.round(width * (printLayout === 'Tira 2x6' ? 0.062 : 0.04))}px Arial`
     context.textAlign = 'left'
-    context.fillText(eventName || 'Viralco', width * 0.07, height * 0.075)
+    context.fillText(eventTitle, width * 0.07, height * 0.075)
     context.font = `800 ${Math.round(width * (printLayout === 'Tira 2x6' ? 0.035 : 0.022))}px Arial`
     context.fillStyle = 'rgba(255,255,255,0.82)'
     context.fillText(`${selectedTemplate.name} / ${selectedFilter} / ${overlayMode}`, width * 0.07, height * 0.11)
@@ -897,7 +905,7 @@ const WebApp = () => {
   const buildPrintablePhoto = () => {
     const templateImageUrl = getTemplateImageUrl()
     const imageUrl = escapeHtml(photoPrintUrl || templateImageUrl)
-    const safeEventName = escapeHtml(eventName)
+    const safeEventName = escapeHtml(eventTitle)
     const safeFilter = escapeHtml(selectedFilter)
     const safeTemplateName = escapeHtml(selectedTemplate.name)
     const layoutLabel = printLayout === 'Digital' ? 'Foto digital' : printLayout
@@ -1193,7 +1201,7 @@ const WebApp = () => {
       typeof window !== 'undefined'
         ? window.location.href
         : 'https://www.viralcoproducciones.com/prueba-viralco/'
-    const shareText = `${eventName}: ${modeDetails.output} de Viralco listo para compartir. ${pageUrl}`
+    const shareText = `${eventTitle}: ${modeDetails.output} de Viralco listo para compartir. ${pageUrl}`
     const encodedText = encodeURIComponent(shareText)
     const encodedUrl = encodeURIComponent(pageUrl)
     const openExternal = (url) => {
@@ -1223,7 +1231,7 @@ const WebApp = () => {
     }
 
     if (tool === 'Mail' && typeof window !== 'undefined') {
-      window.location.href = `mailto:?subject=${encodeURIComponent(`Captura Viralco - ${eventName}`)}&body=${encodedText}`
+      window.location.href = `mailto:?subject=${encodeURIComponent(`Captura Viralco - ${eventTitle}`)}&body=${encodedText}`
     }
 
     if (tool === 'SMS' && typeof window !== 'undefined') {
@@ -1239,6 +1247,11 @@ const WebApp = () => {
   }
 
   const goToNextTab = () => {
+    if (activeTab === 'evento' && !eventBasicsComplete) {
+      setActivityMessage('Primero escribe el nombre y selecciona el tipo de evento')
+      return
+    }
+
     const currentIndex = setupTabs.findIndex((tab) => tab.id === activeTab)
     const nextTab = setupTabs[Math.min(currentIndex + 1, setupTabs.length - 1)]
     setActiveTab(nextTab.id)
@@ -1251,7 +1264,7 @@ const WebApp = () => {
   }
 
   const getNextLabel = () => {
-    if (activeTab === 'evento') return 'Configurar captura'
+    if (activeTab === 'evento') return eventBasicsComplete ? 'Configurar captura' : 'Completa evento'
     if (activeTab === 'captura') return 'Configurar camara'
     if (activeTab === 'camara') return 'Elegir diseno'
     if (activeTab === 'diseno') return 'Elegir efectos'
@@ -1274,18 +1287,16 @@ const WebApp = () => {
       </Pressable>
       <Pressable
         onPress={goToNextTab}
-        disabled={(!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording)}
+        disabled={nextDisabled}
         style={[
           styles.mobileStepNavPrimary,
-          ((!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording)) &&
-            styles.mobileButtonDisabled,
+          nextDisabled && styles.mobileButtonDisabled,
         ]}
       >
         <Text
           style={[
             styles.mobileStepNavPrimaryText,
-            ((!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording)) &&
-              styles.mobileButtonDisabledText,
+            nextDisabled && styles.mobileButtonDisabledText,
           ]}
         >
           {getNextLabel()}
@@ -1305,11 +1316,10 @@ const WebApp = () => {
       </Pressable>
       <Pressable
         onPress={goToNextTab}
-        disabled={(!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording)}
+        disabled={nextDisabled}
         style={[
           styles.printButton,
-          ((!canGoNext && activeTab !== 'grabar') || (activeTab === 'grabar' && !hasRecording)) &&
-            styles.printButtonDisabled,
+          nextDisabled && styles.printButtonDisabled,
         ]}
       >
         <Text style={styles.printButtonText}>{getNextLabel()}</Text>
@@ -1705,7 +1715,7 @@ const WebApp = () => {
       <View style={[previewStyles.shell, { backgroundColor: visualStyle.dark }]}>
         <View style={previewStyles.stage}>
           <View style={previewStyles.top}>
-            <Text style={previewStyles.title}>{eventName || 'Viralco'}</Text>
+            <Text style={previewStyles.title}>{eventTitle}</Text>
             <Text style={[previewStyles.badge, { backgroundColor: visualStyle.accent }]}>
               {selectedMode}
             </Text>
@@ -1814,7 +1824,7 @@ const WebApp = () => {
   )
 
   const summaryRows = [
-    ['Evento', eventName],
+    ['Evento', `${eventTitle}${eventType ? ` / ${eventType}` : ''}`],
     ['Captura', `${selectedMode} - ${controlLabel}`],
     ['Camara', `${cameraSource}, ${orientation}, ${captureQuality}`],
     [
@@ -1840,15 +1850,23 @@ const WebApp = () => {
       {setupTabs.map((tab, index) => (
         <Pressable
           key={tab.id}
-          onPress={() => setActiveTab(tab.id)}
+          disabled={isTabLocked(index)}
+          onPress={() => {
+            if (isTabLocked(index)) {
+              setActivityMessage('Primero completa nombre y tipo de evento')
+              return
+            }
+            setActiveTab(tab.id)
+          }}
           style={[
             styles.mobileTabButton,
             index < currentTabIndex && styles.mobileTabButtonDone,
+            isTabLocked(index) && styles.mobileTabButtonLocked,
             activeTab === tab.id && styles.mobileTabButtonActive,
           ]}
         >
           <Text style={[styles.mobileTabNumber, activeTab === tab.id && styles.mobileTabTextActive]}>
-            {index < currentTabIndex ? 'OK' : index + 1}
+            {isTabLocked(index) ? '--' : index < currentTabIndex ? 'OK' : index + 1}
           </Text>
           <Text style={[styles.mobileTabText, activeTab === tab.id && styles.mobileTabTextActive]}>
             {tab.label}
@@ -1863,15 +1881,23 @@ const WebApp = () => {
       {setupTabs.map((tab, index) => (
         <Pressable
           key={tab.id}
-          onPress={() => setActiveTab(tab.id)}
+          disabled={isTabLocked(index)}
+          onPress={() => {
+            if (isTabLocked(index)) {
+              setActivityMessage('Primero completa nombre y tipo de evento')
+              return
+            }
+            setActiveTab(tab.id)
+          }}
           style={[
             styles.desktopTabButton,
             index < currentTabIndex && styles.desktopTabButtonDone,
+            isTabLocked(index) && styles.desktopTabButtonLocked,
             activeTab === tab.id && styles.desktopTabButtonActive,
           ]}
         >
           <Text style={[styles.desktopTabIndex, activeTab === tab.id && styles.desktopTabTextActive]}>
-            {index < currentTabIndex ? 'OK' : index + 1}
+            {isTabLocked(index) ? '--' : index < currentTabIndex ? 'OK' : index + 1}
           </Text>
           <View>
             <Text style={[styles.desktopTabLabel, activeTab === tab.id && styles.desktopTabTextActive]}>
@@ -2002,11 +2028,56 @@ const WebApp = () => {
 
             <View style={styles.mobileSection}>
               <View style={styles.mobileSectionHeader}>
+                <Text style={styles.mobileSectionTitle}>Tipo de evento</Text>
+                <Text style={styles.mobileAccentText}>{eventType || 'Pendiente'}</Text>
+              </View>
+              <Text style={styles.mobileMutedText}>
+                Solo necesitamos esto para empezar. Luego se desbloquean captura, diseno y salida.
+              </Text>
+              <View style={styles.mobileModes}>
+                {eventTypes.map((type) => (
+                  <Pressable
+                    key={type}
+                    onPress={() => {
+                      setEventType(type)
+                      setActivityMessage(`Evento ${type} seleccionado`)
+                    }}
+                    style={[
+                      styles.mobileModeButton,
+                      eventType === type && styles.mobileModeButtonActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.mobileModeText,
+                        eventType === type && styles.mobileModeTextActive,
+                      ]}
+                    >
+                      {type}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {!eventBasicsComplete && (
+                <Text style={styles.mobileControlLimit}>
+                  Completa nombre y tipo de evento para continuar.
+                </Text>
+              )}
+            </View>
+
+            {renderMobileStepNav()}
+          </>
+        )}
+
+        {activeTab === 'captura' && (
+          <>
+            <View style={styles.mobileSection}>
+              <View style={styles.mobileSectionHeader}>
                 <Text style={styles.mobileSectionTitle}>Tipo de captura</Text>
                 <Text style={styles.mobileAccentText}>{selectedMode}</Text>
               </View>
               <Text style={styles.mobileMutedText}>
-                Escoge primero el formato. La siguiente pestaña cambia sus controles segun esta seleccion.
+                Ahora elige que va a usar el invitado en el evento {eventType}.
               </Text>
               <View style={styles.mobileModes}>
                 {captureModes.map((mode) => (
@@ -2031,12 +2102,6 @@ const WebApp = () => {
               </View>
             </View>
 
-            {renderMobileStepNav()}
-          </>
-        )}
-
-        {activeTab === 'captura' && (
-          <>
             <View style={styles.mobileSection}>
               <View style={styles.mobileSectionHeader}>
                 <Text style={styles.mobileSectionTitle}>{modeDetails.title}</Text>
@@ -2466,8 +2531,41 @@ const WebApp = () => {
                   placeholderTextColor="#7d8188"
                 />
 
+                <Text style={styles.panelLabel}>Tipo de evento</Text>
+                <Text style={styles.panelHelp}>Elige solo el tipo de evento para desbloquear el siguiente paso.</Text>
+                <View style={styles.modeRow}>
+                  {eventTypes.map((type) => (
+                    <Pressable
+                      key={type}
+                      onPress={() => {
+                        setEventType(type)
+                        setActivityMessage(`Evento ${type} seleccionado`)
+                      }}
+                      style={[styles.modeButton, eventType === type && styles.modeButtonActive]}
+                    >
+                      <Text
+                        style={[
+                          styles.modeButtonText,
+                          eventType === type && styles.modeButtonTextActive,
+                        ]}
+                      >
+                        {type}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {!eventBasicsComplete && (
+                  <Text style={styles.configLimit}>Completa nombre y tipo de evento para continuar.</Text>
+                )}
+              </>
+            )}
+
+            {activeTab === 'captura' && (
+              <>
                 <Text style={styles.panelLabel}>Tipo de captura</Text>
-                <Text style={styles.panelHelp}>Elige el formato antes de configurar tiempos y salida.</Text>
+                <Text style={styles.panelHelp}>
+                  Ahora define que experiencia tendra el invitado en {eventType}.
+                </Text>
                 <View style={styles.modeRow}>
                   {captureModes.map((mode) => (
                     <Pressable
@@ -2486,11 +2584,7 @@ const WebApp = () => {
                     </Pressable>
                   ))}
                 </View>
-              </>
-            )}
 
-            {activeTab === 'captura' && (
-              <>
                 <View style={styles.settingSummary}>
                   <Text style={styles.settingSummaryTitle}>{modeDetails.title}</Text>
                   <Text style={styles.settingSummaryText}>{modeDetails.instruction}</Text>
@@ -3013,6 +3107,10 @@ const styles = StyleSheet.create({
   mobileTabButtonDone: {
     backgroundColor: 'rgba(57, 169, 255, 0.18)',
     borderColor: 'rgba(57, 169, 255, 0.42)',
+  },
+  mobileTabButtonLocked: {
+    opacity: 0.48,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   mobileTabNumber: {
     width: 24,
@@ -4142,6 +4240,10 @@ const styles = StyleSheet.create({
   desktopTabButtonDone: {
     borderColor: '#b8d5ff',
     backgroundColor: '#eef5ff',
+  },
+  desktopTabButtonLocked: {
+    opacity: 0.45,
+    backgroundColor: '#f1f3f6',
   },
   desktopTabIndex: {
     width: 28,
