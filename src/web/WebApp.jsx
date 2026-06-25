@@ -56,6 +56,7 @@ const templates = [
 
 const eventTypes = ['Boda', 'Cumpleanos', 'Corporativo', 'Baby shower', 'Grado', 'Fiesta privada']
 const captureModes = ['Foto', 'GIF', 'Boomerang', 'Video', '360']
+const startCaptureModes = ['Foto', 'GIF', '360', 'Video']
 const filters = ['Original', 'Glam', 'B/N', 'Brannan', 'Vintage']
 const experienceStyles = [
   {
@@ -342,6 +343,8 @@ const WebApp = () => {
   const [photoFrames, setPhotoFrames] = useState([])
   const [captureProgressIndex, setCaptureProgressIndex] = useState(0)
   const [liveCountdown, setLiveCountdown] = useState('')
+  const [showSetup, setShowSetup] = useState(false)
+  const [selectedSavedEvent, setSelectedSavedEvent] = useState('julian')
   const desktopVideoRef = useRef(null)
   const mobileVideoRef = useRef(null)
   const streamRef = useRef(null)
@@ -452,6 +455,10 @@ const WebApp = () => {
           : selectedMode === 'Video'
             ? `${selectedConfigValue}s de video con ${audioEnabled ? 'audio' : 'audio apagado'}`
             : `${selectedConfigValue}s de recorrido 360`
+  const savedEvents = useMemo(() => {
+    const currentEvent = eventName.trim()
+    return Array.from(new Set([currentEvent, 'julian', "Kate & Jack's Wedding"].filter(Boolean)))
+  }, [eventName])
 
   useEffect(() => {
     ;[desktopVideoRef.current, mobileVideoRef.current].forEach((video) => {
@@ -463,6 +470,62 @@ const WebApp = () => {
       video.play?.().catch(() => undefined)
     })
   }, [cameraStream, isMobile])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const savedSetup = window.localStorage.getItem('viralco-event-setup')
+
+    if (!savedSetup) {
+      return
+    }
+
+    try {
+      const setup = JSON.parse(savedSetup)
+
+      if (setup.eventName) {
+        setEventName(setup.eventName)
+        setSelectedSavedEvent(setup.eventName)
+      }
+
+      if (setup.eventType) setEventType(setup.eventType)
+      if (setup.selectedMode && captureModes.includes(setup.selectedMode)) setSelectedMode(setup.selectedMode)
+      if (setup.selectedFilter && filters.includes(setup.selectedFilter)) setSelectedFilter(setup.selectedFilter)
+      if (setup.selectedExperienceStyle) setSelectedExperienceStyle(setup.selectedExperienceStyle)
+      if (setup.printLayout && printLayouts.includes(setup.printLayout)) setPrintLayout(setup.printLayout)
+      if (setup.boothPlatform && boothPlatforms.includes(setup.boothPlatform)) setBoothPlatform(setup.boothPlatform)
+    } catch {
+      window.localStorage.removeItem('viralco-event-setup')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const setup = {
+      eventName: eventName.trim(),
+      eventType,
+      selectedMode,
+      selectedFilter,
+      selectedExperienceStyle,
+      printLayout,
+      boothPlatform,
+    }
+
+    window.localStorage.setItem('viralco-event-setup', JSON.stringify(setup))
+  }, [
+    boothPlatform,
+    eventName,
+    eventType,
+    printLayout,
+    selectedExperienceStyle,
+    selectedFilter,
+    selectedMode,
+  ])
 
   useEffect(
     () => () => {
@@ -1263,6 +1326,44 @@ const WebApp = () => {
     setActiveTab(previousTab.id)
   }
 
+  const copySavedEventConfiguration = () => {
+    const sourceEvent = selectedSavedEvent || eventTitle
+    setEventName(`${sourceEvent} copia`)
+    setEventType(eventType || 'Fiesta privada')
+    setCapturePhase('idle')
+    setCaptureProgressIndex(0)
+    setPhotoFrames([])
+    setPhotoPrintUrl('')
+    setActivityMessage(`Configuracion copiada desde ${sourceEvent}`)
+    setActiveTab('evento')
+    setShowSetup(true)
+  }
+
+  const launchSavedEvent = () => {
+    const activeEvent = eventName.trim() || selectedSavedEvent || 'Evento Viralco'
+    setEventName(activeEvent)
+    setEventType(eventType || 'Fiesta privada')
+    setSelectedSavedEvent(activeEvent)
+    setCapturePhase('idle')
+    setCaptureProgressIndex(0)
+    setActivityMessage(`${activeEvent} listo para lanzar`)
+    setActiveTab('grabar')
+    setShowSetup(true)
+  }
+
+  const createNewEvent = () => {
+    setEventName('')
+    setEventType('')
+    setCapturePhase('idle')
+    setCaptureProgressIndex(0)
+    setLiveCountdown('')
+    setPhotoFrames([])
+    setPhotoPrintUrl('')
+    setActivityMessage('Crea un evento nuevo con nombre y tipo')
+    setActiveTab('evento')
+    setShowSetup(true)
+  }
+
   const getNextLabel = () => {
     if (activeTab === 'evento') return eventBasicsComplete ? 'Configurar captura' : 'Completa evento'
     if (activeTab === 'captura') return 'Configurar camara'
@@ -1823,6 +1924,115 @@ const WebApp = () => {
     </View>
   )
 
+  const renderStartHome = () => (
+    <ScrollView style={styles.startPage} contentContainerStyle={styles.startPageContent}>
+      <View style={styles.startShell}>
+        <View style={styles.startBrandRow}>
+          <View style={styles.startLogo}>
+            <Text style={styles.startLogoText}>V</Text>
+          </View>
+          <View>
+            <Text style={styles.startBrand}>Viralco</Text>
+            <Text style={styles.startBrandMeta}>Eventos 360 / cabina / compartir</Text>
+          </View>
+        </View>
+
+        <View style={styles.startGrid}>
+          <View style={styles.savedEventsPanel}>
+            <Text style={styles.startSectionTitle}>Eventos guardados</Text>
+            <View style={styles.savedEventList}>
+              {savedEvents.map((name) => {
+                const active = selectedSavedEvent === name
+
+                return (
+                  <Pressable
+                    key={name}
+                    onPress={() => {
+                      setSelectedSavedEvent(name)
+                      setEventName(name)
+                      setActivityMessage(`${name} seleccionado`)
+                    }}
+                    style={[styles.savedEventButton, active && styles.savedEventButtonActive]}
+                  >
+                    <View style={[styles.savedEventDot, active && styles.savedEventDotActive]} />
+                    <Text style={[styles.savedEventName, active && styles.savedEventNameActive]}>
+                      {name}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+          </View>
+
+          <View style={styles.startActionsPanel}>
+            <Pressable onPress={copySavedEventConfiguration} style={styles.copyConfigButton}>
+              <Text style={styles.copyConfigText}>Copiar la configuracion del evento</Text>
+              <Text style={styles.copyConfigArrow}>{'>'}</Text>
+            </Pressable>
+
+            <Pressable onPress={launchSavedEvent} style={styles.launchEventButton}>
+              <Text style={styles.launchEventText}>Lanzar evento</Text>
+            </Pressable>
+
+            <View style={styles.startDividerRow}>
+              <View style={styles.startDivider} />
+              <Text style={styles.startDividerText}>o</Text>
+              <View style={styles.startDivider} />
+            </View>
+
+            <Pressable onPress={createNewEvent} style={styles.createEventButton}>
+              <Text style={styles.createEventText}>+ Crear evento nuevo</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.startQuickSummary}>
+          <View style={styles.startSummaryBlock}>
+            <Text style={styles.startSummaryTitle}>Pantalla de inicio</Text>
+            <View style={styles.startPreviewBox}>
+              <Text style={styles.startPreviewTitle}>{eventTitle}</Text>
+              <Text style={styles.startPreviewSubtitle}>{eventType || 'Tipo de evento pendiente'}</Text>
+            </View>
+          </View>
+
+          <View style={styles.startSummaryBlock}>
+            <Text style={styles.startSummaryTitle}>Capturar</Text>
+            <View style={styles.startCaptureGrid}>
+              {startCaptureModes.map((mode) => (
+                <Pressable
+                  key={mode}
+                  onPress={() => {
+                    chooseMode(mode)
+                    setShowSetup(true)
+                    setActiveTab('captura')
+                  }}
+                  style={styles.startCaptureButton}
+                >
+                  <Text style={styles.startCaptureIcon}>
+                    {mode === 'Foto' ? 'F' : mode === 'GIF' ? 'GIF' : mode === 'Video' ? 'REC' : '360'}
+                  </Text>
+                  <Text style={styles.startCaptureText}>{mode}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.startSummaryBlock}>
+            <Text style={styles.startSummaryTitle}>Compartir</Text>
+            <View style={styles.startShareList}>
+              {['WhatsApp', 'QR', 'Mail', 'Print'].map((tool) => (
+                <View key={tool} style={styles.startShareRow}>
+                  <Text style={styles.startCheck}>OK</Text>
+                  <Text style={styles.startShareText}>{tool}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+      </View>
+    </ScrollView>
+  )
+
   const summaryRows = [
     ['Evento', `${eventTitle}${eventType ? ` / ${eventType}` : ''}`],
     ['Captura', `${selectedMode} - ${controlLabel}`],
@@ -1977,6 +2187,10 @@ const WebApp = () => {
     [selectedTemplate],
   )
 
+  if (!showSetup) {
+    return renderStartHome()
+  }
+
   if (isMobile) {
     return (
       <ScrollView style={styles.mobilePage} contentContainerStyle={styles.mobileContent}>
@@ -1993,6 +2207,9 @@ const WebApp = () => {
               <View style={styles.mobileStatusDot} />
               <Text style={styles.mobileStatusText}>{isCapturing ? 'REC' : 'ON'}</Text>
             </View>
+            <Pressable onPress={() => setShowSetup(false)} style={styles.mobileHomeButton}>
+              <Text style={styles.mobileHomeButtonText}>Inicio</Text>
+            </Pressable>
           </View>
 
           <View style={styles.mobileEventCard}>
@@ -2499,6 +2716,9 @@ const WebApp = () => {
             <Text style={styles.brand}>Viralco</Text>
           </View>
           <View style={styles.topActions}>
+            <Pressable onPress={() => setShowSetup(false)} style={styles.homeButton}>
+              <Text style={styles.homeButtonText}>Inicio</Text>
+            </Pressable>
             <View style={styles.syncPill}>
               <View style={styles.syncDot} />
               <Text style={styles.syncText}>LISTO</Text>
@@ -2976,6 +3196,274 @@ const shadow = {
 }
 
 const styles = StyleSheet.create({
+  startPage: {
+    minHeight: '100vh',
+    backgroundColor: '#f7f7f8',
+  },
+  startPageContent: {
+    width: '100%',
+    padding: 32,
+  },
+  startShell: {
+    width: '100%',
+    maxWidth: 1180,
+    alignSelf: 'center',
+    gap: 28,
+  },
+  startBrandRow: {
+    minHeight: 86,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 18,
+  },
+  startLogo: {
+    width: 68,
+    height: 68,
+    borderRadius: 16,
+    backgroundColor: '#d22d71',
+    justifyContent: 'center',
+    alignItems: 'center',
+    boxShadow: '0 14px 30px rgba(210, 45, 113, 0.24)',
+  },
+  startLogoText: {
+    color: '#ffffff',
+    fontSize: 40,
+    lineHeight: 46,
+    fontWeight: '900',
+  },
+  startBrand: {
+    color: '#26272c',
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '900',
+  },
+  startBrandMeta: {
+    color: '#747780',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  startGrid: {
+    minHeight: 300,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e8e8eb',
+    display: 'grid',
+    gridTemplateColumns: 'minmax(320px, 0.95fr) minmax(360px, 1.05fr)',
+    boxShadow: '0 18px 48px rgba(28, 31, 37, 0.10)',
+  },
+  savedEventsPanel: {
+    padding: 38,
+    borderRightWidth: 1,
+    borderRightColor: '#eeeeef',
+  },
+  startSectionTitle: {
+    color: '#2c2d31',
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '900',
+  },
+  savedEventList: {
+    marginTop: 28,
+    gap: 18,
+  },
+  savedEventButton: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  savedEventButtonActive: {
+    opacity: 1,
+  },
+  savedEventDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#d22d71',
+    opacity: 0.38,
+  },
+  savedEventDotActive: {
+    opacity: 1,
+  },
+  savedEventName: {
+    flex: 1,
+    color: '#28292f',
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '800',
+  },
+  savedEventNameActive: {
+    fontWeight: '900',
+  },
+  startActionsPanel: {
+    padding: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  copyConfigButton: {
+    width: '100%',
+    maxWidth: 360,
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    paddingHorizontal: 8,
+  },
+  copyConfigText: {
+    flex: 1,
+    color: '#d22d71',
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '900',
+  },
+  copyConfigArrow: {
+    color: '#d22d71',
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '400',
+  },
+  launchEventButton: {
+    width: '100%',
+    maxWidth: 360,
+    minHeight: 68,
+    borderRadius: 34,
+    backgroundColor: '#d22d71',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 18,
+    boxShadow: '0 16px 34px rgba(210, 45, 113, 0.26)',
+  },
+  launchEventText: {
+    color: '#ffffff',
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '900',
+  },
+  startDividerRow: {
+    width: '100%',
+    maxWidth: 360,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginVertical: 22,
+  },
+  startDivider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#eeeeef',
+  },
+  startDividerText: {
+    color: '#5f626b',
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: '900',
+  },
+  createEventButton: {
+    width: '100%',
+    maxWidth: 360,
+    minHeight: 62,
+    borderRadius: 31,
+    borderWidth: 3,
+    borderColor: '#d22d71',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+  },
+  createEventText: {
+    color: '#d22d71',
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+  },
+  startQuickSummary: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr 1fr',
+    gap: 24,
+  },
+  startSummaryBlock: {
+    minHeight: 230,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e8e8eb',
+    padding: 22,
+    boxShadow: '0 14px 34px rgba(28, 31, 37, 0.07)',
+  },
+  startSummaryTitle: {
+    color: '#2c2d31',
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '900',
+  },
+  startPreviewBox: {
+    marginTop: 18,
+    height: 150,
+    backgroundColor: '#d9e7dc',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  startPreviewTitle: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 25,
+    lineHeight: 30,
+    fontWeight: '400',
+    textAlign: 'center',
+  },
+  startPreviewSubtitle: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  startCaptureGrid: {
+    marginTop: 18,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 16,
+  },
+  startCaptureButton: {
+    minHeight: 82,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  startCaptureIcon: {
+    color: '#d22d71',
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '900',
+  },
+  startCaptureText: {
+    color: '#5f626b',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  startShareList: {
+    marginTop: 20,
+    gap: 15,
+  },
+  startShareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  startCheck: {
+    color: '#d22d71',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  startShareText: {
+    color: '#5f626b',
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
   mobilePage: {
     minHeight: '100vh',
     backgroundColor: '#0e1118',
@@ -3057,6 +3545,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.red,
   },
   mobileStatusText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  mobileHomeButton: {
+    minWidth: 62,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileHomeButtonText: {
     color: '#ffffff',
     fontSize: 11,
     fontWeight: '900',
@@ -4877,6 +5380,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  homeButton: {
+    minHeight: 34,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingHorizontal: 12,
+  },
+  homeButtonText: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   syncPill: {
     minHeight: 34,
     flexDirection: 'row',
@@ -5459,6 +5976,28 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   '@media (max-width: 980px)': {
+    startPageContent: {
+      padding: 18,
+    },
+    startGrid: {
+      gridTemplateColumns: '1fr',
+    },
+    savedEventsPanel: {
+      borderRightWidth: 0,
+      borderBottomWidth: 1,
+      borderBottomColor: '#eeeeef',
+      padding: 24,
+    },
+    startActionsPanel: {
+      padding: 24,
+    },
+    startQuickSummary: {
+      gridTemplateColumns: '1fr',
+      gap: 14,
+    },
+    startSummaryBlock: {
+      minHeight: 0,
+    },
     lumaHero: {
       minHeight: 206,
       paddingHorizontal: 22,
@@ -5515,6 +6054,74 @@ const styles = StyleSheet.create({
     },
   },
   '@media (max-width: 640px)': {
+    startPageContent: {
+      padding: 14,
+    },
+    startBrandRow: {
+      minHeight: 66,
+      gap: 12,
+    },
+    startLogo: {
+      width: 54,
+      height: 54,
+      borderRadius: 14,
+    },
+    startLogoText: {
+      fontSize: 31,
+      lineHeight: 36,
+    },
+    startBrand: {
+      fontSize: 24,
+      lineHeight: 29,
+    },
+    startBrandMeta: {
+      fontSize: 12,
+      lineHeight: 16,
+    },
+    savedEventsPanel: {
+      padding: 18,
+    },
+    startSectionTitle: {
+      fontSize: 21,
+      lineHeight: 26,
+    },
+    savedEventList: {
+      marginTop: 18,
+      gap: 10,
+    },
+    savedEventName: {
+      fontSize: 18,
+      lineHeight: 23,
+    },
+    startActionsPanel: {
+      padding: 18,
+    },
+    copyConfigText: {
+      fontSize: 17,
+      lineHeight: 22,
+    },
+    launchEventButton: {
+      minHeight: 58,
+    },
+    launchEventText: {
+      fontSize: 17,
+      lineHeight: 22,
+    },
+    createEventButton: {
+      minHeight: 56,
+      borderWidth: 2,
+    },
+    createEventText: {
+      fontSize: 16,
+      lineHeight: 21,
+    },
+    startSummaryTitle: {
+      fontSize: 19,
+      lineHeight: 24,
+    },
+    startCaptureGrid: {
+      gap: 8,
+    },
     pageContent: {
       padding: 10,
       paddingTop: 0,
