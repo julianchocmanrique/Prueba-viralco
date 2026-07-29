@@ -161,6 +161,20 @@ const filters = ['Original', 'Glam', 'Blanco y negro', 'Cálido', 'Marca']
 const shareTools = ['WhatsApp', 'QR', 'Imprimir']
 const photoTextPresets = ['El tiempo de Dios es perfecto', 'Gracias por acompañarnos', 'Un recuerdo especial']
 const customPhotoMaxSlots = 8
+const customTextFonts = ['Arial', 'Georgia', 'Impact', 'Verdana', 'Courier New']
+const customTextColors = ['#7f1d1d', '#111827', '#0a4de8', '#ffffff', '#facc15', '#ec4899']
+const customTextLabels = {
+  script: 'Frase',
+  name: 'Nombre',
+  event: 'Evento',
+  date: 'Fecha',
+}
+const defaultCustomTextLayers = {
+  script: { x: 18, y: 6.5, width: 64, size: 18, color: '#7f1d1d', font: 'Arial' },
+  name: { x: 18, y: 80, width: 64, size: 22, color: '#7f1d1d', font: 'Arial' },
+  event: { x: 20, y: 85, width: 60, size: 14, color: '#111827', font: 'Arial' },
+  date: { x: 24, y: 89, width: 52, size: 12, color: '#6b7280', font: 'Arial' },
+}
 const captureAnimationPresets = [
   { id: 'brillo', label: 'Video brillo elegante' },
   { id: 'confeti', label: 'Video confeti suave' },
@@ -395,6 +409,7 @@ const WebApp = () => {
   const [showBackgroundRemovalScreen, setShowBackgroundRemovalScreen] = useState(false)
   const [showEventOptionsScreen, setShowEventOptionsScreen] = useState(false)
   const [showAnimationVideoScreen, setShowAnimationVideoScreen] = useState(false)
+  const [showLaunchIntroScreen, setShowLaunchIntroScreen] = useState(false)
   const [showCustomPhotoLayoutScreen, setShowCustomPhotoLayoutScreen] = useState(false)
   const [showCapturePhotoScreen, setShowCapturePhotoScreen] = useState(false)
   const [showOperatorMenu, setShowOperatorMenu] = useState(false)
@@ -412,6 +427,7 @@ const WebApp = () => {
   const [recentEvents, setRecentEvents] = useState(defaultRecentEvents)
   const [selectedRecentId, setSelectedRecentId] = useState(defaultRecentEvents[0]?.id || '')
   const [cameraStream, setCameraStream] = useState(null)
+  const [cameraOpening, setCameraOpening] = useState(false)
   const [cameraError, setCameraError] = useState('')
   const [photoFrames, setPhotoFrames] = useState([])
   const [finalPhotoUrl, setFinalPhotoUrl] = useState('')
@@ -448,6 +464,10 @@ const WebApp = () => {
   const [customPhotoOrder, setCustomPhotoOrder] = useState([])
   const [customPhotoLayout, setCustomPhotoLayout] = useState([])
   const [selectedCustomLayoutPhoto, setSelectedCustomLayoutPhoto] = useState(1)
+  const [customTextLayers, setCustomTextLayers] = useState(defaultCustomTextLayers)
+  const [selectedCustomTextLayer, setSelectedCustomTextLayer] = useState('name')
+  const [activeCustomMenu, setActiveCustomMenu] = useState('photos')
+  const [customAlignmentGuides, setCustomAlignmentGuides] = useState({ x: [], y: [] })
   const [captureAnimation, setCaptureAnimation] = useState(captureAnimationPresets[0].id)
   const [animationOverlay, setAnimationOverlay] = useState(null)
   const [animationVideoUrl, setAnimationVideoUrl] = useState('')
@@ -529,6 +549,64 @@ const WebApp = () => {
   const printSizeLabel = `${normalizedPrintSettings.widthCm}x${normalizedPrintSettings.heightCm} cm`
   const activePrintPreset = printPaperPresets.find((preset) => preset.id === printSettings.presetId)
   const activePrintLabel = activePrintPreset?.label || 'Manual'
+  const getAppRoutePath = (route = 'inicio') => {
+    const base = import.meta.env.BASE_URL || '/'
+    const normalizedBase = base.endsWith('/') ? base : `${base}/`
+    return `${normalizedBase}${route}`.replace(/\/{2,}/g, '/')
+  }
+  const updateAppRoute = (route = 'inicio', replace = false) => {
+    if (typeof window === 'undefined') return
+    const nextPath = getAppRoutePath(route)
+    if (window.location.pathname === nextPath) return
+    window.history[replace ? 'replaceState' : 'pushState']({ viralcoRoute: route }, '', nextPath)
+  }
+  const getRouteFromLocation = () => {
+    if (typeof window === 'undefined') return 'inicio'
+    const base = import.meta.env.BASE_URL || '/'
+    const normalizedBase = base.endsWith('/') ? base : `${base}/`
+    const route = window.location.pathname.startsWith(normalizedBase)
+      ? window.location.pathname.slice(normalizedBase.length)
+      : ''
+    return route.replace(/^\/+|\/+$/g, '') || 'inicio'
+  }
+  const applyAppRouteState = (route = 'inicio') => {
+    const validRoutes = new Set([
+      'inicio',
+      'nuevo-evento',
+      'editor-inicio',
+      'diseno-foto',
+      'modo-captura',
+      'configuracion-captura',
+      'impresion',
+      'fondo',
+      'configurar-evento',
+      'animacion',
+      'lanzar-evento',
+      'personalizar',
+      'captura',
+      'preview',
+      'compartir',
+    ])
+    const nextRoute = validRoutes.has(route) ? route : 'inicio'
+    setShowHomeLauncher(nextRoute === 'inicio' || nextRoute === 'nuevo-evento')
+    setShowCreateEventModal(nextRoute === 'nuevo-evento')
+    setShowStartEditor(nextRoute === 'editor-inicio')
+    setShowPhotoDesignScreen(nextRoute === 'diseno-foto')
+    setShowCaptureModeScreen(nextRoute === 'modo-captura')
+    setShowCaptureConfigScreen(nextRoute === 'configuracion-captura')
+    setShowPrintConfigScreen(nextRoute === 'impresion')
+    setShowBackgroundRemovalScreen(nextRoute === 'fondo')
+    setShowEventOptionsScreen(nextRoute === 'configurar-evento')
+    setShowAnimationVideoScreen(nextRoute === 'animacion')
+    setShowLaunchIntroScreen(nextRoute === 'lanzar-evento')
+    setShowCustomPhotoLayoutScreen(nextRoute === 'personalizar')
+    setShowCapturePhotoScreen(nextRoute === 'captura')
+    setCaptureIntroActive(nextRoute === 'captura')
+    setShowPreviewScreen(nextRoute === 'preview')
+    setShowShareScreen(nextRoute === 'compartir')
+    setShowOperatorMenu(false)
+    setOperatorQuickPanel(null)
+  }
   const sharePageUrl =
     typeof window !== 'undefined'
       ? window.location.href
@@ -537,6 +615,20 @@ const WebApp = () => {
   const encodedShareText = encodeURIComponent(shareText)
   const encodedShareUrl = encodeURIComponent(sharePageUrl)
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=14&data=${encodedShareUrl}`
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const base = import.meta.env.BASE_URL || '/'
+    const normalizedBase = base.endsWith('/') ? base : `${base}/`
+    const syncRoute = () => applyAppRouteState(getRouteFromLocation())
+    if (window.location.pathname === normalizedBase || window.location.pathname === normalizedBase.slice(0, -1)) {
+      updateAppRoute('inicio', true)
+    } else {
+      syncRoute()
+    }
+    window.addEventListener('popstate', syncRoute)
+    return () => window.removeEventListener('popstate', syncRoute)
+  }, [])
 
   const getCurrentSetup = () => ({
     id: eventName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `evento-${Date.now()}`,
@@ -548,6 +640,7 @@ const WebApp = () => {
     customPhotoCount,
     customPhotoOrder: customPhotoSequence,
     customPhotoLayout: customLayoutSlots,
+    customTextLayers,
     templateId: selectedTemplate.id,
     filter: selectedFilter,
     updatedAt: 'Ahora',
@@ -578,6 +671,9 @@ const WebApp = () => {
       setCustomPhotoCount(nextCustomCount)
       setCustomPhotoOrder(normalizeCustomPhotoOrder(savedManualLayout ? setup.customPhotoOrder : [], nextCustomCount))
       setCustomPhotoLayout(normalizeCustomPhotoLayout(savedLayout, nextCustomCount))
+      if (setup.customTextLayers && typeof setup.customTextLayers === 'object') {
+        setCustomTextLayers({ ...defaultCustomTextLayers, ...setup.customTextLayers })
+      }
       setSelectedCustomLayoutPhoto(1)
     }
     setSelectedTemplate(nextTemplate)
@@ -604,15 +700,17 @@ const WebApp = () => {
   const launchEvent = (setup = getCurrentSetup(), destination = 'capture') => {
     const nextType = photoTypes.find((item) => item.id === setup.photoTypeId) || selectedType
     const shouldAskAnimationVideo = destination === 'capture' && nextType.id === 'personalizar-5x15'
+    const shouldShowLaunchIntro = destination === 'capture' && !shouldAskAnimationVideo
     applyEventSetup(setup)
     rememberRecentEvent(setup)
     setShowHomeLauncher(false)
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(destination === 'options')
     setShowAnimationVideoScreen(shouldAskAnimationVideo)
+    setShowLaunchIntroScreen(shouldShowLaunchIntro)
     setShowCustomPhotoLayoutScreen(false)
-    setShowCapturePhotoScreen(destination === 'capture' && !shouldAskAnimationVideo)
-    setCaptureIntroActive(destination === 'capture' && !shouldAskAnimationVideo)
+    setShowCapturePhotoScreen(false)
+    setCaptureIntroActive(false)
     setShowPreviewScreen(destination === 'preview')
     setShowShareScreen(destination === 'share')
     setShowStartEditor(false)
@@ -621,6 +719,11 @@ const WebApp = () => {
     setShowCaptureConfigScreen(false)
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
+    if (destination === 'options') updateAppRoute('configurar-evento')
+    else if (shouldAskAnimationVideo) updateAppRoute('animacion')
+    else if (shouldShowLaunchIntro) updateAppRoute('lanzar-evento')
+    else if (destination === 'preview') updateAppRoute('preview')
+    else if (destination === 'share') updateAppRoute('compartir')
   }
 
   const openNewEventModal = () => {
@@ -636,10 +739,12 @@ const WebApp = () => {
     setCaptureStatus('Escribe el nombre del evento')
     setShowEventOptionsScreen(false)
     setShowCustomPhotoLayoutScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setCaptureIntroActive(false)
     setShowPreviewScreen(false)
     setShowShareScreen(false)
+    updateAppRoute('nuevo-evento')
     setShowCreateEventModal(true)
   }
 
@@ -652,6 +757,16 @@ const WebApp = () => {
 
     setEventNameError('')
     launchEvent(getCurrentSetup(), destination)
+  }
+
+  const startLaunchIntroExperience = () => {
+    setShowLaunchIntroScreen(false)
+    setShowCapturePhotoScreen(true)
+    setCaptureIntroActive(true)
+    setCountdown('')
+    setCaptureStatus(`${selectedType.name}: listo para tomar fotos`)
+    updateAppRoute('captura')
+    if (!cameraStream) openCamera()
   }
 
   const nextShotLabel = useMemo(() => {
@@ -740,7 +855,7 @@ const WebApp = () => {
       filter: selectedFilter,
     }
     window.localStorage.setItem('viralco-mirror-photo-app', JSON.stringify(setup))
-  }, [eventName, eventType, selectedType, customPhotoCount, customPhotoSequence, customLayoutSlots, selectedTemplate, selectedFilter])
+  }, [eventName, eventType, selectedType, customPhotoCount, customPhotoSequence, customLayoutSlots, customTextLayers, selectedTemplate, selectedFilter])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -766,6 +881,80 @@ const WebApp = () => {
       event.preventDefault?.()
       const deltaX = ((point.clientX - active.startX) / active.rect.width) * 100
       const deltaY = ((point.clientY - active.startY) / active.rect.height) * 100
+      const snapThreshold = 1.2
+      const getSnapPosition = (box, targets) => {
+        const guides = { x: [], y: [] }
+        let nextX = box.x
+        let nextY = box.y
+        const probesX = [
+          { value: box.x, offset: 0 },
+          { value: box.x + box.width / 2, offset: box.width / 2 },
+          { value: box.x + box.width, offset: box.width },
+        ]
+        const probesY = [
+          { value: box.y, offset: 0 },
+          { value: box.y + box.height / 2, offset: box.height / 2 },
+          { value: box.y + box.height, offset: box.height },
+        ]
+
+        targets.x.some((target) => {
+          const match = probesX.find((probe) => Math.abs(probe.value - target) <= snapThreshold)
+          if (!match) return false
+          nextX = clampNumber(target - match.offset, 0, 100 - box.width)
+          guides.x = [target]
+          return true
+        })
+        targets.y.some((target) => {
+          const match = probesY.find((probe) => Math.abs(probe.value - target) <= snapThreshold)
+          if (!match) return false
+          nextY = clampNumber(target - match.offset, 0, 100 - box.height)
+          guides.y = [target]
+          return true
+        })
+
+        return { x: nextX, y: nextY, guides }
+      }
+      const getAlignmentTargets = (activeBoxKey) => {
+        const targets = { x: [0, 50, 100], y: [0, 50, 100] }
+        customLayoutSlots.forEach((slot) => {
+          const key = `photo-${slot.photoNumber}`
+          if (key === activeBoxKey) return
+          targets.x.push(slot.x, slot.x + slot.width / 2, slot.x + slot.width)
+          targets.y.push(slot.y, slot.y + slot.height / 2, slot.y + slot.height)
+        })
+        Object.entries(customTextLayers).forEach(([textId, layer]) => {
+          const key = `text-${textId}`
+          if (key === activeBoxKey) return
+          const height = Math.max(4, layer.size / 2)
+          targets.x.push(layer.x, layer.x + layer.width / 2, layer.x + layer.width)
+          targets.y.push(layer.y, layer.y + height / 2, layer.y + height)
+        })
+        return targets
+      }
+
+      if (active.kind === 'text') {
+        setCustomTextLayers((current) => {
+          const layer = current[active.textId] || active.layer
+          const height = Math.max(4, active.layer.size / 2)
+          const rawBox = {
+            x: clampNumber(active.layer.x + deltaX, 0, 100 - active.layer.width),
+            y: clampNumber(active.layer.y + deltaY, 0, 96),
+            width: active.layer.width,
+            height,
+          }
+          const snapped = getSnapPosition(rawBox, getAlignmentTargets(`text-${active.textId}`))
+          setCustomAlignmentGuides(snapped.guides)
+          return {
+            ...current,
+            [active.textId]: {
+              ...layer,
+              x: snapped.x,
+              y: snapped.y,
+            },
+          }
+        })
+        return
+      }
 
       setCustomPhotoLayout((current) =>
         normalizeCustomPhotoLayout(current, customPhotoCount).map((slot) => {
@@ -773,13 +962,22 @@ const WebApp = () => {
           if (active.mode === 'resize') {
             const nextWidth = clampNumber(active.slot.width + deltaX, 18, 100 - active.slot.x)
             const nextHeight = clampNumber(active.slot.height + deltaY, 7, 100 - active.slot.y)
+            setCustomAlignmentGuides({ x: [], y: [] })
             return { ...slot, width: nextWidth, height: nextHeight }
           }
 
-          return {
-            ...slot,
+          const rawBox = {
             x: clampNumber(active.slot.x + deltaX, 0, 100 - active.slot.width),
             y: clampNumber(active.slot.y + deltaY, 0, 100 - active.slot.height),
+            width: active.slot.width,
+            height: active.slot.height,
+          }
+          const snapped = getSnapPosition(rawBox, getAlignmentTargets(`photo-${active.photoNumber}`))
+          setCustomAlignmentGuides(snapped.guides)
+          return {
+            ...slot,
+            x: snapped.x,
+            y: snapped.y,
           }
         }),
       )
@@ -787,6 +985,7 @@ const WebApp = () => {
 
     const handlePointerUp = () => {
       customLayoutPointerRef.current = null
+      setCustomAlignmentGuides({ x: [], y: [] })
     }
 
     window.addEventListener('pointermove', handlePointerMove)
@@ -826,6 +1025,7 @@ const WebApp = () => {
 
   const openCamera = async () => {
     setCameraError('')
+    setCameraOpening(true)
     setCaptureStatus('Abriendo cámara del espejo mágico...')
 
     try {
@@ -857,6 +1057,8 @@ const WebApp = () => {
       setCameraError(readableError)
       setCaptureStatus('No se pudo abrir la cámara. Revisa permisos del navegador.')
       return null
+    } finally {
+      setCameraOpening(false)
     }
   }
 
@@ -1375,7 +1577,7 @@ const WebApp = () => {
   }
 
   const runCountdownAndCapture = async () => {
-    if (countdownRef.current) return
+    if (countdownRef.current || cameraOpening) return
     const replacingIndex = Number.isInteger(retakeFrameIndex) ? retakeFrameIndex : null
 
     if (!eventReady) {
@@ -1386,6 +1588,7 @@ const WebApp = () => {
     }
 
     if (!cameraStream && !streamRef.current) {
+      setCaptureStatus('Solicitando permiso de cámara...')
       const openedStream = await openCamera()
       if (!openedStream) {
         countdownRef.current = null
@@ -1449,6 +1652,7 @@ const WebApp = () => {
       setShowCapturePhotoScreen(false)
       setShowPreviewScreen(true)
       setShowShareScreen(false)
+      updateAppRoute('preview')
       return
     }
 
@@ -1484,6 +1688,7 @@ const WebApp = () => {
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(true)
     setShowShareScreen(false)
+    updateAppRoute('preview')
   }
 
   const resetPhoto = () => {
@@ -1504,6 +1709,7 @@ const WebApp = () => {
     setAnimationVideoQuestionMode('question')
     if (type.id === 'personalizar-5x15') {
       setShowCustomPhotoLayoutScreen(true)
+      updateAppRoute('personalizar')
       setCustomPhotoOrder((current) => normalizeCustomPhotoOrder(current, customPhotoCount))
       setCustomPhotoLayout((current) => normalizeCustomPhotoLayout(current, customPhotoCount))
       setSelectedCustomLayoutPhoto(1)
@@ -1591,6 +1797,66 @@ const WebApp = () => {
       startX,
       startY,
     }
+  }
+
+  const beginCustomTextPointer = (textId, event) => {
+    const nativeEvent = event?.nativeEvent || event
+    const touch = nativeEvent?.touches?.[0] || nativeEvent?.changedTouches?.[0]
+    const startX = touch?.clientX ?? nativeEvent?.clientX ?? nativeEvent?.pageX
+    const startY = touch?.clientY ?? nativeEvent?.clientY ?? nativeEvent?.pageY
+    const rect = customEditorStripRef.current?.getBoundingClientRect?.()
+    const layer = customTextLayers[textId]
+    if (!rect || !layer || !Number.isFinite(startX) || !Number.isFinite(startY)) return
+
+    event?.preventDefault?.()
+    event?.stopPropagation?.()
+    nativeEvent.preventDefault?.()
+    nativeEvent.stopPropagation?.()
+    setSelectedCustomTextLayer(textId)
+    customLayoutPointerRef.current = {
+      kind: 'text',
+      textId,
+      rect,
+      layer,
+      startX,
+      startY,
+    }
+  }
+
+  const updateCustomTextLayer = (textId, patch) => {
+    setSelectedCustomTextLayer(textId)
+    setCustomTextLayers((current) => ({
+      ...current,
+      [textId]: {
+        ...(current[textId] || defaultCustomTextLayers[textId]),
+        ...patch,
+      },
+    }))
+    setPhotoFrames([])
+    setFinalPhotoUrl('')
+  }
+
+  const nudgeCustomTextLayer = (textId, axis, amount) => {
+    const layer = customTextLayers[textId] || defaultCustomTextLayers[textId]
+    updateCustomTextLayer(textId, {
+      [axis]: axis === 'x'
+        ? clampNumber(layer.x + amount, 0, 100 - layer.width)
+        : clampNumber(layer.y + amount, 0, 96),
+    })
+  }
+
+  const cycleCustomTextFont = (textId) => {
+    const layer = customTextLayers[textId] || defaultCustomTextLayers[textId]
+    const nextFont = customTextFonts[(customTextFonts.indexOf(layer.font) + 1) % customTextFonts.length]
+    updateCustomTextLayer(textId, { font: nextFont })
+    setCaptureStatus(`Fuente de texto cambiada a ${nextFont}.`)
+  }
+
+  const cycleCustomTextColor = (textId) => {
+    const layer = customTextLayers[textId] || defaultCustomTextLayers[textId]
+    const nextColor = customTextColors[(customTextColors.indexOf(layer.color) + 1) % customTextColors.length]
+    updateCustomTextLayer(textId, { color: nextColor })
+    setCaptureStatus('Color de texto actualizado.')
   }
 
   const nudgeCustomLayoutPhoto = (photoNumber, axis, amount) => {
@@ -1826,6 +2092,7 @@ const WebApp = () => {
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(false)
     setShowShareScreen(false)
@@ -1835,6 +2102,7 @@ const WebApp = () => {
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
     setShowStartEditor(true)
+    updateAppRoute('editor-inicio')
     setCaptureStatus('Personaliza la pantalla de inicio para los invitados')
   }
 
@@ -1843,6 +2111,7 @@ const WebApp = () => {
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(false)
     setShowShareScreen(false)
@@ -1852,6 +2121,7 @@ const WebApp = () => {
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
     setShowPhotoDesignScreen(true)
+    updateAppRoute('diseno-foto')
     setCaptureStatus('Ajusta el diseño de foto antes de capturar')
   }
 
@@ -1859,6 +2129,7 @@ const WebApp = () => {
     setShowHomeLauncher(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(false)
     setShowShareScreen(false)
@@ -1868,6 +2139,7 @@ const WebApp = () => {
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
     setShowCaptureModeScreen(true)
+    updateAppRoute('modo-captura')
     setCaptureStatus('Modo Foto habilitado para el espejo mágico')
   }
 
@@ -1877,6 +2149,7 @@ const WebApp = () => {
     setShowHomeLauncher(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(false)
     setShowShareScreen(false)
@@ -1886,6 +2159,7 @@ const WebApp = () => {
     setShowBackgroundRemovalScreen(false)
     setShowPrintConfigScreen(false)
     setShowCaptureConfigScreen(true)
+    updateAppRoute('configuracion-captura')
     setCaptureStatus('Configuración de captura lista para fotos')
   }
 
@@ -1895,6 +2169,7 @@ const WebApp = () => {
     setShowHomeLauncher(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(false)
     setShowShareScreen(false)
@@ -1904,6 +2179,7 @@ const WebApp = () => {
     setShowCaptureConfigScreen(false)
     setShowPrintConfigScreen(true)
     setShowBackgroundRemovalScreen(false)
+    updateAppRoute('impresion')
     setCaptureStatus(`Configuración de impresión lista para papel ${printSizeLabel}.`)
   }
 
@@ -1911,6 +2187,7 @@ const WebApp = () => {
     setShowHomeLauncher(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(false)
     setShowShareScreen(false)
@@ -1920,6 +2197,7 @@ const WebApp = () => {
     setShowCaptureConfigScreen(false)
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(true)
+    updateAppRoute('fondo')
     setCaptureStatus('Eliminación de fondo lista para fotos')
   }
 
@@ -1930,6 +2208,7 @@ const WebApp = () => {
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(true)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(false)
     setShowShareScreen(false)
@@ -1939,12 +2218,14 @@ const WebApp = () => {
     setShowCaptureConfigScreen(false)
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
+    updateAppRoute('configurar-evento')
     setCaptureStatus('Configura tipo de foto, efectos y marcos.')
   }
 
   const openCapturePhotoScreen = () => {
     if (selectedType.id === 'personalizar-5x15' && customPhotoCount < 1) {
       setShowCustomPhotoLayoutScreen(true)
+      updateAppRoute('personalizar')
       setCaptureStatus('Agrega al menos un recuadro de foto antes de capturar.')
       return
     }
@@ -1954,6 +2235,7 @@ const WebApp = () => {
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(true)
     setCaptureIntroActive(true)
     setShowPreviewScreen(false)
@@ -1965,6 +2247,7 @@ const WebApp = () => {
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
     setCaptureStatus(`${selectedType.name}: listo para tomar fotos`)
+    updateAppRoute('captura')
     openCamera()
   }
 
@@ -1976,6 +2259,7 @@ const WebApp = () => {
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(true)
     setCaptureIntroActive(true)
     setShowPreviewScreen(false)
@@ -1999,6 +2283,7 @@ const WebApp = () => {
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(true)
     setCaptureIntroActive(false)
     setShowPreviewScreen(false)
@@ -2046,6 +2331,7 @@ const WebApp = () => {
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(true)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(false)
     setShowShareScreen(false)
@@ -2055,6 +2341,7 @@ const WebApp = () => {
     setShowCaptureConfigScreen(false)
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
+    updateAppRoute('animacion')
     setAnimationVideoQuestionMode('question')
     setCaptureStatus('Pregunta de video de animación antes de tomar fotos.')
   }
@@ -2139,6 +2426,7 @@ const WebApp = () => {
   const handleContinueToCapture = () => {
     if (selectedType.id === 'personalizar-5x15' && customPhotoCount < 1) {
       setShowCustomPhotoLayoutScreen(true)
+      updateAppRoute('personalizar')
       setCaptureStatus('Agrega al menos un recuadro de foto antes de capturar.')
       return
     }
@@ -2156,6 +2444,7 @@ const WebApp = () => {
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(true)
     setShowShareScreen(false)
@@ -2165,6 +2454,7 @@ const WebApp = () => {
     setShowCaptureConfigScreen(false)
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
+    updateAppRoute('preview')
     setCaptureStatus(captureComplete ? 'Preview listo para revisar.' : 'Toma una foto para generar el preview.')
   }
 
@@ -2173,6 +2463,7 @@ const WebApp = () => {
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(false)
     setShowPreviewScreen(false)
     setShowShareScreen(true)
@@ -2182,6 +2473,7 @@ const WebApp = () => {
     setShowCaptureConfigScreen(false)
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
+    updateAppRoute('compartir')
     setCaptureStatus(captureComplete ? 'Elige cómo compartir o imprimir.' : 'Primero confirma el preview.')
   }
 
@@ -2548,7 +2840,13 @@ const WebApp = () => {
   const renderCreateEventModal = () => (
     <View style={styles.modalBackdrop}>
       <View style={[styles.modalCard, isMobile && styles.modalCardMobile]}>
-        <Pressable onPress={() => setShowCreateEventModal(false)} style={styles.closeButton}>
+        <Pressable
+          onPress={() => {
+            setShowCreateEventModal(false)
+            updateAppRoute('inicio')
+          }}
+          style={styles.closeButton}
+        >
           <Text style={styles.closeButtonText}>×</Text>
         </Pressable>
         <Text style={[styles.modalTitle, isMobile && styles.modalTitleMobile]}>Crear evento nuevo</Text>
@@ -2672,8 +2970,8 @@ const WebApp = () => {
           style: {
             margin: 0,
             color: colors.blue,
-            fontSize: 18,
-            lineHeight: '24px',
+            fontSize: 'clamp(24px, 2.8svh, 40px)',
+            lineHeight: 'clamp(30px, 3.4svh, 48px)',
             fontWeight: 900,
             textAlign: 'center',
             textTransform: 'uppercase',
@@ -2756,7 +3054,10 @@ const WebApp = () => {
 
             <View style={styles.photoTextQuickPanel}>
               <Pressable
-                onPress={() => setShowCustomPhotoLayoutScreen(true)}
+                onPress={() => {
+                  setShowCustomPhotoLayoutScreen(true)
+                  updateAppRoute('personalizar')
+                }}
                 style={styles.customOpenButton}
                 accessibilityRole="button"
                 accessibilityLabel="Abrir cantidad y orden de fotos"
@@ -2904,30 +3205,74 @@ const WebApp = () => {
           <Text style={styles.panelEyebrow}>Personalizar</Text>
           <Text style={[styles.startEditorTitle, isMobile && styles.startEditorTitleMobile]}>Layout manual</Text>
           <Text style={[styles.startEditorSubtitle, isMobile && styles.startEditorSubtitleMobile]}>
-            Parte de un fondo vacío. Agrega recuadros de foto, muévelos, agrándalos, duplícalos o bórralos manualmente.
+            Usa la plantilla o marco activo como fondo. Agrega fotos, textos y formato, luego mueve o agranda cada recuadro.
           </Text>
         </View>
-        <Pressable
-          onPress={() => setShowCustomPhotoLayoutScreen(false)}
-          style={[styles.startEditorClose, isMobile && styles.startEditorCloseMobile]}
-          accessibilityRole="button"
-          accessibilityLabel="Volver a configuración del evento"
-        >
-          <Text style={styles.startEditorCloseText}>⌄</Text>
-        </Pressable>
       </View>
 
       <View style={[styles.customLayoutContent, isMobile && styles.customLayoutContentMobile]}>
         <View style={styles.customLayoutPreviewPanel}>
-          <View style={styles.customLayoutSheet}>
+          <View style={[styles.customLayoutSheet, isMobile && styles.customLayoutSheetMobile]}>
             <View
               ref={customEditorStripRef}
               style={[styles.customLayoutStrip, styles.customLayoutStripEditable]}
             >
-              <View style={styles.customLayoutScriptLine} />
+              <Image
+                source={overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image}
+                style={styles.customLayoutBackgroundImage}
+                accessibilityLabel={overlayFileName || `Plantilla ${selectedTemplate.name}`}
+              />
+              <View style={styles.customLayoutBackgroundShade} />
+              {customAlignmentGuides.x.map((guide) => (
+                <View key={`guide-x-${guide}`} style={[styles.customAlignGuideVertical, { left: `${guide}%` }]} />
+              ))}
+              {customAlignmentGuides.y.map((guide) => (
+                <View key={`guide-y-${guide}`} style={[styles.customAlignGuideHorizontal, { top: `${guide}%` }]} />
+              ))}
+              {[
+                { id: 'script', label: 'Frase', value: photoScriptText.trim() || photoTextPresets[0] },
+                { id: 'name', label: 'Nombre', value: getPhotoNameText() },
+                { id: 'event', label: 'Evento', value: getPhotoEventText() },
+                { id: 'date', label: 'Fecha', value: getPhotoDateText() },
+              ].filter((item) => item.value).map((item) => {
+                const layer = customTextLayers[item.id] || defaultCustomTextLayers[item.id]
+                const selected = selectedCustomTextLayer === item.id
+                return (
+                  <Pressable
+                    key={`custom-text-${item.id}`}
+                    onPress={() => setSelectedCustomTextLayer(item.id)}
+                    onPressIn={(event) => beginCustomTextPointer(item.id, event)}
+                    style={[
+                      styles.customTextLayer,
+                      {
+                        left: `${layer.x}%`,
+                        top: `${layer.y}%`,
+                        width: `${layer.width}%`,
+                      },
+                      selected && styles.customTextLayerSelected,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Editar texto ${item.label}`}
+                  >
+                    <Text
+                      style={[
+                        styles.customTextLayerValue,
+                        {
+                          color: layer.color,
+                          fontFamily: layer.font,
+                          fontSize: `clamp(${Math.max(10, layer.size - 4)}px, ${layer.size / 10}vw, ${layer.size + 8}px)`,
+                          lineHeight: `clamp(${Math.max(14, layer.size)}px, ${(layer.size + 5) / 10}vw, ${layer.size + 14}px)`,
+                        },
+                      ]}
+                    >
+                      {item.value}
+                    </Text>
+                  </Pressable>
+                )
+              })}
               {!customLayoutSlots.length ? (
                 <View style={styles.customLayoutEmptyState}>
-                  <Text style={styles.customLayoutEmptyTitle}>Fondo vacío</Text>
+                  <Text style={styles.customLayoutEmptyTitle}>Fondo activo</Text>
                   <Text style={styles.customLayoutEmptyText}>Toca “Agregar foto” para crear un recuadro.</Text>
                 </View>
               ) : null}
@@ -2965,8 +3310,6 @@ const WebApp = () => {
                   </Pressable>
                 )
               })}
-              <View style={styles.customLayoutNameLine} />
-              <View style={styles.customLayoutDateLine} />
             </View>
           </View>
           <Text style={styles.customLayoutHint}>
@@ -2975,7 +3318,28 @@ const WebApp = () => {
         </View>
 
         <View style={styles.customLayoutControls}>
-          <View style={styles.customLayoutCard}>
+          <View style={styles.customMenuTabs}>
+            {[
+              { id: 'photos', label: 'Fotos' },
+              { id: 'text', label: 'Textos' },
+              { id: 'format', label: 'Formato' },
+              { id: 'frame', label: 'Marco' },
+              { id: 'move', label: 'Ajustar' },
+              { id: 'list', label: 'Lista' },
+            ].map((item) => (
+              <Pressable
+                key={`custom-menu-${item.id}`}
+                onPress={() => setActiveCustomMenu(item.id)}
+                style={[styles.customMenuTab, activeCustomMenu === item.id && styles.customMenuTabActive]}
+                accessibilityRole="button"
+                accessibilityLabel={`Abrir menú ${item.label}`}
+              >
+                <Text style={[styles.customMenuTabText, activeCustomMenu === item.id && styles.customMenuTabTextActive]}>{item.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {activeCustomMenu === 'photos' ? <View style={styles.customLayoutCard}>
             <View style={styles.customLayoutCardHeader}>
               <View>
                 <Text style={styles.panelEyebrow}>Fondo</Text>
@@ -2997,9 +3361,164 @@ const WebApp = () => {
                 <Text style={styles.customManualGhostText}>Limpiar fondo</Text>
               </Pressable>
             </View>
-          </View>
+          </View> : null}
 
-          <View style={styles.customLayoutCard}>
+          {activeCustomMenu === 'text' ? <View style={styles.customLayoutCard}>
+            <View style={styles.customLayoutCardHeader}>
+              <View>
+                <Text style={styles.panelEyebrow}>Textos</Text>
+                <Text style={styles.customLayoutTitle}>Datos del marco</Text>
+              </View>
+              <Text style={styles.customLayoutCount}>{customTextLabels[selectedCustomTextLayer]}</Text>
+            </View>
+            <View style={styles.customTextGrid}>
+              <TextInput
+                value={photoNameText}
+                onChangeText={(value) => {
+                  setPhotoNameText(value)
+                  setCaptureStatus('Nombre del diseño actualizado.')
+                }}
+                placeholder="Nombre principal"
+                placeholderTextColor="#9ca3af"
+                style={styles.customTextInput}
+              />
+              <TextInput
+                value={photoEventText}
+                onChangeText={(value) => {
+                  setPhotoEventText(value)
+                  setCaptureStatus('Texto del evento actualizado.')
+                }}
+                placeholder="Texto del evento"
+                placeholderTextColor="#9ca3af"
+                style={styles.customTextInput}
+              />
+              <TextInput
+                value={photoDateText}
+                onChangeText={(value) => {
+                  setPhotoDateText(value)
+                  setCaptureStatus('Fecha del diseño actualizada.')
+                }}
+                placeholder="Fecha"
+                placeholderTextColor="#9ca3af"
+                style={styles.customTextInput}
+              />
+              <TextInput
+                value={photoScriptText}
+                onChangeText={(value) => {
+                  setPhotoScriptText(value)
+                  setCaptureStatus('Frase superior actualizada.')
+                }}
+                placeholder="Frase superior"
+                placeholderTextColor="#9ca3af"
+                style={styles.customTextInput}
+              />
+            </View>
+            <View style={styles.customTextLayerPicker}>
+              {[
+                { id: 'script', label: 'Frase' },
+                { id: 'name', label: 'Nombre' },
+                { id: 'event', label: 'Evento' },
+                { id: 'date', label: 'Fecha' },
+              ].map((item) => (
+                <Pressable
+                  key={`text-picker-${item.id}`}
+                  onPress={() => setSelectedCustomTextLayer(item.id)}
+                  style={[styles.customTextPickerButton, selectedCustomTextLayer === item.id && styles.customTextPickerButtonActive]}
+                >
+                  <Text style={[styles.customTextPickerText, selectedCustomTextLayer === item.id && styles.customTextPickerTextActive]}>{item.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.customTextStyleGrid}>
+              <Pressable onPress={() => cycleCustomTextFont(selectedCustomTextLayer)} style={styles.customTextStyleButton}>
+                <Text style={styles.customTextStyleButtonText}>Fuente</Text>
+                <Text style={styles.customTextStyleButtonValue}>{customTextLayers[selectedCustomTextLayer]?.font}</Text>
+              </Pressable>
+              <Pressable onPress={() => cycleCustomTextColor(selectedCustomTextLayer)} style={styles.customTextStyleButton}>
+                <Text style={styles.customTextStyleButtonText}>Color</Text>
+                <View style={[styles.customTextColorSwatch, { backgroundColor: customTextLayers[selectedCustomTextLayer]?.color }]} />
+              </Pressable>
+              <Pressable
+                onPress={() => updateCustomTextLayer(selectedCustomTextLayer, { size: clampNumber((customTextLayers[selectedCustomTextLayer]?.size || 16) - 2, 8, 54) })}
+                style={styles.customTextStyleButton}
+              >
+                <Text style={styles.customTextStyleButtonText}>Texto -</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => updateCustomTextLayer(selectedCustomTextLayer, { size: clampNumber((customTextLayers[selectedCustomTextLayer]?.size || 16) + 2, 8, 54) })}
+                style={styles.customTextStyleButton}
+              >
+                <Text style={styles.customTextStyleButtonText}>Texto +</Text>
+              </Pressable>
+              <Pressable onPress={() => nudgeCustomTextLayer(selectedCustomTextLayer, 'y', -1.5)} style={styles.customFineButton}>
+                <Text style={styles.customFineButtonText}>↑</Text>
+              </Pressable>
+              <Pressable onPress={() => nudgeCustomTextLayer(selectedCustomTextLayer, 'x', -1.5)} style={styles.customFineButton}>
+                <Text style={styles.customFineButtonText}>←</Text>
+              </Pressable>
+              <Pressable onPress={() => nudgeCustomTextLayer(selectedCustomTextLayer, 'x', 1.5)} style={styles.customFineButton}>
+                <Text style={styles.customFineButtonText}>→</Text>
+              </Pressable>
+              <Pressable onPress={() => nudgeCustomTextLayer(selectedCustomTextLayer, 'y', 1.5)} style={styles.customFineButton}>
+                <Text style={styles.customFineButtonText}>↓</Text>
+              </Pressable>
+            </View>
+          </View> : null}
+
+          {activeCustomMenu === 'format' ? <View style={styles.customLayoutCard}>
+            <View style={styles.customLayoutCardHeader}>
+              <View>
+                <Text style={styles.panelEyebrow}>Tipo de foto</Text>
+                <Text style={styles.customLayoutTitle}>Formato</Text>
+              </View>
+              <Text style={styles.customLayoutCount}>{selectedType.name}</Text>
+            </View>
+            <View style={styles.customTypePills}>
+              {photoTypes.map((type) => (
+                <Pressable
+                  key={`custom-type-${type.id}`}
+                  onPress={() => chooseType(type)}
+                  style={[styles.customTypePill, selectedType.id === type.id && styles.customTypePillActive]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Usar tipo de foto ${type.name}`}
+                >
+                  <Text style={[styles.customTypePillText, selectedType.id === type.id && styles.customTypePillTextActive]}>{type.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View> : null}
+
+          {activeCustomMenu === 'frame' ? <View style={styles.customLayoutCard}>
+            <View style={styles.customLayoutCardHeader}>
+              <View>
+                <Text style={styles.panelEyebrow}>Plantilla / marco</Text>
+                <Text style={styles.customLayoutTitle}>Fondo del diseño</Text>
+              </View>
+            </View>
+            <View style={styles.customTemplateRow}>
+              {eventTemplateOptions.slice(0, 4).map((template) => {
+                const active = selectedTemplate.id === template.id && !overlayImageUrl
+                return (
+                  <Pressable
+                    key={`custom-template-${template.id}`}
+                    onPress={() => chooseTemplate(template)}
+                    style={[styles.customTemplateThumb, active && styles.customTemplateThumbActive]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Usar plantilla ${template.name}`}
+                  >
+                    <Image source={template.image} style={styles.customTemplateImage} accessibilityLabel={`Plantilla ${template.name}`} />
+                  </Pressable>
+                )
+              })}
+              <label style={overlayImageUrl ? { ...styles.customUploadThumb, ...styles.customTemplateThumbActive } : styles.customUploadThumb}>
+                <Text style={styles.customUploadThumbText}>+</Text>
+                <input accept="image/png,image/jpeg,image/webp" type="file" onChange={handleOverlayFile} style={{ display: 'none' }} />
+              </label>
+            </View>
+            <Text style={styles.customLayoutHint}>{overlayFileName || selectedTemplate.name}</Text>
+          </View> : null}
+
+          {activeCustomMenu === 'move' ? <View style={styles.customLayoutCard}>
             <View style={styles.customLayoutCardHeader}>
               <View>
                 <Text style={styles.panelEyebrow}>Mouse</Text>
@@ -3034,9 +3553,9 @@ const WebApp = () => {
               </Pressable>
             </View>
             <Text style={styles.customLayoutHint}>También puedes arrastrar el recuadro y tomar la esquina para agrandarlo.</Text>
-          </View>
+          </View> : null}
 
-          <View style={styles.customLayoutCard}>
+          {activeCustomMenu === 'list' ? <View style={styles.customLayoutCard}>
             <View style={styles.customLayoutCardHeader}>
               <View>
                 <Text style={styles.panelEyebrow}>Recuadros</Text>
@@ -3073,10 +3592,13 @@ const WebApp = () => {
                 <Text style={styles.customLayoutHint}>Aún no hay recuadros. Agrega una foto para empezar.</Text>
               )}
             </View>
-          </View>
+          </View> : null}
 
           <Pressable
-            onPress={() => setShowCustomPhotoLayoutScreen(false)}
+            onPress={() => {
+              setShowCustomPhotoLayoutScreen(false)
+              updateAppRoute('configurar-evento')
+            }}
             style={styles.customLayoutDoneButton}
             accessibilityRole="button"
             accessibilityLabel="Guardar layout manual"
@@ -3478,9 +4000,13 @@ const WebApp = () => {
   const renderCaptureStartOverlay = () => {
     if (!captureIntroActive || countdownRef.current) return null
 
-    const promptText = framesReady ? 'Oprimir para tomar la siguiente foto' : 'Oprimir para tomar fotos'
-    const actionText = framesReady ? 'Siguiente' : 'Tomar'
-    const helperText = framesReady ? 'foto' : 'fotos'
+    const promptText = cameraOpening
+      ? 'Abriendo cámara'
+      : framesReady
+        ? 'Oprimir para tomar la siguiente foto'
+        : 'Oprimir para tomar fotos'
+    const actionText = cameraOpening ? 'Abriendo' : framesReady ? 'Siguiente' : 'Tomar'
+    const helperText = cameraOpening ? 'cámara' : framesReady ? 'foto' : 'fotos'
     const pulseStyle = {
       opacity: capturePulse.interpolate({
         inputRange: [0, 0.72, 1],
@@ -3521,6 +4047,11 @@ const WebApp = () => {
           <Text style={styles.captureStartButtonText}>{actionText}</Text>
           <Text style={styles.captureStartButtonSubText}>{helperText}</Text>
         </Animated.View>
+        {(cameraOpening || captureStatus) ? (
+          <Text style={styles.captureStartHint}>
+            {cameraOpening ? 'Revisa el permiso de cámara del navegador.' : captureStatus}
+          </Text>
+        ) : null}
         {cameraError ? <Text style={styles.captureStartError}>{cameraError}</Text> : null}
       </Pressable>
     )
@@ -3719,6 +4250,71 @@ const WebApp = () => {
           </ScrollView>
         </View>
       </View>
+    )
+  }
+
+  const renderLaunchIntroScreen = () => {
+    const configuredStartVideo = animationStageVideos.start && !animationStageVideos.start.isExample
+      ? animationStageVideos.start
+      : null
+    const startVideoUrl = configuredStartVideo?.url || animationVideoUrl
+
+    return (
+      <Pressable
+        onPress={startLaunchIntroExperience}
+        style={styles.launchIntroPage}
+        accessibilityRole="button"
+        accessibilityLabel="Tocar para iniciar experiencia de fotos"
+      >
+        {startVideoUrl ? (
+          React.createElement('video', {
+            src: startVideoUrl,
+            autoPlay: true,
+            loop: true,
+            muted: true,
+            playsInline: true,
+            className: 'viralco-launch-video',
+          })
+        ) : (
+          <>
+            <View style={styles.launchIntroTopDot} />
+            <View style={styles.launchIntroGlow} />
+            {React.createElement(
+              'div',
+              { className: 'viralco-launch-camera', 'aria-hidden': 'true' },
+              React.createElement('div', { className: 'viralco-camera-top' }),
+              React.createElement('div', { className: 'viralco-camera-button viralco-camera-button-left' }),
+              React.createElement('div', { className: 'viralco-camera-button viralco-camera-button-right' }),
+              React.createElement(
+                'div',
+                { className: 'viralco-camera-body' },
+                React.createElement('div', { className: 'viralco-camera-flash' }),
+                React.createElement('div', { className: 'viralco-camera-side viralco-camera-side-left' }),
+                React.createElement('div', { className: 'viralco-camera-side viralco-camera-side-right' }),
+                React.createElement(
+                  'div',
+                  { className: 'viralco-camera-lens' },
+                  React.createElement('div', { className: 'viralco-camera-lens-glow' }),
+                  React.createElement('div', { className: 'viralco-camera-diamond' }),
+                ),
+              ),
+            )}
+            <View style={styles.launchIntroPrompt}>
+              <Text style={styles.launchIntroPromptTop}>Toca para</Text>
+              <Text style={styles.launchIntroPromptMain}>empezar</Text>
+            </View>
+          </>
+        )}
+        <View style={styles.launchIntroShade} />
+        <View style={styles.launchIntroCopy}>
+          <Text style={styles.launchIntroBrand}>VIRALCO</Text>
+          <Text style={styles.launchIntroTitle}>{eventTitle || 'Espejo mágico'}</Text>
+          <Text style={styles.launchIntroMeta}>{eventType || defaultEventType} / {selectedType.name}</Text>
+        </View>
+        <View style={styles.launchIntroAction}>
+          <Text style={styles.launchIntroActionText}>Toca para iniciar</Text>
+        </View>
+      </Pressable>
     )
   }
 
@@ -5020,6 +5616,14 @@ const WebApp = () => {
     )
   }
 
+  if (showLaunchIntroScreen) {
+    return (
+      <View style={styles.page}>
+        {renderLaunchIntroScreen()}
+      </View>
+    )
+  }
+
   if (showCapturePhotoScreen) {
     return (
       <View style={styles.page}>
@@ -5056,136 +5660,10 @@ const WebApp = () => {
 
   return (
     <View style={styles.page}>
-      <ScrollView contentContainerStyle={styles.pageContent}>
-        <View style={[styles.hero, isMobile && styles.heroMobile]}>
-          <View style={styles.heroCopy}>
-            <Text style={styles.kicker}>Viralco Producciones</Text>
-            <Text style={[styles.heroTitle, isMobile && styles.heroTitleMobile]}>Espejo mágico</Text>
-            <Text style={styles.heroText}>
-              Primer producto activo. El flujo queda limpio: crear evento, elegir tipo de foto, tomar la captura y entregar.
-            </Text>
-          </View>
-          <View style={styles.heroPanel}>
-            <Text style={styles.heroPanelLabel}>Evento</Text>
-            <Text style={styles.heroPanelTitle}>{eventTitle}</Text>
-            <Text style={styles.heroPanelMeta}>{eventType || 'Tipo de evento pendiente'} / {selectedType.name}</Text>
-            <Pressable onPress={openNewEventModal} style={styles.heroPanelButton}>
-              <Text style={styles.heroPanelButtonText}>Nuevo evento</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {renderRecentEventsLauncher()}
-
-        <View style={[styles.mainGrid, isMobile && styles.mainGridMobile]}>
-          <View style={styles.capturePanel}>
-            <View style={styles.panelHeader}>
-              <View>
-                <Text style={styles.panelEyebrow}>Captura</Text>
-                <Text style={styles.panelTitle}>Solo fotos</Text>
-              </View>
-              <View style={styles.statusPill}>
-                <Text style={styles.statusPillText}>{framesReady}/{selectedShotCount}</Text>
-              </View>
-            </View>
-            {renderCamera()}
-            {cameraError ? <Text style={styles.errorText}>{cameraError}</Text> : null}
-            <Text style={styles.captureStatus}>{captureStatus}</Text>
-            <View style={[styles.actionRow, isMobile && styles.actionRowMobile]}>
-              <Pressable onPress={openCamera} style={styles.secondaryAction}>
-                <Text style={styles.secondaryActionText}>{cameraStream ? 'Reiniciar cámara' : 'Abrir cámara'}</Text>
-              </Pressable>
-              <Pressable onPress={runCountdownAndCapture} style={styles.captureButton}>
-                <Text style={styles.captureButtonText}>{cameraStream ? 'Tomar foto' : 'Abrir y tomar'}</Text>
-              </Pressable>
-            </View>
-            <Pressable onPress={resetPhoto} style={styles.resetButton}>
-              <Text style={styles.resetButtonText}>Repetir formato</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.controlsPanel}>
-            <View style={styles.panelHeader}>
-              <View>
-                <Text style={styles.panelEyebrow}>Formato</Text>
-                <Text style={styles.panelTitle}>Tipos de foto</Text>
-              </View>
-              <Text style={styles.nextShot}>{nextShotLabel}</Text>
-            </View>
-
-            <View style={[styles.typeGrid, isMobile && styles.typeGridMobile]}>
-              {photoTypes.map((type) => {
-                const active = selectedType.id === type.id
-                return (
-                  <Pressable
-                    key={type.id}
-                    onPress={() => chooseType(type)}
-                    style={[styles.typeCard, isMobile && styles.typeCardMobile, active && styles.typeCardActive]}
-                  >
-                    {renderTypePreview(type)}
-                    <View style={styles.typeTitleRow}>
-                      <Text style={[styles.typeTitle, active && styles.typeTitleActive]}>{type.name}</Text>
-                      {type.sizeLabel ? <Text style={[styles.typeSizePill, active && styles.typeSizePillActive]}>{type.sizeLabel}</Text> : null}
-                    </View>
-                    <Text style={styles.typeNote}>{type.note}</Text>
-                  </Pressable>
-                )
-              })}
-            </View>
-
-            <View style={styles.sectionBlock}>
-              <Text style={styles.sectionTitle}>Plantillas / marcos</Text>
-              <View style={[styles.templateGrid, isMobile && styles.templateGridMobile]}>
-                {eventTemplateOptions.map((template) => {
-                  const active = selectedTemplate.id === template.id && !overlayImageUrl
-                  return (
-                    <Pressable
-                      key={template.id}
-                      onPress={() => chooseTemplate(template)}
-                      style={[styles.templateCard, isMobile && styles.templateCardMobile, active && styles.templateCardActive]}
-                    >
-                      <Image source={template.image} style={[styles.templateImage, isMobile && styles.templateImageMobile]} accessibilityLabel={`Plantilla ${template.name}`} />
-                      <Text style={[styles.templateName, active && styles.templateNameActive]}>{template.name}</Text>
-                    </Pressable>
-                  )
-                })}
-                <label style={overlayImageUrl ? { ...styles.uploadTemplateCard, ...(isMobile ? styles.uploadTemplateCardMobile : {}), ...styles.uploadTemplateCardActive } : { ...styles.uploadTemplateCard, ...(isMobile ? styles.uploadTemplateCardMobile : {}) }}>
-                  <View style={styles.uploadTemplateIcon}>
-                    <Text style={styles.uploadTemplateIconText}>+</Text>
-                  </View>
-                  <Text style={styles.uploadTemplateTitle}>Subir desde el celular</Text>
-                  <Text style={styles.uploadTemplateText}>
-                    {overlayFileName || 'Plantilla o marco PNG/JPG'}
-                  </Text>
-                  <input accept="image/png,image/jpeg,image/webp" type="file" onChange={handleOverlayFile} style={{ display: 'none' }} />
-                </label>
-              </View>
-            </View>
-
-            <View style={styles.sectionBlock}>
-              <Text style={styles.sectionTitle}>Marco personalizado</Text>
-              <label style={styles.uploadLabel}>
-                <Text style={styles.uploadLabelText}>{overlayFileName || 'Cargar PNG del marco'}</Text>
-                <input accept="image/png,image/jpeg,image/webp" type="file" onChange={handleOverlayFile} style={{ display: 'none' }} />
-              </label>
-            </View>
-          </View>
-        </View>
-
-        <View style={[styles.outputPanel, isMobile && styles.outputPanelMobile]}>
-          <View>
-            <Text style={styles.panelEyebrow}>Entrega</Text>
-            <Text style={styles.panelTitle}>Resultado final</Text>
-          </View>
-          <View style={[styles.outputBody, isMobile && styles.outputBodyMobile]}>
-            {renderPreviewOutput('Preview pendiente', 'La foto final aparece aquí cuando completes el formato.')}
-            {renderDeliverySideActions()}
-          </View>
-        </View>
+      <ScrollView contentContainerStyle={[styles.pageContent, styles.homePageContent]}>
+        {renderHomeLauncher()}
       </ScrollView>
       {showCreateEventModal && renderCreateEventModal()}
-      {showPrintOptions && renderPrintOptionsModal()}
-      {showQrOptions && renderQrOptionsModal()}
     </View>
   )
 }
@@ -5206,11 +5684,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   homePageContent: {
-    height: '100svh',
+    height: 'auto',
+    minHeight: '100svh',
     flexGrow: 1,
     justifyContent: 'center',
-    paddingTop: 'clamp(10px, 2svh, 22px)',
-    paddingBottom: 'clamp(10px, 2svh, 22px)',
+    padding: 'clamp(18px, 3svh, 42px) clamp(18px, 4vw, 56px)',
+    paddingBottom: 'clamp(18px, 3svh, 42px)',
   },
   mirrorPageContent: {
     minHeight: '100vh',
@@ -5300,13 +5779,14 @@ const styles = StyleSheet.create({
   },
   homeLauncherPage: {
     width: '100%',
-    maxWidth: 760,
-    height: 'calc(100svh - clamp(20px, 4svh, 44px))',
+    maxWidth: 1120,
+    height: 'calc(100svh - clamp(36px, 6svh, 84px))',
+    minHeight: 720,
     alignSelf: 'center',
     justifyContent: 'center',
     paddingTop: 0,
     paddingBottom: 0,
-    gap: 'clamp(8px, 1.4svh, 16px)',
+    gap: 'clamp(12px, 1.6svh, 24px)',
   },
   homeBrandTitle: {
     margin: 0,
@@ -5320,15 +5800,15 @@ const styles = StyleSheet.create({
   },
   homeWelcome: {
     color: colors.ink,
-    fontSize: 'clamp(30px, 5.1svh, 40px)',
-    lineHeight: 'clamp(35px, 5.8svh, 46px)',
+    fontSize: 'clamp(42px, 5.4svh, 76px)',
+    lineHeight: 'clamp(50px, 6.1svh, 84px)',
     fontWeight: '900',
     textAlign: 'center',
   },
   homeWelcomeSub: {
     color: colors.muted,
-    fontSize: 'clamp(14px, 2.1svh, 17px)',
-    lineHeight: 'clamp(19px, 2.8svh, 23px)',
+    fontSize: 'clamp(18px, 2.3svh, 28px)',
+    lineHeight: 'clamp(25px, 3svh, 36px)',
     fontWeight: '800',
     textAlign: 'center',
     marginTop: -4,
@@ -5339,8 +5819,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 'clamp(10px, 1.7svh, 14px)',
-    gap: 'clamp(8px, 1.3svh, 12px)',
+    padding: 'clamp(16px, 2.2svh, 28px)',
+    gap: 'clamp(12px, 1.6svh, 22px)',
     flexGrow: 1,
     flexShrink: 1,
     minHeight: 0,
@@ -5360,8 +5840,8 @@ const styles = StyleSheet.create({
   },
   recentEventsIntro: {
     color: colors.muted,
-    fontSize: 'clamp(12px, 1.7svh, 14px)',
-    lineHeight: 'clamp(16px, 2.2svh, 20px)',
+    fontSize: 'clamp(16px, 1.9svh, 22px)',
+    lineHeight: 'clamp(22px, 2.5svh, 30px)',
     marginTop: 4,
   },
   newEventButton: {
@@ -5413,7 +5893,7 @@ const styles = StyleSheet.create({
   },
   recentEventCard: {
     position: 'relative',
-    minHeight: 'clamp(250px, calc(100svh - 390px), 720px)',
+    minHeight: 'clamp(520px, calc(100svh - 520px), 980px)',
     height: '100%',
     borderRadius: 8,
     overflow: 'hidden',
@@ -5439,48 +5919,45 @@ const styles = StyleSheet.create({
   recentEventContent: {
     position: 'absolute',
     inset: 0,
-    padding: 'clamp(12px, 1.9svh, 16px)',
+    padding: 'clamp(22px, 2.6svh, 36px)',
     justifyContent: 'flex-end',
-    gap: 'clamp(5px, 0.9svh, 7px)',
+    gap: 'clamp(8px, 1.1svh, 14px)',
   },
   recentEventMeta: {
     alignSelf: 'flex-start',
-    minHeight: 28,
-    borderRadius: 14,
+    minHeight: 'clamp(32px, 3.3svh, 44px)',
+    borderRadius: 22,
     backgroundColor: 'rgba(255,255,255,0.88)',
     color: colors.rose,
-    fontSize: 12,
-    lineHeight: 28,
+    fontSize: 'clamp(14px, 1.6svh, 18px)',
+    lineHeight: 'clamp(32px, 3.3svh, 44px)',
     fontWeight: '900',
-    paddingHorizontal: 10,
+    paddingHorizontal: 'clamp(14px, 1.8vw, 22px)',
   },
   recentEventTitle: {
     color: '#ffffff',
-    fontSize: 'clamp(20px, 2.8svh, 23px)',
-    lineHeight: 'clamp(24px, 3.3svh, 28px)',
+    fontSize: 'clamp(30px, 4svh, 52px)',
+    lineHeight: 'clamp(37px, 4.7svh, 60px)',
     fontWeight: '900',
   },
   recentEventDetails: {
     color: 'rgba(255,255,255,0.82)',
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 'clamp(17px, 2svh, 24px)',
+    lineHeight: 'clamp(24px, 2.7svh, 32px)',
     fontWeight: '700',
   },
   launchRecentButton: {
-    minHeight: 'clamp(40px, 5svh, 46px)',
-    borderRadius: 21,
+    minHeight: 'clamp(58px, 7svh, 86px)',
+    borderRadius: 43,
     backgroundColor: colors.blue,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
-    shadowColor: colors.blue,
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
+    boxShadow: '0 8px 14px rgba(10,77,232,0.28)',
   },
   launchRecentButtonText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 'clamp(18px, 2.1svh, 26px)',
     fontWeight: '900',
   },
   homeActionCard: {
@@ -5490,12 +5967,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 'clamp(10px, 1.7svh, 16px)',
+    padding: 'clamp(16px, 2svh, 28px)',
     justifyContent: 'center',
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    boxShadow: '0 10px 18px rgba(15,23,42,0.08)',
   },
   homeLaunchButton: {
     minHeight: 66,
@@ -5504,10 +5978,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
-    shadowColor: colors.blue,
-    shadowOpacity: 0.22,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    boxShadow: '0 10px 18px rgba(10,77,232,0.22)',
   },
   homeLaunchButtonText: {
     color: '#ffffff',
@@ -5531,8 +6002,8 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   homeCreateButton: {
-    minHeight: 'clamp(50px, 6.8svh, 58px)',
-    borderRadius: 29,
+    minHeight: 'clamp(66px, 7.4svh, 92px)',
+    borderRadius: 46,
     borderWidth: 2,
     borderColor: colors.blue,
     alignItems: 'center',
@@ -5541,7 +6012,7 @@ const styles = StyleSheet.create({
   },
   homeCreateButtonText: {
     color: colors.blue,
-    fontSize: 17,
+    fontSize: 'clamp(20px, 2.3svh, 30px)',
     fontWeight: '900',
   },
   mainGrid: {
@@ -6353,14 +6824,14 @@ const styles = StyleSheet.create({
   },
   panelEyebrow: {
     color: colors.rose,
-    fontSize: 12,
+    fontSize: 'clamp(13px, 1.4svh, 18px)',
     fontWeight: '900',
     textTransform: 'uppercase',
   },
   panelTitle: {
     color: colors.ink,
-    fontSize: 24,
-    lineHeight: 29,
+    fontSize: 'clamp(30px, 3.4svh, 46px)',
+    lineHeight: 'clamp(36px, 4svh, 54px)',
     fontWeight: '900',
   },
   statusPill: {
@@ -6374,6 +6845,114 @@ const styles = StyleSheet.create({
   statusPillText: {
     color: colors.rose,
     fontWeight: '900',
+  },
+  launchIntroPage: {
+    position: 'relative',
+    width: '100vw',
+    height: '100svh',
+    overflow: 'hidden',
+    backgroundColor: '#020403',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 'clamp(18px, 5vw, 72px)',
+    paddingVertical: 'clamp(18px, 4svh, 64px)',
+    cursor: 'pointer',
+  },
+  launchIntroTopDot: {
+    position: 'absolute',
+    top: 'clamp(16px, 2svh, 28px)',
+    width: 'clamp(8px, 0.9svh, 13px)',
+    height: 'clamp(8px, 0.9svh, 13px)',
+    borderRadius: 999,
+    backgroundColor: '#22c55e',
+    boxShadow: '0 0 18px rgba(34,197,94,0.95)',
+  },
+  launchIntroGlow: {
+    position: 'absolute',
+    width: '70vmin',
+    height: '70vmin',
+    borderRadius: 999,
+    backgroundColor: 'rgba(20,184,166,0.1)',
+    filter: 'blur(70px)',
+  },
+  launchIntroShade: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+  },
+  launchIntroPrompt: {
+    position: 'absolute',
+    left: 'clamp(26px, 7vw, 140px)',
+    right: 'clamp(26px, 7vw, 140px)',
+    top: 'clamp(72px, 10svh, 140px)',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  launchIntroPromptTop: {
+    color: 'rgba(255,255,255,0.94)',
+    fontSize: 'clamp(34px, 5.4svh, 78px)',
+    lineHeight: 'clamp(42px, 6.2svh, 90px)',
+    fontWeight: '900',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  launchIntroPromptMain: {
+    color: '#67e8f9',
+    fontSize: 'clamp(44px, 7svh, 104px)',
+    lineHeight: 'clamp(52px, 7.8svh, 116px)',
+    fontWeight: '900',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    textShadow: '0 0 34px rgba(103,232,249,0.38)',
+  },
+  launchIntroCopy: {
+    position: 'absolute',
+    left: 'clamp(20px, 5vw, 78px)',
+    right: 'clamp(20px, 5vw, 78px)',
+    bottom: 'clamp(124px, 14svh, 184px)',
+    alignItems: 'center',
+    gap: 4,
+  },
+  launchIntroBrand: {
+    color: '#7dd3fc',
+    fontSize: 'clamp(18px, 2.2svh, 30px)',
+    lineHeight: 'clamp(24px, 2.8svh, 38px)',
+    fontWeight: '900',
+    textAlign: 'center',
+    letterSpacing: 0,
+  },
+  launchIntroTitle: {
+    color: '#ffffff',
+    fontSize: 'clamp(32px, 5svh, 72px)',
+    lineHeight: 'clamp(40px, 5.8svh, 82px)',
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  launchIntroMeta: {
+    color: 'rgba(255,255,255,0.76)',
+    fontSize: 'clamp(16px, 2svh, 26px)',
+    lineHeight: 'clamp(22px, 2.8svh, 34px)',
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  launchIntroAction: {
+    position: 'absolute',
+    left: 'clamp(24px, 8vw, 160px)',
+    right: 'clamp(24px, 8vw, 160px)',
+    bottom: 'clamp(34px, 5svh, 76px)',
+    minHeight: 'clamp(64px, 7svh, 92px)',
+    borderRadius: 999,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 18px 46px rgba(10,77,232,0.38)',
+  },
+  launchIntroActionText: {
+    color: '#ffffff',
+    fontSize: 'clamp(20px, 2.4svh, 32px)',
+    lineHeight: 'clamp(26px, 3svh, 40px)',
+    fontWeight: '900',
+    textAlign: 'center',
   },
   mirrorCapturePage: {
     position: 'relative',
@@ -6896,6 +7475,19 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'center',
     textTransform: 'uppercase',
+  },
+  captureStartHint: {
+    maxWidth: 430,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   captureStartError: {
     maxWidth: 430,
@@ -8833,28 +9425,35 @@ const styles = StyleSheet.create({
   },
   customLayoutContent: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(260px, 0.92fr) minmax(280px, 1.08fr)',
-    gap: 18,
-    padding: 18,
+    gridTemplateColumns: 'minmax(520px, 1.45fr) minmax(360px, 0.85fr)',
+    gap: 20,
+    padding: 'clamp(16px, 2vw, 28px)',
+    alignItems: 'start',
   },
   customLayoutContentMobile: {
     gridTemplateColumns: 'minmax(0, 1fr)',
     padding: 14,
   },
   customLayoutPreviewPanel: {
-    gap: 12,
+    gap: 14,
     alignItems: 'center',
+    minWidth: 0,
   },
   customLayoutSheet: {
     width: '100%',
-    maxWidth: 280,
-    aspectRatio: 5 / 15,
+    maxWidth: 'min(54vw, 560px)',
+    minWidth: 420,
+    aspectRatio: 10 / 15,
     borderRadius: 8,
     backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 12,
+    padding: 'clamp(14px, 1.5vw, 22px)',
     alignSelf: 'center',
+  },
+  customLayoutSheetMobile: {
+    minWidth: 0,
+    maxWidth: '100%',
   },
   customLayoutStrip: {
     flex: 1,
@@ -8868,6 +9467,42 @@ const styles = StyleSheet.create({
   customLayoutStripEditable: {
     boxShadow: '0 0 0 2px rgba(10,77,232,0.16)',
   },
+  customLayoutBackgroundImage: {
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    pointerEvents: 'none',
+  },
+  customLayoutBackgroundShade: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    pointerEvents: 'none',
+  },
+  customAlignGuideVertical: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 2,
+    marginLeft: -1,
+    backgroundColor: '#0a4de8',
+    opacity: 0.9,
+    zIndex: 16,
+    pointerEvents: 'none',
+  },
+  customAlignGuideHorizontal: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
+    marginTop: -1,
+    backgroundColor: '#0a4de8',
+    opacity: 0.9,
+    zIndex: 16,
+    pointerEvents: 'none',
+  },
   customLayoutScriptLine: {
     position: 'absolute',
     top: '7.2%',
@@ -8877,6 +9512,41 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     backgroundColor: '#b96f71',
     opacity: 0.28,
+  },
+  customLayoutScriptText: {
+    position: 'absolute',
+    top: '6.4%',
+    left: '8%',
+    right: '8%',
+    color: '#7f1d1d',
+    fontSize: 'clamp(16px, 1.8vw, 24px)',
+    lineHeight: 'clamp(21px, 2.2vw, 30px)',
+    fontWeight: '900',
+    textAlign: 'center',
+    textShadow: '0 1px 8px rgba(255,255,255,0.72)',
+    pointerEvents: 'none',
+  },
+  customTextLayer: {
+    position: 'absolute',
+    minHeight: 28,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'grab',
+    userSelect: 'none',
+    touchAction: 'none',
+    zIndex: 18,
+  },
+  customTextLayerSelected: {
+    backgroundColor: 'rgba(255,255,255,0.34)',
+    boxShadow: '0 0 0 2px rgba(10,77,232,0.9)',
+  },
+  customTextLayerValue: {
+    fontWeight: '900',
+    textAlign: 'center',
+    textShadow: '0 1px 8px rgba(255,255,255,0.76)',
   },
   customLayoutSlot: {
     position: 'absolute',
@@ -8898,14 +9568,14 @@ const styles = StyleSheet.create({
   },
   customLayoutSlotNumber: {
     color: colors.rose,
-    fontSize: 19,
-    lineHeight: 23,
+    fontSize: 'clamp(22px, 2.2vw, 34px)',
+    lineHeight: 'clamp(28px, 2.7vw, 40px)',
     fontWeight: '900',
   },
   customLayoutSlotMeta: {
     color: colors.muted,
-    fontSize: 9,
-    lineHeight: 12,
+    fontSize: 'clamp(11px, 1.1vw, 16px)',
+    lineHeight: 'clamp(15px, 1.5vw, 21px)',
     fontWeight: '800',
   },
   customLayoutEmptyState: {
@@ -8940,10 +9610,10 @@ const styles = StyleSheet.create({
   },
   customLayoutResizeHandle: {
     position: 'absolute',
-    right: -2,
-    bottom: -2,
-    width: 24,
-    height: 24,
+    right: -4,
+    bottom: -4,
+    width: 'clamp(30px, 3vw, 42px)',
+    height: 'clamp(30px, 3vw, 42px)',
     borderTopLeftRadius: 8,
     backgroundColor: colors.rose,
     alignItems: 'center',
@@ -8953,8 +9623,8 @@ const styles = StyleSheet.create({
   },
   customLayoutResizeText: {
     color: '#ffffff',
-    fontSize: 12,
-    lineHeight: 15,
+    fontSize: 'clamp(14px, 1.4vw, 19px)',
+    lineHeight: 'clamp(18px, 1.8vw, 24px)',
     fontWeight: '900',
   },
   customLayoutNameLine: {
@@ -8966,6 +9636,39 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#b96f71',
     opacity: 0.5,
+  },
+  customLayoutTextFooter: {
+    position: 'absolute',
+    left: '8%',
+    right: '8%',
+    bottom: '5.2%',
+    alignItems: 'center',
+    gap: 2,
+    pointerEvents: 'none',
+  },
+  customLayoutNameText: {
+    color: '#7f1d1d',
+    fontSize: 'clamp(18px, 2vw, 28px)',
+    lineHeight: 'clamp(23px, 2.5vw, 34px)',
+    fontWeight: '900',
+    textAlign: 'center',
+    textShadow: '0 1px 8px rgba(255,255,255,0.72)',
+  },
+  customLayoutEventText: {
+    color: colors.ink,
+    fontSize: 'clamp(12px, 1.3vw, 18px)',
+    lineHeight: 'clamp(16px, 1.7vw, 23px)',
+    fontWeight: '900',
+    textAlign: 'center',
+    textShadow: '0 1px 8px rgba(255,255,255,0.72)',
+  },
+  customLayoutDateText: {
+    color: colors.muted,
+    fontSize: 'clamp(11px, 1.1vw, 16px)',
+    lineHeight: 'clamp(15px, 1.5vw, 21px)',
+    fontWeight: '800',
+    textAlign: 'center',
+    textShadow: '0 1px 8px rgba(255,255,255,0.72)',
   },
   customLayoutDateLine: {
     position: 'absolute',
@@ -8986,6 +9689,40 @@ const styles = StyleSheet.create({
   },
   customLayoutControls: {
     gap: 14,
+    minWidth: 0,
+  },
+  customMenuTabs: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 10,
+    boxShadow: '0 12px 34px rgba(15,23,42,0.07)',
+  },
+  customMenuTab: {
+    minHeight: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  customMenuTabActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.rose,
+  },
+  customMenuTabText: {
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  customMenuTabTextActive: {
+    color: '#ffffff',
   },
   customLayoutCard: {
     borderRadius: 8,
@@ -9095,6 +9832,153 @@ const styles = StyleSheet.create({
     color: colors.rose,
     fontSize: 14,
     lineHeight: 18,
+    fontWeight: '900',
+  },
+  customTextGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  customTextInput: {
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '800',
+    paddingHorizontal: 12,
+    outlineStyle: 'none',
+  },
+  customTextLayerPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  customTextPickerButton: {
+    minHeight: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    paddingHorizontal: 11,
+  },
+  customTextPickerButtonActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.rose,
+  },
+  customTextPickerText: {
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  customTextPickerTextActive: {
+    color: '#ffffff',
+  },
+  customTextStyleGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: 8,
+  },
+  customTextStyleButton: {
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  customTextStyleButtonText: {
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  customTextStyleButtonValue: {
+    color: colors.muted,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  customTextColorSwatch: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  customTypePills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  customTypePill: {
+    minHeight: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  customTypePillActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.rose,
+  },
+  customTypePillText: {
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  customTypePillTextActive: {
+    color: '#ffffff',
+  },
+  customTemplateRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  customTemplateThumb: {
+    width: 58,
+    height: 74,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    overflow: 'hidden',
+    backgroundColor: colors.soft,
+  },
+  customTemplateThumbActive: {
+    borderColor: colors.rose,
+  },
+  customTemplateImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  customUploadThumb: {
+    width: 58,
+    height: 74,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.rose,
+    borderStyle: 'dashed',
+    backgroundColor: colors.roseSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+  },
+  customUploadThumbText: {
+    color: colors.rose,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: '900',
   },
   customOrderList: {
@@ -10020,31 +10904,30 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.78)',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 6,
+    padding: 'clamp(10px, 2svh, 20px)',
     zIndex: 20,
   },
   modalCard: {
-    width: 560,
-    maxWidth: 'calc(100vw - 20px)',
-    minHeight: 720,
+    width: 540,
+    maxWidth: 'calc(100vw - 24px)',
+    maxHeight: 'calc(100svh - 24px)',
+    overflow: 'auto',
     borderWidth: 0,
     borderColor: 'transparent',
     backgroundColor: '#ffffff',
-    paddingHorizontal: 40,
-    paddingVertical: 52,
+    paddingHorizontal: 'clamp(22px, 4vw, 38px)',
+    paddingVertical: 'clamp(28px, 5svh, 46px)',
     alignItems: 'center',
-    gap: 22,
+    gap: 'clamp(14px, 2.4svh, 20px)',
     boxShadow: '0 20px 70px rgba(15,23,42,0.18)',
   },
   modalCardMobile: {
     width: 'calc(100vw - 18px)',
     maxWidth: 380,
-    height: 'calc(100vh - 18px)',
-    maxHeight: 830,
+    maxHeight: 'calc(100svh - 18px)',
     minHeight: 0,
     paddingHorizontal: 22,
-    paddingVertical: 34,
-    justifyContent: 'center',
+    paddingVertical: 30,
     gap: 14,
   },
   closeButton: {
@@ -10064,8 +10947,8 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     color: '#000000',
-    fontSize: 38,
-    lineHeight: 44,
+    fontSize: 34,
+    lineHeight: 40,
     fontWeight: '900',
     textAlign: 'center',
   },
@@ -10077,8 +10960,8 @@ const styles = StyleSheet.create({
   },
   modalQuestion: {
     color: '#111827',
-    fontSize: 22,
-    lineHeight: 29,
+    fontSize: 20,
+    lineHeight: 27,
     textAlign: 'center',
   },
   modalQuestionMobile: {
@@ -10180,7 +11063,7 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   primaryButton: {
-    minHeight: 62,
+    minHeight: 58,
     width: '100%',
     maxWidth: 290,
     borderRadius: 31,
