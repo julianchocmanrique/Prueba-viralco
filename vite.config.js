@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  base: '/prueba-viralco/',
+  base: process.env.GITHUB_PAGES === 'true' ? '/Prueba-viralco/' : '/prueba-viralco/',
   plugins: [react()],
   define: {
     global: 'globalThis',
