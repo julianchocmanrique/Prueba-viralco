@@ -40,6 +40,10 @@ const persistentPhotoDbName = 'viralco-mirror-photo-images'
 const persistentPhotoStoreName = 'images'
 const persistentFinalPhotoKey = 'final'
 const persistentFrameKey = (index) => `frame-${index}`
+const cp1500ShortEdgeCm = 10
+const cp1500LongEdgeCm = 14.8
+const cp1500CanvasWidth = 2000
+const cp1500CanvasHeight = Math.round(cp1500CanvasWidth * (cp1500LongEdgeCm / cp1500ShortEdgeCm))
 
 const openPersistentPhotoDb = () =>
   new Promise((resolve, reject) => {
@@ -132,9 +136,9 @@ const photoTypes = [
     name: 'Personalizar',
     note: 'Diseño personalizado con recuadros manuales.',
     shots: 3,
-    aspect: '10 / 15',
-    width: 2000,
-    height: 3000,
+    aspect: `${cp1500ShortEdgeCm} / ${cp1500LongEdgeCm}`,
+    width: cp1500CanvasWidth,
+    height: cp1500CanvasHeight,
   },
   {
     id: 'postal',
@@ -367,8 +371,6 @@ const printPaperPresets = [
   { id: '10x15', label: '10 x 15', sizeText: '10 x 15 cm', width: '10', height: '15', margin: '0', note: 'Hoja para dos tiras 5x15.' },
 ]
 const printDpiOptions = [203, 300, 600]
-const cp1500ShortEdgeCm = 10
-const cp1500LongEdgeCm = 14.8
 const defaultPrintSettings = {
   presetId: '10x15',
   widthCm: '10',
@@ -12255,7 +12257,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 'min(54vw, 560px)',
     minWidth: 420,
-    aspectRatio: 10 / 15,
+    aspectRatio: cp1500ShortEdgeCm / cp1500LongEdgeCm,
     borderRadius: 8,
     backgroundColor: '#f8fafc',
     borderWidth: 1,
