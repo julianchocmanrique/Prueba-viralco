@@ -655,8 +655,8 @@ const WebApp = () => {
     const marginCm = Math.min(parsePositive(printSettings.marginCm, 0), Math.min(widthCm, heightCm) / 3)
     const copies = Math.min(Math.max(Math.round(parsePositive(printSettings.copies, 1)), 1), 20)
     const dpi = printDpiOptions.includes(Number(printSettings.dpi)) ? Number(printSettings.dpi) : 300
-    const orientedWidthCm = printSettings.orientation === 'Horizontal' ? heightCm : widthCm
-    const orientedHeightCm = printSettings.orientation === 'Horizontal' ? widthCm : heightCm
+    const orientedWidthCm = widthCm
+    const orientedHeightCm = heightCm
     const printableWidthCm = Math.max(orientedWidthCm - marginCm * 2, 0.1)
     const printableHeightCm = Math.max(orientedHeightCm - marginCm * 2, 0.1)
     return {
@@ -2945,36 +2945,7 @@ const WebApp = () => {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;')
 
-  const getImageSize = (src) => new Promise((resolve) => {
-    const BrowserImage = typeof window !== 'undefined' ? window.Image : null
-    if (!src || !BrowserImage) {
-      resolve({ width: selectedType.width, height: selectedType.height })
-      return
-    }
-    let settled = false
-    const finish = (size) => {
-      if (settled) return
-      settled = true
-      resolve(size)
-    }
-    const image = new BrowserImage()
-    const fallbackSize = { width: selectedType.width, height: selectedType.height }
-    const timeoutId = window.setTimeout(() => finish(fallbackSize), 1200)
-    image.onload = () => {
-      window.clearTimeout(timeoutId)
-      finish({
-        width: image.naturalWidth || selectedType.width,
-        height: image.naturalHeight || selectedType.height,
-      })
-    }
-    image.onerror = () => {
-      window.clearTimeout(timeoutId)
-      finish(fallbackSize)
-    }
-    image.src = src
-  })
-
-  const executePrint = async () => {
+  const executePrint = () => {
     if (!captureComplete || typeof window === 'undefined') return
 
     const printWindow = window.open('', '_blank')
@@ -2986,15 +2957,8 @@ const WebApp = () => {
     printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>Preparando impresión</title></head><body style="margin:0;display:grid;place-items:center;min-height:100vh;font-family:Arial,sans-serif;color:#111827;">Preparando impresión Canon CP1500...</body></html>`)
     printWindow.document.close()
 
-    let imageSize = { width: selectedType.width, height: selectedType.height }
-    try {
-      imageSize = await getImageSize(finalPhotoUrl)
-    } catch {
-      imageSize = { width: selectedType.width, height: selectedType.height }
-    }
-    const imageIsLandscape = imageSize.width > imageSize.height
-    const pageWidthCm = imageIsLandscape ? cp1500LongEdgeCm : cp1500ShortEdgeCm
-    const pageHeightCm = imageIsLandscape ? cp1500ShortEdgeCm : cp1500LongEdgeCm
+    const pageWidthCm = cp1500ShortEdgeCm
+    const pageHeightCm = cp1500LongEdgeCm
     const printableWidth = `${pageWidthCm}cm`
     const printableHeight = `${pageHeightCm}cm`
     const imageCopies = Array.from({ length: normalizedPrintSettings.copies }, (_, index) => (
@@ -3637,7 +3601,9 @@ const WebApp = () => {
       presetId: '10x15',
       widthCm: '10',
       heightCm: '15',
+      orientation: 'Vertical',
       [key]: value,
+      ...(key === 'orientation' ? { orientation: 'Vertical' } : {}),
     }))
   }
 
