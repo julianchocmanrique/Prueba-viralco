@@ -14,6 +14,7 @@ import {
 import bodaImage from '../assets/plantillas/boda.png'
 import cumpleImage from '../assets/plantillas/cumple.png'
 import fiestaImage from '../assets/plantillas/fiesta.png'
+import playaImage from '../assets/plantillas/playa.jpg'
 import tropicalImage from '../assets/plantillas/tropical.png'
 
 const colors = {
@@ -28,6 +29,13 @@ const colors = {
   green: '#16a34a',
   dark: '#0d1220',
 }
+
+const appSetupStorageKey = 'viralco-mirror-photo-app'
+const appSessionStorageKey = 'viralco-mirror-photo-session'
+const recentEventsStorageKey = 'viralco-mirror-recent-events'
+const eventGalleryStorageKey = 'viralco-mirror-event-galleries'
+const activeProfileStorageKey = 'viralco-mirror-active-profile'
+const photoUploadEndpoint = '/prueba-viralco/api/photos'
 
 const photoTypes = [
   {
@@ -99,7 +107,7 @@ const defaultEventType = 'Boda'
 const eventTypes = ['Boda', 'Cumpleaños', 'Bautizo', '15 años', 'Grado', 'Baby shower', 'Corporativo']
 const templatesByEventType = {
   Boda: [
-    { id: 'boda-clasica', name: 'Boda clásica', image: bodaImage, tone: '#0a4de8' },
+    { id: 'boda-clasica', name: 'Playa elegante', image: playaImage, tone: '#0ea5e9' },
     { id: 'boda-elegante', name: 'Boda elegante', image: bodaImage, tone: '#063aaf' },
     { id: 'boda-jardin', name: 'Boda jardín', image: tropicalImage, tone: '#38bdf8' },
     { id: 'boda-noche', name: 'Boda de noche', image: bodaImage, tone: '#172554' },
@@ -243,6 +251,39 @@ const defaultRecentEvents = [
     updatedAt: 'Reciente',
   },
 ]
+const profileOptions = [
+  { id: 'admin', name: 'Administrador', shortName: 'Admin', role: 'admin' },
+  { id: 'operario-1', name: 'Operario 1', shortName: 'Op. 1', role: 'operator' },
+  { id: 'operario-2', name: 'Operario 2', shortName: 'Op. 2', role: 'operator' },
+]
+const operatorAssignedEvents = {
+  'operario-1': [
+    {
+      id: 'op1-cumple-color',
+      operatorId: 'operario-1',
+      name: 'Cumple Laura',
+      eventName: 'Cumple Laura',
+      eventType: 'Cumpleaños',
+      photoTypeId: 'doble',
+      templateId: 'cumple-color',
+      filter: 'Original',
+      updatedAt: 'Asignado',
+    },
+  ],
+  'operario-2': [
+    {
+      id: 'op2-corporativo-gala',
+      operatorId: 'operario-2',
+      name: 'Gala Empresa',
+      eventName: 'Gala Empresa',
+      eventType: 'Corporativo',
+      photoTypeId: 'postal',
+      templateId: 'corp-gala',
+      filter: 'Glam',
+      updatedAt: 'Asignado',
+    },
+  ],
+}
 const editorTools = [
   { id: 'imagen', label: 'Imagen', icon: '▧' },
   { id: 'texto', label: 'Texto', icon: 'T' },
@@ -393,8 +434,10 @@ function normalizeCustomPhotoLayout(layout, count) {
 }
 
 const WebApp = () => {
-  const { width } = useWindowDimensions()
+  const { width, height } = useWindowDimensions()
   const isMobile = width < 760
+  const isPhone = width <= 500
+  const isShortScreen = height < 720
   const capturePulse = useRef(new Animated.Value(0)).current
   const captureFloat = useRef(new Animated.Value(0)).current
   const [showCreateEventModal, setShowCreateEventModal] = useState(false)
@@ -406,6 +449,9 @@ const WebApp = () => {
   const [showPrintConfigScreen, setShowPrintConfigScreen] = useState(false)
   const [showPrintOptions, setShowPrintOptions] = useState(false)
   const [showQrOptions, setShowQrOptions] = useState(false)
+  const [qrPhotoUrl, setQrPhotoUrl] = useState('')
+  const [showPreviewShareMenu, setShowPreviewShareMenu] = useState(false)
+  const [showEventGallery, setShowEventGallery] = useState(false)
   const [showBackgroundRemovalScreen, setShowBackgroundRemovalScreen] = useState(false)
   const [showEventOptionsScreen, setShowEventOptionsScreen] = useState(false)
   const [showAnimationVideoScreen, setShowAnimationVideoScreen] = useState(false)
@@ -422,15 +468,21 @@ const WebApp = () => {
   const [eventNameError, setEventNameError] = useState('')
   const [eventType, setEventType] = useState('')
   const [selectedType, setSelectedType] = useState(photoTypes[0])
+  const previewOutputWidth = Math.min(width * 0.92, Math.max(280, (height - (isMobile ? 250 : 280)) * (selectedType.width / selectedType.height)), 860)
   const [selectedTemplate, setSelectedTemplate] = useState(getTemplatesForEventType(defaultEventType)[0])
   const [selectedFilter, setSelectedFilter] = useState(filters[0])
+  const [activeProfileId, setActiveProfileId] = useState('admin')
   const [recentEvents, setRecentEvents] = useState(defaultRecentEvents)
+  const [eventGalleries, setEventGalleries] = useState({})
   const [selectedRecentId, setSelectedRecentId] = useState(defaultRecentEvents[0]?.id || '')
   const [cameraStream, setCameraStream] = useState(null)
   const [cameraOpening, setCameraOpening] = useState(false)
   const [cameraError, setCameraError] = useState('')
   const [photoFrames, setPhotoFrames] = useState([])
   const [finalPhotoUrl, setFinalPhotoUrl] = useState('')
+  const [savedPhotoUrl, setSavedPhotoUrl] = useState('')
+  const [savedPhotoId, setSavedPhotoId] = useState('')
+  const [photoSaveStatus, setPhotoSaveStatus] = useState('')
   const [retakeFrameIndex, setRetakeFrameIndex] = useState(null)
   const [captureStatus, setCaptureStatus] = useState('Crea un evento para empezar')
   const [countdown, setCountdown] = useState('')
@@ -442,7 +494,7 @@ const WebApp = () => {
   const [captureOriginal, setCaptureOriginal] = useState(true)
   const [photoCountdownFirst, setPhotoCountdownFirst] = useState(5)
   const [photoCountdownNext, setPhotoCountdownNext] = useState(5)
-  const [photoReviewSeconds, setPhotoReviewSeconds] = useState(2)
+  const [photoReviewSeconds, setPhotoReviewSeconds] = useState(4)
   const [flashBeforePhoto, setFlashBeforePhoto] = useState(true)
   const [roamingMode, setRoamingMode] = useState(false)
   const [gifOverlayUrl, setGifOverlayUrl] = useState('')
@@ -494,8 +546,24 @@ const WebApp = () => {
   const countdownRef = useRef(null)
   const customEditorStripRef = useRef(null)
   const customLayoutPointerRef = useRef(null)
+  const storageHydratedRef = useRef(false)
 
   const eventTitle = eventName.trim() || 'Evento Viralco'
+  const eventGalleryId = eventTitle
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase() || 'evento-viralco'
+  const currentEventGallery = eventGalleries[eventGalleryId]?.items || []
+  const latestEventGalleryPhoto = currentEventGallery[0]
+  const activeProfile = profileOptions.find((profile) => profile.id === activeProfileId) || profileOptions[0]
+  const isAdminProfile = activeProfile.role === 'admin'
+  const visibleLaunchEvents = useMemo(() => {
+    if (isAdminProfile) return recentEvents.length ? recentEvents : defaultRecentEvents
+    const operatorRecentEvents = recentEvents.filter((item) => item.operatorId === activeProfile.id)
+    return operatorRecentEvents.length ? operatorRecentEvents : (operatorAssignedEvents[activeProfile.id] || [])
+  }, [activeProfile.id, isAdminProfile, recentEvents])
   const eventReady = Boolean(eventName.trim())
   const framesReady = photoFrames.length
   const captureComplete = Boolean(finalPhotoUrl)
@@ -542,8 +610,8 @@ const WebApp = () => {
     }
   }, [printSettings])
   const selectedRecentEvent = useMemo(
-    () => recentEvents.find((item) => (item.id || item.name) === selectedRecentId) || recentEvents[0],
-    [recentEvents, selectedRecentId],
+    () => visibleLaunchEvents.find((item) => (item.id || item.name) === selectedRecentId) || visibleLaunchEvents[0],
+    [visibleLaunchEvents, selectedRecentId],
   )
   const eventTemplateOptions = useMemo(() => getTemplatesForEventType(eventType), [eventType])
   const printSizeLabel = `${normalizedPrintSettings.widthCm}x${normalizedPrintSettings.heightCm} cm`
@@ -606,15 +674,25 @@ const WebApp = () => {
     setShowShareScreen(nextRoute === 'compartir')
     setShowOperatorMenu(false)
     setOperatorQuickPanel(null)
+    setShowPreviewShareMenu(false)
   }
   const sharePageUrl =
-    typeof window !== 'undefined'
+    savedPhotoUrl || (typeof window !== 'undefined'
       ? window.location.href
-      : 'https://www.viralcoproducciones.com/prueba-viralco/'
+      : 'https://www.viralcoproducciones.com/prueba-viralco/')
   const shareText = `${eventTitle}: foto del espejo mágico Viralco lista. ${sharePageUrl}`
   const encodedShareText = encodeURIComponent(shareText)
-  const encodedShareUrl = encodeURIComponent(sharePageUrl)
+  const qrTargetUrl = qrPhotoUrl || savedPhotoUrl || sharePageUrl
+  const encodedShareUrl = encodeURIComponent(qrTargetUrl)
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=14&data=${encodedShareUrl}`
+  const clearSavedPhoto = () => {
+    setSavedPhotoUrl('')
+    setSavedPhotoId('')
+    setPhotoSaveStatus('')
+    setQrPhotoUrl('')
+  }
+
+  const closePreviewShareMenu = () => setShowPreviewShareMenu(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -680,6 +758,7 @@ const WebApp = () => {
     setSelectedFilter(nextFilter)
     setPhotoFrames([])
     setFinalPhotoUrl('')
+    clearSavedPhoto()
     setRetakeFrameIndex(null)
     setAnimationVideoPromptAnswered(false)
     setAnimationVideoQuestionMode('question')
@@ -733,6 +812,7 @@ const WebApp = () => {
     setSelectedTemplate(getTemplatesForEventType(defaultEventType)[0])
     setPhotoFrames([])
     setFinalPhotoUrl('')
+    clearSavedPhoto()
     setRetakeFrameIndex(null)
     setAnimationVideoPromptAnswered(false)
     setAnimationVideoQuestionMode('question')
@@ -757,6 +837,14 @@ const WebApp = () => {
 
     setEventNameError('')
     launchEvent(getCurrentSetup(), destination)
+  }
+
+  const switchProfile = (profileId) => {
+    setActiveProfileId(profileId)
+    setShowCreateEventModal(false)
+    setShowOperatorMenu(false)
+    setOperatorQuickPanel(null)
+    setCaptureStatus(`Perfil ${profileOptions.find((profile) => profile.id === profileId)?.name || 'Viralco'} activo.`)
   }
 
   const startLaunchIntroExperience = () => {
@@ -822,10 +910,16 @@ const WebApp = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    const saved = window.localStorage.getItem('viralco-mirror-photo-app')
-    const savedRecent = window.localStorage.getItem('viralco-mirror-recent-events')
+    const saved = window.localStorage.getItem(appSetupStorageKey)
+    const savedSession = window.localStorage.getItem(appSessionStorageKey)
+    const savedRecent = window.localStorage.getItem(recentEventsStorageKey)
+    const savedGalleries = window.localStorage.getItem(eventGalleryStorageKey)
+    const savedProfile = window.localStorage.getItem(activeProfileStorageKey)
 
     try {
+      if (profileOptions.some((profile) => profile.id === savedProfile)) {
+        setActiveProfileId(savedProfile)
+      }
       const parsedRecent = savedRecent ? JSON.parse(savedRecent) : []
       if (Array.isArray(parsedRecent) && parsedRecent.length) {
         setRecentEvents(parsedRecent.slice(0, 1))
@@ -835,14 +929,46 @@ const WebApp = () => {
         const setup = JSON.parse(saved)
         applyEventSetup(setup, 'listo para fotos')
       }
+      if (savedSession) {
+        const session = JSON.parse(savedSession)
+        if (Array.isArray(session.photoFrames)) {
+          setPhotoFrames(session.photoFrames.filter(Boolean))
+        }
+        if (typeof session.finalPhotoUrl === 'string') {
+          setFinalPhotoUrl(session.finalPhotoUrl)
+        }
+        if (typeof session.savedPhotoUrl === 'string') {
+          setSavedPhotoUrl(session.savedPhotoUrl)
+        }
+        if (typeof session.savedPhotoId === 'string') {
+          setSavedPhotoId(session.savedPhotoId)
+        }
+        if (typeof session.photoSaveStatus === 'string') {
+          setPhotoSaveStatus(session.photoSaveStatus)
+        }
+        if (typeof session.captureStatus === 'string' && session.captureStatus.trim()) {
+          setCaptureStatus(session.captureStatus)
+        }
+      }
+      if (savedGalleries) {
+        const galleries = JSON.parse(savedGalleries)
+        if (galleries && typeof galleries === 'object') {
+          setEventGalleries(galleries)
+        }
+      }
     } catch {
-      window.localStorage.removeItem('viralco-mirror-photo-app')
-      window.localStorage.removeItem('viralco-mirror-recent-events')
+      window.localStorage.removeItem(appSetupStorageKey)
+      window.localStorage.removeItem(appSessionStorageKey)
+      window.localStorage.removeItem(recentEventsStorageKey)
+      window.localStorage.removeItem(eventGalleryStorageKey)
+      window.localStorage.removeItem(activeProfileStorageKey)
+    } finally {
+      storageHydratedRef.current = true
     }
   }, [])
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
     const setup = {
       eventName: eventName.trim(),
       eventType,
@@ -851,16 +977,79 @@ const WebApp = () => {
       customPhotoCount,
       customPhotoOrder: customPhotoSequence,
       customPhotoLayout: customLayoutSlots,
+      customTextLayers,
       templateId: selectedTemplate.id,
       filter: selectedFilter,
     }
-    window.localStorage.setItem('viralco-mirror-photo-app', JSON.stringify(setup))
+    window.localStorage.setItem(appSetupStorageKey, JSON.stringify(setup))
   }, [eventName, eventType, selectedType, customPhotoCount, customPhotoSequence, customLayoutSlots, customTextLayers, selectedTemplate, selectedFilter])
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem('viralco-mirror-recent-events', JSON.stringify(recentEvents))
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    try {
+      const session = {
+        photoFrames,
+        finalPhotoUrl,
+        savedPhotoUrl,
+        savedPhotoId,
+        photoSaveStatus,
+        captureStatus,
+        updatedAt: Date.now(),
+      }
+      window.localStorage.setItem(appSessionStorageKey, JSON.stringify(session))
+    } catch {
+      try {
+        window.localStorage.removeItem(appSessionStorageKey)
+      } catch {
+        // Ignore storage cleanup failures.
+      }
+    }
+  }, [photoFrames, finalPhotoUrl, savedPhotoUrl, savedPhotoId, photoSaveStatus, captureStatus])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    window.localStorage.setItem(recentEventsStorageKey, JSON.stringify(recentEvents))
   }, [recentEvents])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    window.localStorage.setItem(activeProfileStorageKey, activeProfileId)
+  }, [activeProfileId])
+
+  useEffect(() => {
+    const firstLaunchEvent = visibleLaunchEvents[0]
+    if (!firstLaunchEvent) {
+      setSelectedRecentId('')
+      return
+    }
+    const hasSelectedEvent = visibleLaunchEvents.some((item) => (item.id || item.name) === selectedRecentId)
+    if (!hasSelectedEvent) {
+      setSelectedRecentId(firstLaunchEvent.id || firstLaunchEvent.name)
+    }
+  }, [selectedRecentId, visibleLaunchEvents])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    try {
+      window.localStorage.setItem(eventGalleryStorageKey, JSON.stringify(eventGalleries))
+    } catch {
+      try {
+        const compactGalleries = Object.fromEntries(
+          Object.entries(eventGalleries).map(([key, gallery]) => [
+            key,
+            {
+              ...gallery,
+              items: (gallery.items || []).slice(0, 4),
+            },
+          ]),
+        )
+        window.localStorage.setItem(eventGalleryStorageKey, JSON.stringify(compactGalleries))
+        setEventGalleries(compactGalleries)
+      } catch {
+        // Ignore gallery persistence failures when storage is full.
+      }
+    }
+  }, [eventGalleries])
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -1106,6 +1295,15 @@ const WebApp = () => {
     context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, widthValue, heightValue)
   }
 
+  const drawContain = (context, image, x, y, widthValue, heightValue) => {
+    const scale = Math.min(widthValue / image.width, heightValue / image.height)
+    const drawWidth = image.width * scale
+    const drawHeight = image.height * scale
+    const drawX = x + (widthValue - drawWidth) / 2
+    const drawY = y + (heightValue - drawHeight) / 2
+    context.drawImage(image, drawX, drawY, drawWidth, drawHeight)
+  }
+
   const drawGifOverlay = async (context, canvasWidth, canvasHeight) => {
     if (!gifOverlayUrl) return
     const image = await loadCanvasImage(gifOverlayUrl).catch(() => null)
@@ -1317,6 +1515,68 @@ const WebApp = () => {
     return [{ x: margin, y: heightValue * 0.17, width: widthValue - margin * 2, height: heightValue * 0.66 }]
   }
 
+  const renderLiveCaptureFrameOverlay = () => {
+    const activeIndex = retakeFrameIndex === null
+      ? Math.min(framesReady, selectedShotCount - 1)
+      : Math.min(retakeFrameIndex, selectedShotCount - 1)
+    const activePhotoNumber = selectedType.id === 'personalizar-5x15'
+      ? customPhotoSequence[activeIndex] || activeIndex + 1
+      : activeIndex + 1
+    const frameSource = overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image
+
+    return (
+      <View style={styles.liveFrameOverlayLayer} pointerEvents="none">
+        <View style={styles.liveFrameOverlaySurface}>
+          <Image
+            source={frameSource}
+            style={styles.liveFrameOverlayImage}
+            accessibilityLabel={`Marco activo ${selectedTemplate.name}`}
+          />
+          <View style={styles.liveFrameOverlaySoftWash} />
+          <View style={styles.liveFrameCurrentBadge}>
+            <Text style={styles.liveFrameCurrentBadgeText}>Foto {activePhotoNumber}</Text>
+          </View>
+        </View>
+      </View>
+    )
+  }
+
+  const getPreviewRetakeSlots = () => {
+    if (selectedType.id === 'personalizar-5x15') {
+      const canvasWidth = selectedType.width
+      const canvasHeight = selectedType.height
+      const pagePad = canvasWidth * 0.035
+      const gutter = canvasWidth * 0.018
+      const stripWidth = (canvasWidth - pagePad * 2 - gutter) / 2
+      const stripHeight = canvasHeight - pagePad * 2
+      const strips = [pagePad, pagePad + stripWidth + gutter]
+
+      return strips.flatMap((stripX) =>
+        customPhotoSequence.map((photoNumber) => {
+          const slot = customLayoutSlots.find((item) => item.photoNumber === photoNumber)
+            || createDefaultCustomPhotoLayout(customPhotoCount)[photoNumber - 1]
+          return {
+            photoNumber,
+            index: photoNumber - 1,
+            x: ((stripX + (slot.x / 100) * stripWidth) / canvasWidth) * 100,
+            y: ((pagePad + (slot.y / 100) * stripHeight) / canvasHeight) * 100,
+            width: (((slot.width / 100) * stripWidth) / canvasWidth) * 100,
+            height: (((slot.height / 100) * stripHeight) / canvasHeight) * 100,
+          }
+        }),
+      )
+    }
+
+    return getSlots(selectedType, selectedType.width, selectedType.height).map((slot, index) => ({
+      photoNumber: index + 1,
+      index,
+      x: (slot.x / selectedType.width) * 100,
+      y: (slot.y / selectedType.height) * 100,
+      width: (slot.width / selectedType.width) * 100,
+      height: (slot.height / selectedType.height) * 100,
+    }))
+  }
+
   const drawCustom5x15Decor = (context, x, y, widthValue, heightValue) => {
     context.save()
     context.globalAlpha = 0.2
@@ -1435,7 +1695,7 @@ const WebApp = () => {
       context.clip()
       context.fillStyle = '#111827'
       context.fillRect(slot.x, slot.y, slot.width, slot.height)
-      if (image) drawCover(context, image, slot.x, slot.y, slot.width, slot.height)
+      if (image) drawContain(context, image, slot.x, slot.y, slot.width, slot.height)
       context.restore()
 
       context.lineWidth = Math.max(10, widthValue * 0.014)
@@ -1498,17 +1758,13 @@ const WebApp = () => {
     if (isRecuerdo) {
       drawRecuerdoFrame(context, canvasWidth, canvasHeight)
     } else {
-      const gradient = context.createLinearGradient(0, 0, canvasWidth, canvasHeight)
-      gradient.addColorStop(0, selectedTemplate.tone)
-      gradient.addColorStop(0.58, colors.rose)
-      gradient.addColorStop(1, colors.dark)
-      context.fillStyle = gradient
+      context.fillStyle = '#ffffff'
       context.fillRect(0, 0, canvasWidth, canvasHeight)
     }
 
     const templateImage = isRecuerdo ? null : await loadCanvasImage(overlayImageUrl || getTemplateImageUrl()).catch(() => null)
     if (templateImage) {
-      context.globalAlpha = overlayImageUrl ? 0.86 : 0.24
+      context.globalAlpha = overlayImageUrl ? 0.92 : 1
       drawCover(context, templateImage, 0, 0, canvasWidth, canvasHeight)
       context.globalAlpha = 1
     }
@@ -1524,7 +1780,7 @@ const WebApp = () => {
       context.clip()
       context.fillStyle = '#101419'
       context.fillRect(slot.x, slot.y, slot.width, slot.height)
-      if (image) drawCover(context, image, slot.x, slot.y, slot.width, slot.height)
+      if (image) drawContain(context, image, slot.x, slot.y, slot.width, slot.height)
       context.restore()
 
       context.lineWidth = Math.max(8, canvasWidth * 0.011)
@@ -1563,17 +1819,139 @@ const WebApp = () => {
       context.fillStyle = 'rgba(255,255,255,0.78)'
       context.fillText(`${selectedType.name} / ${selectedFilter}`, canvasWidth * 0.07, canvasHeight * 0.112)
 
-      context.textAlign = 'right'
-      context.font = `900 ${Math.round(canvasWidth * 0.034)}px Arial`
-      context.fillStyle = '#ffffff'
-      context.fillText('Viralco', canvasWidth * 0.93, canvasHeight * 0.94)
-      context.font = `700 ${Math.round(canvasWidth * 0.02)}px Arial`
-      context.fillStyle = 'rgba(255,255,255,0.7)'
-      context.fillText('Espejo mágico', canvasWidth * 0.93, canvasHeight * 0.969)
     }
 
     await drawGifOverlay(context, canvasWidth, canvasHeight)
     return canvas.toDataURL('image/jpeg', qualityMode === 'Superior' ? 0.96 : qualityMode === 'Media' ? 0.84 : 0.92)
+  }
+
+  const saveFinalPhotoToServer = async (finalPhoto, frames = photoFrames) => {
+    if (!finalPhoto || typeof fetch === 'undefined') return null
+
+    setPhotoSaveStatus('Guardando foto en servidor...')
+    setSavedPhotoUrl('')
+    setSavedPhotoId('')
+
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 5500) : null
+
+    try {
+      const response = await fetch(photoUploadEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller?.signal,
+        body: JSON.stringify({
+          eventName: eventTitle,
+          eventType,
+          photoType: selectedType.name,
+          photoTypeId: selectedType.id,
+          templateId: selectedTemplate.id,
+          templateName: selectedTemplate.name,
+          filter: selectedFilter,
+          finalPhoto,
+          frames,
+          createdAt: new Date().toISOString(),
+        }),
+      })
+
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || 'No se pudo guardar la foto.')
+      }
+
+      const publicUrl = result.absoluteUrl || result.url || ''
+      setSavedPhotoUrl(publicUrl)
+      setSavedPhotoId(result.id || '')
+      setQrPhotoUrl(publicUrl)
+      setPhotoSaveStatus('Foto guardada en servidor.')
+      return result
+    } catch (error) {
+      setPhotoSaveStatus('Foto guardada en este dispositivo. Falta activar el servidor para guardarla en la nube.')
+      return null
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }
+
+  const dataUrlToPhotoFile = async (dataUrl) => {
+    if (!dataUrl || typeof fetch === 'undefined' || typeof File === 'undefined') return null
+    const response = await fetch(dataUrl)
+    const blob = await response.blob()
+    const cleanName = eventTitle
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase() || 'foto-viralco'
+    return new File([blob], `${cleanName}.jpg`, { type: blob.type || 'image/jpeg' })
+  }
+
+  const shareFinalPhotoFile = async (targetName = 'Compartir') => {
+    const file = await dataUrlToPhotoFile(finalPhotoUrl)
+    if (file && typeof navigator !== 'undefined' && navigator.share) {
+      const sharePayload = {
+        title: `${eventTitle} - Viralco`,
+        text: '',
+        files: [file],
+      }
+      if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+        await navigator.share(sharePayload)
+        setCaptureStatus(`${targetName}: elige la app y envía la imagen.`)
+        return true
+      }
+    }
+    return false
+  }
+
+  const downloadFinalPhoto = () => {
+    if (!finalPhotoUrl || typeof document === 'undefined') return
+    const link = document.createElement('a')
+    link.href = finalPhotoUrl
+    link.download = `${eventTitle.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase() || 'foto-viralco'}.jpg`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  }
+
+  const ensurePhotoPublicUrl = async () => {
+    if (savedPhotoUrl) {
+      setQrPhotoUrl(savedPhotoUrl)
+      return savedPhotoUrl
+    }
+    const result = await saveFinalPhotoToServer(finalPhotoUrl, photoFrames)
+    const publicUrl = result?.absoluteUrl || result?.url || ''
+    if (publicUrl) setQrPhotoUrl(publicUrl)
+    return publicUrl
+  }
+
+  const rememberEventPhoto = (photoUrl, serverResult = null) => {
+    if (!photoUrl) return
+    const publicUrl = serverResult?.absoluteUrl || serverResult?.url || ''
+    const item = {
+      id: serverResult?.id || `foto-${Date.now()}`,
+      eventName: eventTitle,
+      photoType: selectedType.name,
+      templateName: selectedTemplate.name,
+      createdAt: new Date().toISOString(),
+      src: publicUrl || photoUrl,
+      publicUrl,
+      localUrl: photoUrl,
+      frames: photoFrames.length,
+    }
+
+    setEventGalleries((current) => {
+      const gallery = current[eventGalleryId] || { id: eventGalleryId, eventName: eventTitle, items: [] }
+      const withoutDuplicate = (gallery.items || []).filter((photo) => photo.id !== item.id && photo.src !== item.src)
+      return {
+        ...current,
+        [eventGalleryId]: {
+          ...gallery,
+          eventName: eventTitle,
+          updatedAt: item.createdAt,
+          items: [item, ...withoutDuplicate].slice(0, 18),
+        },
+      }
+    })
   }
 
   const runCountdownAndCapture = async () => {
@@ -1643,16 +2021,25 @@ const WebApp = () => {
         videoUrl: getAnimationStageVideoUrl('processing'),
       })
       setCaptureStatus(`Foto ${replacingIndex + 1} reemplazada. Armando resultado final...`)
-      const output = await composeFinalPhoto(nextFrames)
-      setFinalPhotoUrl(output)
-      setRetakeFrameIndex(null)
-      setAnimationOverlay(null)
-      countdownRef.current = null
-      setCaptureStatus(`Foto ${replacingIndex + 1} actualizada en el resultado final.`)
-      setShowCapturePhotoScreen(false)
-      setShowPreviewScreen(true)
-      setShowShareScreen(false)
-      updateAppRoute('preview')
+      try {
+        const output = await composeFinalPhoto(nextFrames)
+        setFinalPhotoUrl(output)
+        const savedResult = await saveFinalPhotoToServer(output, nextFrames)
+        rememberEventPhoto(output, savedResult)
+        setCaptureStatus(`Foto ${replacingIndex + 1} actualizada en el resultado final.`)
+        setShowCapturePhotoScreen(false)
+        setShowPreviewScreen(true)
+        setShowShareScreen(false)
+        updateAppRoute('preview')
+      } catch {
+        setCaptureStatus('No se pudo armar el resultado final. Intenta repetir la foto.')
+        setCaptureIntroActive(true)
+      } finally {
+        setRetakeFrameIndex(null)
+        setAnimationOverlay(null)
+        setCountdown('')
+        countdownRef.current = null
+      }
       return
     }
 
@@ -1680,20 +2067,30 @@ const WebApp = () => {
       videoUrl: getAnimationStageVideoUrl('processing'),
     })
     setCaptureStatus('Armando foto final...')
-    const output = await composeFinalPhoto(nextFrames)
-    setFinalPhotoUrl(output)
-    setAnimationOverlay(null)
-    countdownRef.current = null
-    setCaptureStatus(`${selectedType.name} listo para compartir o imprimir.`)
-    setShowCapturePhotoScreen(false)
-    setShowPreviewScreen(true)
-    setShowShareScreen(false)
-    updateAppRoute('preview')
+    try {
+      const output = await composeFinalPhoto(nextFrames)
+      setFinalPhotoUrl(output)
+      const savedResult = await saveFinalPhotoToServer(output, nextFrames)
+      rememberEventPhoto(output, savedResult)
+      setCaptureStatus(`${selectedType.name} listo para compartir o imprimir.`)
+      setShowCapturePhotoScreen(false)
+      setShowPreviewScreen(true)
+      setShowShareScreen(false)
+      updateAppRoute('preview')
+    } catch {
+      setCaptureStatus('No se pudo armar el resultado final. Intenta tomar la foto otra vez.')
+      setCaptureIntroActive(true)
+    } finally {
+      setAnimationOverlay(null)
+      setCountdown('')
+      countdownRef.current = null
+    }
   }
 
   const resetPhoto = () => {
     setPhotoFrames([])
     setFinalPhotoUrl('')
+    clearSavedPhoto()
     setRetakeFrameIndex(null)
     setCountdown('')
     setCaptureIntroActive(true)
@@ -1704,6 +2101,7 @@ const WebApp = () => {
     setSelectedType(type)
     setPhotoFrames([])
     setFinalPhotoUrl('')
+    clearSavedPhoto()
     setRetakeFrameIndex(null)
     setAnimationVideoPromptAnswered(false)
     setAnimationVideoQuestionMode('question')
@@ -1728,6 +2126,7 @@ const WebApp = () => {
     setSelectedCustomLayoutPhoto((current) => Math.min(current, Math.max(boundedCount, 1)))
     setPhotoFrames([])
     setFinalPhotoUrl('')
+    clearSavedPhoto()
     setRetakeFrameIndex(null)
     setCaptureStatus(`Personalizar: ${boundedCount} recuadro${boundedCount === 1 ? '' : 's'} manual${boundedCount === 1 ? '' : 'es'}.`)
   }
@@ -1747,6 +2146,7 @@ const WebApp = () => {
     setSelectedCustomLayoutPhoto(nextPhotoNumber)
     setPhotoFrames([])
     setFinalPhotoUrl('')
+    clearSavedPhoto()
     setRetakeFrameIndex(null)
     setCaptureStatus(`Recuadro ${nextPhotoNumber} agregado. Muévelo y agrándalo manualmente.`)
   }
@@ -1771,6 +2171,7 @@ const WebApp = () => {
     setSelectedCustomLayoutPhoto(Math.min(selectedCustomLayoutPhoto, Math.max(nextSlots.length, 1)))
     setPhotoFrames([])
     setFinalPhotoUrl('')
+    clearSavedPhoto()
     setRetakeFrameIndex(null)
     setCaptureStatus(nextSlots.length ? 'Recuadro borrado. El fondo sigue editable.' : 'Fondo limpio. Agrega una foto para crear el primer recuadro.')
   }
@@ -1834,6 +2235,7 @@ const WebApp = () => {
     }))
     setPhotoFrames([])
     setFinalPhotoUrl('')
+    clearSavedPhoto()
   }
 
   const nudgeCustomTextLayer = (textId, axis, amount) => {
@@ -1873,6 +2275,7 @@ const WebApp = () => {
     )
     setPhotoFrames([])
     setFinalPhotoUrl('')
+    clearSavedPhoto()
     setRetakeFrameIndex(null)
   }
 
@@ -1883,6 +2286,7 @@ const WebApp = () => {
     setSelectedCustomLayoutPhoto(1)
     setPhotoFrames([])
     setFinalPhotoUrl('')
+    clearSavedPhoto()
     setRetakeFrameIndex(null)
     setCaptureStatus('Fondo limpio. Agrega fotos manualmente.')
   }
@@ -1980,28 +2384,28 @@ const WebApp = () => {
     if (preset === 'Suave') {
       setPhotoCountdownFirst(5)
       setPhotoCountdownNext(5)
-      setPhotoReviewSeconds(3)
+      setPhotoReviewSeconds(5)
       setQualityMode('Media')
       setFlashBeforePhoto(false)
     }
     if (preset === 'Rápido') {
       setPhotoCountdownFirst(3)
       setPhotoCountdownNext(2)
-      setPhotoReviewSeconds(1)
+      setPhotoReviewSeconds(3)
       setQualityMode('Alta')
       setFlashBeforePhoto(true)
     }
     if (preset === 'Fiesta') {
       setPhotoCountdownFirst(5)
       setPhotoCountdownNext(4)
-      setPhotoReviewSeconds(2)
+      setPhotoReviewSeconds(4)
       setQualityMode('Alta')
       setFlashBeforePhoto(true)
     }
     if (preset === 'Evento') {
       setPhotoCountdownFirst(6)
       setPhotoCountdownNext(5)
-      setPhotoReviewSeconds(2)
+      setPhotoReviewSeconds(4)
       setQualityMode('Superior')
       setFlashBeforePhoto(true)
     }
@@ -2061,19 +2465,37 @@ const WebApp = () => {
     setCaptureStatus(`Impresión lista en papel ${printSizeLabel}, ${normalizedPrintSettings.copies} copia${normalizedPrintSettings.copies === 1 ? '' : 's'}${normalizedPrintSettings.secondaryPrinter ? ' usando impresora secundaria' : ''}.`)
   }
 
-  const runTool = (tool) => {
+  const runTool = async (tool) => {
     if (!captureComplete) {
       setCaptureStatus('Primero toma la foto final.')
       return
     }
 
-    if (tool === 'WhatsApp' && typeof window !== 'undefined') {
-      window.open(`https://wa.me/?text=${encodedShareText}`, '_blank', 'noopener,noreferrer')
+    closePreviewShareMenu()
+
+    if (tool === 'WhatsApp') {
+      try {
+        const sharedFile = await shareFinalPhotoFile('WhatsApp')
+        if (sharedFile) return
+      } catch {
+        // Fall back to opening WhatsApp without prefilled preview links.
+      }
+
+      if (typeof window !== 'undefined') {
+        window.open('https://wa.me/', '_blank', 'noopener,noreferrer')
+        setCaptureStatus('WhatsApp abierto. Este navegador no permite adjuntar la imagen automáticamente.')
+        return
+      }
     }
 
     if (tool === 'QR') {
+      const publicPhotoUrl = await ensurePhotoPublicUrl()
+      if (!publicPhotoUrl) {
+        setCaptureStatus('Para QR de foto falta activar el guardado público en servidor.')
+        return
+      }
       setShowQrOptions(true)
-      setCaptureStatus('QR listo para que el cliente lo escanee.')
+      setCaptureStatus('QR listo: abre la foto final del cliente.')
       return
     }
 
@@ -2085,6 +2507,73 @@ const WebApp = () => {
     }
 
     setCaptureStatus(`${tool} listo para ${eventTitle}.`)
+  }
+
+  const runPreviewShareAction = async (action) => {
+    if (!captureComplete) {
+      setCaptureStatus('Primero toma la foto final.')
+      return
+    }
+
+    if (action === 'Compartir') {
+      closePreviewShareMenu()
+      try {
+        const sharedFile = await shareFinalPhotoFile('Compartir')
+        if (sharedFile) return
+      } catch {
+        setCaptureStatus('Compartir imagen cancelado.')
+        return
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        try {
+          await navigator.share({
+            title: `${eventTitle} - Viralco`,
+            text: shareText,
+            url: sharePageUrl,
+          })
+          setCaptureStatus('Compartir abierto en el dispositivo.')
+          return
+        } catch {
+          setCaptureStatus('Compartir cancelado.')
+          return
+        }
+      }
+      if (typeof window !== 'undefined') {
+        window.open(sharePageUrl, '_blank', 'noopener,noreferrer')
+      }
+      downloadFinalPhoto()
+      setCaptureStatus('Imagen descargada para compartir manualmente.')
+      return
+    }
+
+    if (action === 'Email' && typeof window !== 'undefined') {
+      closePreviewShareMenu()
+      try {
+        const sharedFile = await shareFinalPhotoFile('Email')
+        if (sharedFile) return
+      } catch {
+        // Fall back to mailto.
+      }
+      window.location.href = `mailto:?subject=${encodeURIComponent(`Foto Viralco - ${eventTitle}`)}&body=${encodedShareText}`
+      setCaptureStatus('Email listo. Si no adjunta imagen, usa el enlace o descarga la foto.')
+      return
+    }
+
+    if (action === 'SMS' && typeof window !== 'undefined') {
+      closePreviewShareMenu()
+      try {
+        const sharedFile = await shareFinalPhotoFile('SMS')
+        if (sharedFile) return
+      } catch {
+        // Fall back to SMS text.
+      }
+      window.location.href = `sms:?&body=${encodedShareText}`
+      setCaptureStatus('SMS listo. Si no adjunta imagen, usa el enlace directo.')
+      return
+    }
+
+    runTool(action)
   }
 
   const openStartEditor = () => {
@@ -2306,13 +2795,15 @@ const WebApp = () => {
 
   const startRetakeFrame = (index) => {
     if (!photoFrames[index]) return
+    countdownRef.current = null
     setRetakeFrameIndex(index)
+    setAnimationOverlay(null)
     setShowHomeLauncher(false)
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(false)
     setShowAnimationVideoScreen(false)
     setShowCapturePhotoScreen(true)
-    setCaptureIntroActive(false)
+    setCaptureIntroActive(true)
     setShowPreviewScreen(false)
     setShowShareScreen(false)
     setShowStartEditor(false)
@@ -2323,6 +2814,7 @@ const WebApp = () => {
     setShowBackgroundRemovalScreen(false)
     setCountdown('')
     setCaptureStatus(`Vuelve a tomar la foto ${index + 1}. Las otras fotos se conservan.`)
+    updateAppRoute('captura')
     openCamera()
   }
 
@@ -2898,19 +3390,46 @@ const WebApp = () => {
     </View>
   )
 
+  const renderProfileSwitcher = () => (
+    <View style={[styles.profileSwitcher, isPhone && styles.profileSwitcherPhone]}>
+      <View style={styles.profileSwitcherHeader}>
+        <Text style={styles.profileSwitcherEyebrow}>Acceso rápido</Text>
+        <Text style={styles.profileSwitcherActive}>{activeProfile.name}</Text>
+      </View>
+      <View style={[styles.profileSwitcherOptions, isPhone && styles.profileSwitcherOptionsPhone]}>
+        {profileOptions.map((profile) => {
+          const active = profile.id === activeProfile.id
+          return (
+            <Pressable
+              key={profile.id}
+              onPress={() => switchProfile(profile.id)}
+              style={[styles.profileChip, isPhone && styles.profileChipPhone, active && styles.profileChipActive]}
+              accessibilityRole="button"
+              accessibilityLabel={`Cambiar a ${profile.name}`}
+            >
+              <Text style={[styles.profileChipText, active && styles.profileChipTextActive]}>{isPhone ? profile.shortName : profile.name}</Text>
+            </Pressable>
+          )
+        })}
+      </View>
+    </View>
+  )
+
   const renderRecentEventsLauncher = () => (
-    <View style={styles.recentEventsPanel}>
+    <View style={[styles.recentEventsPanel, isPhone && styles.recentEventsPanelPhone]}>
       <View style={[styles.recentEventsHeader, isMobile && styles.recentEventsHeaderMobile]}>
         <View style={styles.recentEventsHeading}>
-          <Text style={styles.panelTitle}>Lanzar evento</Text>
+          <Text style={styles.panelTitle}>{isAdminProfile ? 'Lanzar evento' : `Evento de ${activeProfile.shortName}`}</Text>
           <Text style={styles.recentEventsIntro}>
-            Lanza el último evento guardado sin volverlo a configurar.
+            {isAdminProfile
+              ? 'Crea, configura o lanza el último evento guardado.'
+              : 'Este perfil solo puede lanzar el evento asignado por el administrador.'}
           </Text>
         </View>
       </View>
 
       <View style={styles.recentEventsGrid}>
-        {recentEvents.length ? recentEvents.slice(0, 1).map((recentEvent) => {
+        {visibleLaunchEvents.length ? visibleLaunchEvents.map((recentEvent) => {
           const type = photoTypes.find((item) => item.id === recentEvent.photoTypeId) || photoTypes[0]
           const recentEventTemplates = getTemplatesForEventType(recentEvent.eventType)
           const template =
@@ -2926,7 +3445,7 @@ const WebApp = () => {
                 setSelectedRecentId(recentEvent.id || recentEvent.name)
                 launchEvent(recentEvent)
               }}
-              style={[styles.recentEventCard, active && styles.recentEventCardActive]}
+              style={[styles.recentEventCard, isPhone && styles.recentEventCardPhone, active && styles.recentEventCardActive]}
               accessibilityRole="button"
               accessibilityLabel={`Lanzar ${recentEvent.name || 'último evento'}`}
             >
@@ -2945,7 +3464,9 @@ const WebApp = () => {
         }) : (
           <View style={styles.recentEventEmpty}>
             <Text style={styles.recentEventEmptyTitle}>Sin eventos recientes</Text>
-            <Text style={styles.recentEventEmptyText}>Crea un evento nuevo para dejarlo listo aquí.</Text>
+            <Text style={styles.recentEventEmptyText}>
+              {isAdminProfile ? 'Crea un evento nuevo para dejarlo listo aquí.' : 'Este operario aún no tiene eventos asignados.'}
+            </Text>
           </View>
         )}
       </View>
@@ -2953,8 +3474,10 @@ const WebApp = () => {
   )
 
   const renderHomeActionCard = () => {
+    if (!isAdminProfile) return null
+
     return (
-      <View style={styles.homeActionCard}>
+      <View style={[styles.homeActionCard, isPhone && styles.homeActionCardPhone]}>
         <Pressable onPress={openNewEventModal} style={styles.homeCreateButton} accessibilityRole="button" accessibilityLabel="Crear evento nuevo">
           <Text style={styles.homeCreateButtonText}>+ Crear evento nuevo</Text>
         </Pressable>
@@ -2963,7 +3486,8 @@ const WebApp = () => {
   }
 
   const renderHomeLauncher = () => (
-    <View style={styles.homeLauncherPage}>
+    <View style={[styles.homeLauncherPage, isPhone && styles.homeLauncherPagePhone]}>
+      {renderProfileSwitcher()}
       {React.createElement(
         'h1',
         {
@@ -2980,8 +3504,8 @@ const WebApp = () => {
         },
         'Viralco',
       )}
-      <Text style={styles.homeWelcome}>Espejo mágico</Text>
-      <Text style={styles.homeWelcomeSub}>Eventos, fotos y entregas listas para imprimir o compartir</Text>
+      <Text style={[styles.homeWelcome, isPhone && styles.homeWelcomePhone]}>Espejo mágico</Text>
+      <Text style={[styles.homeWelcomeSub, isPhone && styles.homeWelcomeSubPhone]}>Eventos, fotos y entregas listas para imprimir o compartir</Text>
       {renderRecentEventsLauncher()}
       {renderHomeActionCard()}
     </View>
@@ -2989,11 +3513,11 @@ const WebApp = () => {
 
   const renderEventOptionsScreen = () => (
     <View style={styles.eventOptionsPage}>
-      <View style={[styles.eventOptionsHeader, isMobile && styles.eventOptionsHeaderMobile]}>
+      <View style={[styles.eventOptionsHeader, isMobile && styles.eventOptionsHeaderMobile, isPhone && styles.eventOptionsHeaderPhone]}>
         <View style={styles.eventOptionsHeading}>
           <Text style={styles.panelEyebrow}>Evento nuevo</Text>
-          <Text style={[styles.eventOptionsTitle, isMobile && styles.eventOptionsTitleMobile]}>{eventTitle}</Text>
-          <Text style={styles.eventOptionsText}>
+          <Text style={[styles.eventOptionsTitle, isMobile && styles.eventOptionsTitleMobile, isPhone && styles.eventOptionsTitlePhone]}>{eventTitle}</Text>
+          <Text style={[styles.eventOptionsText, isPhone && styles.eventOptionsTextPhone]}>
             Configura el tipo de foto, la plantilla, la captura y la impresión antes de abrir cámara.
           </Text>
         </View>
@@ -3007,8 +3531,8 @@ const WebApp = () => {
         ) : null}
       </View>
 
-      <View style={styles.eventOptionsBody}>
-        <View style={styles.eventOptionsSection}>
+      <View style={[styles.eventOptionsBody, isPhone && styles.eventOptionsBodyPhone]}>
+        <View style={[styles.eventOptionsSection, isPhone && styles.eventOptionsSectionPhone]}>
           <View style={styles.panelHeader}>
             <View>
               <Text style={styles.panelEyebrow}>Configuración</Text>
@@ -3043,7 +3567,7 @@ const WebApp = () => {
         </View>
 
         {selectedType.id === 'personalizar-5x15' ? (
-          <View style={styles.eventOptionsSection}>
+          <View style={[styles.eventOptionsSection, isPhone && styles.eventOptionsSectionPhone]}>
             <View style={styles.panelHeader}>
             <View>
               <Text style={styles.panelEyebrow}>Personalizar</Text>
@@ -3130,7 +3654,7 @@ const WebApp = () => {
           </View>
         ) : null}
 
-        <View style={styles.eventOptionsSection}>
+        <View style={[styles.eventOptionsSection, isPhone && styles.eventOptionsSectionPhone]}>
           <View style={styles.panelHeader}>
             <View>
               <Text style={styles.panelEyebrow}>Diseño</Text>
@@ -3169,7 +3693,7 @@ const WebApp = () => {
 
       </View>
 
-      <View style={[styles.eventOptionsFooter, isMobile && styles.eventOptionsFooterMobile]}>
+      <View style={[styles.eventOptionsFooter, isMobile && styles.eventOptionsFooterMobile, isPhone && styles.eventOptionsFooterPhone]}>
         <Pressable
           onPress={() => openCaptureConfigScreen(operatorSettingsActive)}
           style={[styles.eventOptionsSecondaryButton, isMobile && styles.eventOptionsSecondaryButtonMobile]}
@@ -3690,9 +4214,27 @@ const WebApp = () => {
               },
             })
           ) : (
-            <View style={[styles.animationVideoMockInline, animationOverlay.mode === 'confeti' && styles.animationVideoMockConfetti]}>
-              <Text style={styles.animationVideoMockInlineText}>{fallbackTitle}</Text>
-            </View>
+            React.createElement(
+              'div',
+              { className: `viralco-capture-effect viralco-capture-effect-${animationOverlay.mode || 'base'}` },
+              React.createElement('div', { className: 'viralco-effect-burst' }),
+              React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-a' }),
+              React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-b' }),
+              React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-c' }),
+              React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-d' }),
+              React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-e' }),
+              React.createElement(
+                'div',
+                { className: 'viralco-effect-photo' },
+                React.createElement('div', { className: 'viralco-effect-photo-top' }),
+                React.createElement(
+                  'div',
+                  { className: 'viralco-effect-photo-body' },
+                  React.createElement('div', { className: 'viralco-effect-check' }, '✓'),
+                  React.createElement('div', { className: 'viralco-effect-caption' }, fallbackTitle),
+                ),
+              ),
+            )
           )}
           <Text style={styles.animationTitle}>{animationOverlay.title}</Text>
           <Text style={styles.animationText}>{animationOverlay.text}</Text>
@@ -3809,11 +4351,11 @@ const WebApp = () => {
 
     if (animationVideoQuestionMode === 'question') {
       return (
-        <View style={styles.flowStepPage}>
-          <View style={[styles.flowStepHeader, isMobile && styles.flowStepHeaderMobile]}>
+        <View style={[styles.flowStepPage, isPhone && styles.flowStepPagePhone]}>
+          <View style={[styles.flowStepHeader, isMobile && styles.flowStepHeaderMobile, isPhone && styles.flowStepHeaderPhone]}>
             <View>
               <Text style={styles.panelEyebrow}>Antes de tomar fotos</Text>
-              <Text style={[styles.flowStepTitle, isMobile && styles.flowStepTitleMobile]}>Video de animación</Text>
+              <Text style={[styles.flowStepTitle, isMobile && styles.flowStepTitleMobile, isPhone && styles.flowStepTitlePhone]}>Video de animación</Text>
               <Text style={styles.flowStepText}>
                 ¿Ya tiene un video de animación? Puede personalizarlo ahora o continuar directo a tomar las fotos.
               </Text>
@@ -3855,11 +4397,11 @@ const WebApp = () => {
     }
 
     return (
-      <View style={styles.flowStepPage}>
-        <View style={[styles.flowStepHeader, isMobile && styles.flowStepHeaderMobile]}>
+      <View style={[styles.flowStepPage, isPhone && styles.flowStepPagePhone]}>
+        <View style={[styles.flowStepHeader, isMobile && styles.flowStepHeaderMobile, isPhone && styles.flowStepHeaderPhone]}>
           <View>
             <Text style={styles.panelEyebrow}>Antes de tomar fotos</Text>
-            <Text style={[styles.flowStepTitle, isMobile && styles.flowStepTitleMobile]}>Video de animación</Text>
+            <Text style={[styles.flowStepTitle, isMobile && styles.flowStepTitleMobile, isPhone && styles.flowStepTitlePhone]}>Video de animación</Text>
             <Text style={styles.flowStepText}>
               ¿Ya tiene un video de animación? Puede personalizarlo por etapa o continuar con los videos de ejemplo.
             </Text>
@@ -3959,7 +4501,7 @@ const WebApp = () => {
     )
   }
 
-  const renderCamera = (shellStyle = null, onPress = null, showBadge = true) => {
+  const renderCamera = (shellStyle = null, onPress = null, showBadge = true, showLiveFrame = false) => {
     const CameraContainer = onPress ? Pressable : View
 
     return (
@@ -3986,7 +4528,12 @@ const WebApp = () => {
         <Image source={selectedTemplate.image} style={styles.cameraPlaceholder} accessibilityLabel={`Vista de cámara con plantilla ${selectedTemplate.name}`} />
       )}
       <View style={styles.cameraShade} />
-      <View style={styles.safeFrame} />
+      {showLiveFrame ? (
+        <>
+          {renderLiveCaptureFrameOverlay()}
+          <View style={styles.safeFrame} />
+        </>
+      ) : <View style={styles.safeFrame} />}
       {gifOverlayUrl ? <Image source={{ uri: gifOverlayUrl }} style={styles.cameraGifOverlay} accessibilityLabel="Imagen superpuesta en cámara" /> : null}
       {renderAnimationOverlay()}
       {countdown ? <Text style={[styles.countdown, isMobile && styles.countdownMobile]}>{countdown}</Text> : null}
@@ -4002,11 +4549,13 @@ const WebApp = () => {
 
     const promptText = cameraOpening
       ? 'Abriendo cámara'
+      : Number.isInteger(retakeFrameIndex)
+        ? `Oprimir para repetir foto ${retakeFrameIndex + 1}`
       : framesReady
         ? 'Oprimir para tomar la siguiente foto'
         : 'Oprimir para tomar fotos'
-    const actionText = cameraOpening ? 'Abriendo' : framesReady ? 'Siguiente' : 'Tomar'
-    const helperText = cameraOpening ? 'cámara' : framesReady ? 'foto' : 'fotos'
+    const actionText = cameraOpening ? 'Abriendo' : Number.isInteger(retakeFrameIndex) ? 'Repetir' : framesReady ? 'Siguiente' : 'Tomar'
+    const helperText = cameraOpening ? 'cámara' : Number.isInteger(retakeFrameIndex) ? `foto ${retakeFrameIndex + 1}` : framesReady ? 'foto' : 'fotos'
     const pulseStyle = {
       opacity: capturePulse.interpolate({
         inputRange: [0, 0.72, 1],
@@ -4157,7 +4706,7 @@ const WebApp = () => {
                       {renderRangeSlider({
                         value: photoReviewSeconds,
                         min: 1,
-                        max: 6,
+                        max: 8,
                         onChange: setPhotoReviewSeconds,
                         statusText: (value) => `Cada foto se mostrará ${value} sec.`,
                       })}
@@ -4305,22 +4854,13 @@ const WebApp = () => {
             </View>
           </>
         )}
-        <View style={styles.launchIntroShade} />
-        <View style={styles.launchIntroCopy}>
-          <Text style={styles.launchIntroBrand}>VIRALCO</Text>
-          <Text style={styles.launchIntroTitle}>{eventTitle || 'Espejo mágico'}</Text>
-          <Text style={styles.launchIntroMeta}>{eventType || defaultEventType} / {selectedType.name}</Text>
-        </View>
-        <View style={styles.launchIntroAction}>
-          <Text style={styles.launchIntroActionText}>Toca para iniciar</Text>
-        </View>
       </Pressable>
     )
   }
 
   const renderCapturePhotoScreen = () => (
     <View style={styles.mirrorCapturePage}>
-      {renderCamera(styles.mirrorCameraShell, runCountdownAndCapture, false)}
+      {renderCamera(styles.mirrorCameraShell, runCountdownAndCapture, false, true)}
       {renderCaptureStartOverlay()}
       {renderOperatorQuickPanel()}
       <Pressable
@@ -4368,16 +4908,44 @@ const WebApp = () => {
     </View>
   )
 
-  const renderPreviewOutput = (emptyTitle, emptyText) => (
+  const renderPreviewOutput = (emptyTitle, emptyText, extraStyle = null) => (
     <View
       style={[
         styles.outputPreview,
         finalPhotoUrl && styles.outputPreviewFinal,
         finalPhotoUrl && { aspectRatio: selectedType.width / selectedType.height },
+        extraStyle,
       ]}
     >
       {finalPhotoUrl ? (
-        <Image source={{ uri: finalPhotoUrl }} style={styles.outputImage} accessibilityLabel="Resultado final de la foto" />
+        <>
+          <Image source={{ uri: finalPhotoUrl }} style={styles.outputImage} accessibilityLabel="Resultado final de la foto" />
+          <View style={styles.previewRetakeLayer} pointerEvents="box-none">
+            {getPreviewRetakeSlots()
+              .filter((slot) => photoFrames[slot.index])
+              .map((slot, hotspotIndex) => (
+                <Pressable
+                  key={`preview-retake-${slot.photoNumber}-${hotspotIndex}`}
+                  onPress={() => startRetakeFrame(slot.index)}
+                  style={[
+                    styles.previewRetakeHotspot,
+                    {
+                      left: `${slot.x}%`,
+                      top: `${slot.y}%`,
+                      width: `${slot.width}%`,
+                      height: `${slot.height}%`,
+                    },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Volver a tomar foto ${slot.photoNumber}`}
+                >
+                  <View style={styles.previewRetakePill}>
+                    <Text style={styles.previewRetakePillText}>Repetir foto {slot.photoNumber}</Text>
+                  </View>
+                </Pressable>
+              ))}
+          </View>
+        </>
       ) : photoFrames.length ? (
         <View style={styles.previewFrameGrid}>
           {photoFrames.map((frame, index) => (
@@ -4393,6 +4961,161 @@ const WebApp = () => {
           <Text style={styles.emptyOutputText}>{emptyText}</Text>
         </View>
       )}
+    </View>
+  )
+
+  const renderMirrorShareMenu = () => {
+    const actions = [
+      { key: 'Email', icon: '✉️', label: 'Email' },
+      { key: 'SMS', icon: '💬', label: 'SMS' },
+      { key: 'WhatsApp', icon: '🟢', label: 'WhatsApp' },
+      { key: 'Compartir', icon: '📤', label: 'Share' },
+      { key: 'QR', icon: '▣', label: 'Scan QR' },
+      { key: 'Imprimir', icon: '🖨️', label: 'Print' },
+    ]
+
+    return (
+      <View style={[styles.mirrorShareDock, isMobile && styles.mirrorShareDockMobile, isPhone && styles.mirrorShareDockPhone]} pointerEvents="box-none">
+        {showPreviewShareMenu ? (
+          <View style={[styles.mirrorShareMenu, isMobile && styles.mirrorShareMenuMobile, isPhone && styles.mirrorShareMenuPhone]}>
+            {actions.map((action) => (
+              <Pressable
+                key={action.key}
+                onPress={() => runPreviewShareAction(action.key)}
+                style={[styles.mirrorShareOption, isMobile && styles.mirrorShareOptionMobile, isPhone && styles.mirrorShareOptionPhone]}
+                accessibilityRole="button"
+                accessibilityLabel={action.label}
+              >
+                <Text style={[styles.mirrorShareOptionIcon, isMobile && styles.mirrorShareOptionIconMobile, isPhone && styles.mirrorShareOptionIconPhone]}>{action.icon}</Text>
+                <Text style={[styles.mirrorShareOptionLabel, isMobile && styles.mirrorShareOptionLabelMobile, isPhone && styles.mirrorShareOptionLabelPhone]}>{action.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        <Pressable
+          onPress={() => setShowPreviewShareMenu((value) => !value)}
+          style={[styles.mirrorShareToggle, isMobile && styles.mirrorShareToggleMobile, isPhone && styles.mirrorShareTogglePhone, showPreviewShareMenu && styles.mirrorShareToggleOpen]}
+          accessibilityRole="button"
+          accessibilityLabel={showPreviewShareMenu ? 'Cerrar menú de compartir' : 'Abrir menú de compartir'}
+        >
+          {showPreviewShareMenu ? (
+            <Text style={styles.mirrorShareToggleClose}>×</Text>
+          ) : (
+            <View style={styles.mirrorShareHamburger}>
+              <View style={styles.mirrorShareHamburgerLine} />
+              <View style={styles.mirrorShareHamburgerLine} />
+              <View style={styles.mirrorShareHamburgerLine} />
+            </View>
+          )}
+        </Pressable>
+      </View>
+    )
+  }
+
+  const renderEventGalleryThumb = () =>
+    latestEventGalleryPhoto ? (
+      <Pressable
+        onPress={() => setShowEventGallery(true)}
+        style={[styles.eventGalleryThumbButton, isMobile && styles.eventGalleryThumbButtonMobile, isPhone && styles.eventGalleryThumbButtonPhone]}
+        accessibilityRole="button"
+        accessibilityLabel="Abrir galería del evento"
+      >
+        <Image source={{ uri: latestEventGalleryPhoto.src }} style={styles.eventGalleryThumbImage} accessibilityLabel="Última foto del evento" />
+        <View style={styles.eventGalleryThumbStack} />
+        <View style={styles.eventGalleryThumbCount}>
+          <Text style={styles.eventGalleryThumbCountText}>{currentEventGallery.length}</Text>
+        </View>
+      </Pressable>
+    ) : null
+
+  const renderEventGalleryModal = () =>
+    showEventGallery ? (
+      <View style={styles.eventGalleryOverlay}>
+        <Pressable onPress={() => setShowEventGallery(false)} style={styles.eventGalleryBackdrop} />
+        <View style={[styles.eventGalleryPanel, isMobile && styles.eventGalleryPanelMobile]}>
+          <View style={[styles.eventGalleryHeader, isMobile && styles.eventGalleryHeaderMobile]}>
+            <View>
+              <Text style={styles.eventGalleryEyebrow}>Galería del evento</Text>
+              <Text style={[styles.eventGalleryTitle, isMobile && styles.eventGalleryTitleMobile]}>{eventTitle}</Text>
+              <Text style={styles.eventGalleryMeta}>{currentEventGallery.length} foto{currentEventGallery.length === 1 ? '' : 's'} guardada{currentEventGallery.length === 1 ? '' : 's'}</Text>
+            </View>
+            <Pressable onPress={() => setShowEventGallery(false)} style={[styles.eventGalleryClose, isMobile && styles.eventGalleryCloseMobile]}>
+              <Text style={[styles.eventGalleryCloseText, isMobile && styles.eventGalleryCloseTextMobile]}>×</Text>
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={[styles.eventGalleryGrid, isMobile && styles.eventGalleryGridMobile, isPhone && styles.eventGalleryGridPhone]}>
+            {currentEventGallery.map((photo, index) => (
+              <Pressable
+                key={photo.id || `${photo.src}-${index}`}
+                onPress={() => {
+                  setFinalPhotoUrl(photo.localUrl || photo.src)
+                  if (photo.publicUrl) {
+                    setSavedPhotoUrl(photo.publicUrl)
+                    setQrPhotoUrl(photo.publicUrl)
+                  }
+                  setShowEventGallery(false)
+                }}
+                style={styles.eventGalleryCard}
+                accessibilityRole="button"
+                accessibilityLabel={`Abrir foto ${index + 1}`}
+              >
+                <Image source={{ uri: photo.src }} style={[styles.eventGalleryImage, isMobile && styles.eventGalleryImageMobile]} accessibilityLabel={`Foto guardada ${index + 1}`} />
+                <View style={styles.eventGalleryCardFooter}>
+                  <Text style={styles.eventGalleryCardTitle}>Foto {currentEventGallery.length - index}</Text>
+                  <Text style={styles.eventGalleryCardText}>{photo.photoType}</Text>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    ) : null
+
+  const renderMirrorPreviewScreen = () => (
+    <View style={styles.mirrorPreviewPage}>
+      {showPreviewShareMenu ? (
+        <Pressable onPress={closePreviewShareMenu} style={styles.mirrorShareScrim} />
+      ) : null}
+      <View style={[styles.mirrorPreviewStage, isMobile && styles.mirrorPreviewStageMobile, isShortScreen && styles.mirrorPreviewStageShort]}>
+        {renderPreviewOutput('Preview pendiente', 'Toma la foto para ver el resultado final aquí.', [
+          styles.mirrorPreviewOutput,
+          isMobile && styles.mirrorPreviewOutputMobile,
+          isPhone && styles.mirrorPreviewOutputPhone,
+          isShortScreen && styles.mirrorPreviewOutputShort,
+        ])}
+      </View>
+
+      <View style={[styles.mirrorTopBar, styles.mirrorPreviewTopBar, isMobile && styles.mirrorTopBarMobile, isMobile && styles.mirrorPreviewTopBarMobile]}>
+        <View style={styles.mirrorTopInfo}>
+          <View style={styles.mirrorBrandRow}>
+            <Text style={styles.mirrorBrandText}>Viralco</Text>
+            <Text style={styles.mirrorStepText}>Ventana 4</Text>
+          </View>
+          <Text style={[styles.mirrorTitle, isMobile && styles.mirrorTitleMobile, isMobile && styles.mirrorPreviewTitleMobile]}>Preview</Text>
+          <Text style={[styles.mirrorSubText, isMobile && styles.mirrorPreviewSubTextMobile]}>{eventTitle} / {selectedType.name}</Text>
+        </View>
+        <View style={[styles.mirrorStatusPill, styles.mirrorPreviewStatusPill]}>
+          <Text style={[styles.mirrorStatusText, isMobile && styles.mirrorPreviewStatusTextMobile]}>{framesReady}/{selectedShotCount}</Text>
+        </View>
+      </View>
+
+      <View style={[styles.mirrorPreviewActions, isMobile && styles.mirrorPreviewActionsMobile, isPhone && styles.mirrorPreviewActionsPhone]}>
+        <Pressable
+          onPress={() => {
+            resetPhoto()
+            openCapturePhotoScreen()
+          }}
+          style={[styles.mirrorPreviewSecondaryButton, isMobile && styles.mirrorPreviewButtonMobile]}
+          accessibilityRole="button"
+          accessibilityLabel="Tomar otra foto"
+        >
+          <Text style={[styles.mirrorPreviewSecondaryText, isMobile && styles.mirrorPreviewButtonTextMobile]}>+ Otra foto</Text>
+        </Pressable>
+      </View>
+      {renderEventGalleryThumb()}
+      {renderMirrorShareMenu()}
+      {renderEventGalleryModal()}
     </View>
   )
 
@@ -4438,9 +5161,9 @@ const WebApp = () => {
       </View>
       <View style={styles.deliveryActionStack}>
         {[
-          { key: 'QR', title: 'QR', helper: 'Mostrar código para escanear', icon: 'QR' },
+          { key: 'QR', title: 'QR', helper: 'Abrir foto final', icon: 'QR' },
           { key: 'Imprimir', title: 'Imprimir', helper: `${activePrintLabel} · ${normalizedPrintSettings.copies} copia${normalizedPrintSettings.copies === 1 ? '' : 's'}`, icon: 'IMP' },
-          { key: 'WhatsApp', title: 'WhatsApp', helper: 'Enviar enlace del recuerdo', icon: 'WA' },
+          { key: 'WhatsApp', title: 'WhatsApp', helper: 'Compartir imagen final', icon: 'WA' },
         ].map((action) => (
           <Pressable
             key={action.key}
@@ -4473,7 +5196,7 @@ const WebApp = () => {
         <View style={styles.qrOptionsHeader}>
           <View>
             <Text style={styles.qrOptionsEyebrow}>Entrega digital</Text>
-            <Text style={styles.qrOptionsTitle}>QR para el cliente</Text>
+            <Text style={styles.qrOptionsTitle}>QR de la foto final</Text>
           </View>
           <Pressable onPress={() => setShowQrOptions(false)} style={styles.qrOptionsClose}>
             <Text style={styles.qrOptionsCloseText}>×</Text>
@@ -4483,7 +5206,7 @@ const WebApp = () => {
           <Image source={{ uri: qrImageUrl }} style={styles.qrImage} accessibilityLabel="Código QR para abrir la foto del cliente" />
         </View>
         <Text style={styles.qrOptionsEvent}>{eventTitle}</Text>
-        <Text style={styles.qrOptionsText}>El cliente puede escanear este código después de tomar sus fotos.</Text>
+        <Text style={styles.qrOptionsText}>El cliente escanea este código y abre directamente la imagen final.</Text>
         <View style={styles.qrOptionsActions}>
           <Pressable
             onPress={() => {
@@ -4504,46 +5227,30 @@ const WebApp = () => {
   )
 
   const renderPreviewScreen = () => (
-    <View style={styles.flowStepPage}>
-      <View style={[styles.flowStepHeader, isMobile && styles.flowStepHeaderMobile]}>
-        <View>
-          <Text style={styles.panelEyebrow}>Ventana 4</Text>
-          <Text style={[styles.flowStepTitle, isMobile && styles.flowStepTitleMobile]}>Preview</Text>
-          <Text style={styles.flowStepText}>Revisa el resultado antes de compartir o imprimir.</Text>
+    captureComplete ? renderMirrorPreviewScreen() : (
+      <View style={[styles.flowStepPage, isPhone && styles.flowStepPagePhone]}>
+        <View style={[styles.flowStepHeader, isMobile && styles.flowStepHeaderMobile, isPhone && styles.flowStepHeaderPhone]}>
+          <View>
+            <Text style={styles.panelEyebrow}>Ventana 4</Text>
+            <Text style={[styles.flowStepTitle, isMobile && styles.flowStepTitleMobile, isPhone && styles.flowStepTitlePhone]}>Preview</Text>
+            <Text style={styles.flowStepText}>Revisa el resultado antes de compartir o imprimir.</Text>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.previewOnlyBody}>
-        <View style={[styles.deliveryResultLayout, isMobile && styles.deliveryResultLayoutMobile]}>
-          {renderPreviewOutput('Preview pendiente', 'Toma la foto para ver el resultado final aquí.')}
-          {renderDeliverySideActions()}
-        </View>
-        {renderTakenFramesStrip()}
-        <Text style={styles.captureStatus}>{captureStatus}</Text>
-        <View style={[styles.flowFooter, isMobile && styles.flowFooterMobile]}>
-          <Pressable
-            onPress={() => {
-              resetPhoto()
-              openCapturePhotoScreen()
-            }}
-            style={styles.eventOptionsSecondaryButton}
-          >
-            <Text style={styles.eventOptionsSecondaryText}>← Repetir foto</Text>
-          </Pressable>
-          <Pressable onPress={captureComplete ? openShareScreen : undefined} style={[styles.eventOptionsPrimaryButton, !captureComplete && styles.flowButtonDisabled]}>
-            <Text style={styles.eventOptionsPrimaryText}>Compartir →</Text>
-          </Pressable>
+        <View style={styles.previewOnlyBody}>
+          {renderPreviewOutput('Preview pendiente', 'Toma la foto para ver el resultado final aquí.', styles.previewMainOutput)}
+          <Text style={styles.captureStatus}>{captureStatus}</Text>
         </View>
       </View>
-    </View>
+    )
   )
 
   const renderShareScreen = () => (
-    <View style={styles.flowStepPage}>
-      <View style={[styles.flowStepHeader, isMobile && styles.flowStepHeaderMobile]}>
+    <View style={[styles.flowStepPage, isPhone && styles.flowStepPagePhone]}>
+      <View style={[styles.flowStepHeader, isMobile && styles.flowStepHeaderMobile, isPhone && styles.flowStepHeaderPhone]}>
         <View>
           <Text style={styles.panelEyebrow}>Ventana 5</Text>
-          <Text style={[styles.flowStepTitle, isMobile && styles.flowStepTitleMobile]}>Compartir</Text>
+          <Text style={[styles.flowStepTitle, isMobile && styles.flowStepTitleMobile, isPhone && styles.flowStepTitlePhone]}>Compartir</Text>
           <Text style={styles.flowStepText}>Envía por WhatsApp, genera QR o imprime el resultado final.</Text>
         </View>
       </View>
@@ -4704,7 +5411,7 @@ const WebApp = () => {
           <Pressable
             onPress={() => {
               if (typeof window !== 'undefined') {
-                window.open(`https://wa.me/?text=${encodeURIComponent(`${eventTitle}: vista previa Viralco lista`)}`, '_blank', 'noopener,noreferrer')
+                window.open('https://wa.me/', '_blank', 'noopener,noreferrer')
               }
               setCaptureStatus('Vista previa preparada para compartir.')
             }}
@@ -4898,7 +5605,7 @@ const WebApp = () => {
           {renderRangeSlider({
             value: gifReviewSeconds,
             min: 1,
-            max: 6,
+            max: 8,
             onChange: setGifReviewSeconds,
             statusText: (value) => `GIF: cada foto se mostrará ${value} sec.`,
           })}
@@ -5010,7 +5717,7 @@ const WebApp = () => {
               {renderRangeSlider({
                 value: photoReviewSeconds,
                 min: 1,
-                max: 6,
+                max: 8,
                 onChange: setPhotoReviewSeconds,
                 statusText: (value) => `Cada foto se mostrará ${value} sec antes de continuar.`,
               })}
@@ -5230,6 +5937,7 @@ const WebApp = () => {
                   }
                   const output = await composeFinalPhoto(photoFrames)
                   setFinalPhotoUrl(output)
+                  await saveFinalPhotoToServer(output, photoFrames)
                   setCaptureStatus('Previsualización real actualizada con la configuración activa.')
                 }}
                 style={styles.previewConfigButton}
@@ -5481,6 +6189,7 @@ const WebApp = () => {
             onPress={() => {
               setFinalPhotoUrl('')
               setPhotoFrames([])
+              clearSavedPhoto()
               setCaptureStatus(`Prueba de fondo lista: ${backgroundCutMode}, ${backgroundFinal}.`)
             }}
             style={styles.backgroundTestButton}
@@ -5507,7 +6216,7 @@ const WebApp = () => {
   if (showStartEditor) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderStartEditor()}
         </ScrollView>
       </View>
@@ -5517,7 +6226,7 @@ const WebApp = () => {
   if (showPhotoDesignScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderPhotoDesignScreen()}
         </ScrollView>
       </View>
@@ -5527,7 +6236,7 @@ const WebApp = () => {
   if (showCaptureModeScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderCaptureModeScreen()}
         </ScrollView>
       </View>
@@ -5537,7 +6246,7 @@ const WebApp = () => {
   if (showCaptureConfigScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderCaptureConfigScreen()}
         </ScrollView>
       </View>
@@ -5547,7 +6256,7 @@ const WebApp = () => {
   if (showPrintConfigScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderPrintConfigScreen()}
         </ScrollView>
       </View>
@@ -5557,7 +6266,7 @@ const WebApp = () => {
   if (showBackgroundRemovalScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderBackgroundRemovalScreen()}
         </ScrollView>
       </View>
@@ -5567,7 +6276,7 @@ const WebApp = () => {
   if (showHomeLauncher) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, styles.homePageContent]}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
           {renderHomeLauncher()}
         </ScrollView>
         {showCreateEventModal && renderCreateEventModal()}
@@ -5578,7 +6287,7 @@ const WebApp = () => {
   if (showCustomPhotoLayoutScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderCustomPhotoLayoutScreen()}
         </ScrollView>
       </View>
@@ -5589,7 +6298,7 @@ const WebApp = () => {
     if (showCustomPhotoLayoutScreen) {
       return (
         <View style={styles.page}>
-          <ScrollView contentContainerStyle={styles.pageContent}>
+          <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
             {renderCustomPhotoLayoutScreen()}
           </ScrollView>
         </View>
@@ -5598,7 +6307,7 @@ const WebApp = () => {
 
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderEventOptionsScreen()}
         </ScrollView>
         {showCreateEventModal && renderCreateEventModal()}
@@ -5609,7 +6318,7 @@ const WebApp = () => {
   if (showAnimationVideoScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderAnimationVideoScreen()}
         </ScrollView>
       </View>
@@ -5637,7 +6346,7 @@ const WebApp = () => {
   if (showPreviewScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderPreviewScreen()}
         </ScrollView>
         {showPrintOptions && renderPrintOptionsModal()}
@@ -5649,7 +6358,7 @@ const WebApp = () => {
   if (showShareScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.pageContent}>
+        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderShareScreen()}
         </ScrollView>
         {showPrintOptions && renderPrintOptionsModal()}
@@ -5660,7 +6369,7 @@ const WebApp = () => {
 
   return (
     <View style={styles.page}>
-      <ScrollView contentContainerStyle={[styles.pageContent, styles.homePageContent]}>
+      <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
         {renderHomeLauncher()}
       </ScrollView>
       {showCreateEventModal && renderCreateEventModal()}
@@ -5683,6 +6392,14 @@ const styles = StyleSheet.create({
     paddingBottom: 'clamp(10px, 2svh, 18px)',
     overflow: 'hidden',
   },
+  pageContentPhone: {
+    height: 'auto',
+    minHeight: '100svh',
+    padding: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+    overflow: 'visible',
+  },
   homePageContent: {
     height: 'auto',
     minHeight: '100svh',
@@ -5691,10 +6408,93 @@ const styles = StyleSheet.create({
     padding: 'clamp(18px, 3svh, 42px) clamp(18px, 4vw, 56px)',
     paddingBottom: 'clamp(18px, 3svh, 42px)',
   },
+  homePageContentPhone: {
+    justifyContent: 'flex-start',
+    padding: 10,
+    paddingTop: 14,
+    paddingBottom: 12,
+  },
   mirrorPageContent: {
     minHeight: '100vh',
     padding: 0,
     backgroundColor: colors.dark,
+  },
+  profileSwitcher: {
+    width: '100%',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    boxShadow: '0 10px 22px rgba(15,23,42,0.07)',
+  },
+  profileSwitcherPhone: {
+    padding: 8,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 8,
+  },
+  profileSwitcherHeader: {
+    gap: 1,
+    flexShrink: 0,
+  },
+  profileSwitcherEyebrow: {
+    color: colors.blue,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '950',
+    textTransform: 'uppercase',
+  },
+  profileSwitcherActive: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '950',
+  },
+  profileSwitcherOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  profileSwitcherOptionsPhone: {
+    justifyContent: 'stretch',
+    gap: 6,
+  },
+  profileChip: {
+    minHeight: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    cursor: 'pointer',
+  },
+  profileChipPhone: {
+    flex: 1,
+    minHeight: 36,
+    paddingHorizontal: 8,
+  },
+  profileChipActive: {
+    borderColor: colors.blue,
+    backgroundColor: colors.blue,
+    boxShadow: '0 10px 22px rgba(10,77,232,0.22)',
+  },
+  profileChipText: {
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  profileChipTextActive: {
+    color: '#ffffff',
   },
   hero: {
     minHeight: 245,
@@ -5788,6 +6588,11 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
     gap: 'clamp(12px, 1.6svh, 24px)',
   },
+  homeLauncherPagePhone: {
+    height: 'auto',
+    minHeight: 'calc(100svh - 24px)',
+    gap: 10,
+  },
   homeBrandTitle: {
     margin: 0,
     color: colors.blue,
@@ -5805,6 +6610,10 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'center',
   },
+  homeWelcomePhone: {
+    fontSize: 38,
+    lineHeight: 43,
+  },
   homeWelcomeSub: {
     color: colors.muted,
     fontSize: 'clamp(18px, 2.3svh, 28px)',
@@ -5813,6 +6622,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: -4,
     marginBottom: 0,
+  },
+  homeWelcomeSubPhone: {
+    fontSize: 16,
+    lineHeight: 21,
   },
   recentEventsPanel: {
     borderRadius: 8,
@@ -5824,6 +6637,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minHeight: 0,
+  },
+  recentEventsPanelPhone: {
+    padding: 10,
+    gap: 10,
   },
   recentEventsHeader: {
     flexDirection: 'row',
@@ -5901,6 +6718,9 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
   },
+  recentEventCardPhone: {
+    minHeight: 'min(58svh, 560px)',
+  },
   recentEventCardActive: {
     borderColor: colors.blue,
   },
@@ -5970,6 +6790,9 @@ const styles = StyleSheet.create({
     padding: 'clamp(16px, 2svh, 28px)',
     justifyContent: 'center',
     boxShadow: '0 10px 18px rgba(15,23,42,0.08)',
+  },
+  homeActionCardPhone: {
+    padding: 10,
   },
   homeLaunchButton: {
     minHeight: 66,
@@ -6065,6 +6888,10 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 10,
   },
+  eventOptionsHeaderPhone: {
+    padding: 10,
+    gap: 8,
+  },
   eventOptionsHeading: {
     flex: 1,
     minWidth: 0,
@@ -6080,12 +6907,21 @@ const styles = StyleSheet.create({
     fontSize: 26,
     lineHeight: 31,
   },
+  eventOptionsTitlePhone: {
+    fontSize: 22,
+    lineHeight: 27,
+  },
   eventOptionsText: {
     color: colors.muted,
     fontSize: 'clamp(13px, 1.9svh, 15px)',
     lineHeight: 'clamp(18px, 2.5svh, 22px)',
     marginTop: 6,
     maxWidth: 680,
+  },
+  eventOptionsTextPhone: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
   },
   eventOptionsBadge: {
     minHeight: 38,
@@ -6123,6 +6959,10 @@ const styles = StyleSheet.create({
     overflowY: 'auto',
     overscrollBehavior: 'contain',
   },
+  eventOptionsBodyPhone: {
+    padding: 8,
+    gap: 8,
+  },
   eventOptionsSection: {
     borderRadius: 8,
     borderWidth: 1,
@@ -6130,6 +6970,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.soft,
     padding: 'clamp(10px, 1.7svh, 14px)',
     gap: 'clamp(10px, 1.7svh, 14px)',
+  },
+  eventOptionsSectionPhone: {
+    padding: 9,
+    gap: 9,
   },
   eventOptionsFooter: {
     borderTopWidth: 1,
@@ -6145,6 +6989,10 @@ const styles = StyleSheet.create({
     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     padding: 10,
     gap: 8,
+  },
+  eventOptionsFooterPhone: {
+    padding: 8,
+    gap: 7,
   },
   eventOptionsPrimaryButton: {
     minHeight: 'clamp(46px, 6svh, 52px)',
@@ -6195,6 +7043,9 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     overflow: 'hidden',
   },
+  flowStepPagePhone: {
+    minHeight: 'calc(100svh - 16px)',
+  },
   flowStepHeader: {
     padding: 22,
     borderBottomWidth: 1,
@@ -6207,6 +7058,9 @@ const styles = StyleSheet.create({
   flowStepHeaderMobile: {
     padding: 16,
   },
+  flowStepHeaderPhone: {
+    padding: 10,
+  },
   flowStepTitle: {
     color: colors.ink,
     fontSize: 34,
@@ -6217,6 +7071,10 @@ const styles = StyleSheet.create({
   flowStepTitleMobile: {
     fontSize: 28,
     lineHeight: 33,
+  },
+  flowStepTitlePhone: {
+    fontSize: 23,
+    lineHeight: 28,
   },
   flowStepText: {
     color: colors.muted,
@@ -6232,7 +7090,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   previewOnlyBody: {
-    maxWidth: 760,
+    maxWidth: 1180,
     width: '100%',
     alignSelf: 'center',
     padding: 16,
@@ -6960,6 +7818,481 @@ const styles = StyleSheet.create({
     backgroundColor: colors.dark,
     overflow: 'hidden',
   },
+  mirrorPreviewPage: {
+    position: 'relative',
+    minHeight: '100vh',
+    backgroundColor: colors.dark,
+    overflow: 'hidden',
+  },
+  mirrorPreviewStage: {
+    minHeight: '100vh',
+    paddingTop: 'clamp(124px, 12svh, 170px)',
+    paddingRight: 'clamp(18px, 4vw, 56px)',
+    paddingBottom: 'clamp(122px, 13svh, 170px)',
+    paddingLeft: 'clamp(18px, 4vw, 56px)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mirrorPreviewStageMobile: {
+    paddingTop: 'clamp(92px, 10svh, 126px)',
+    paddingRight: 10,
+    paddingBottom: 128,
+    paddingLeft: 10,
+  },
+  mirrorPreviewStageShort: {
+    paddingTop: 82,
+    paddingBottom: 104,
+  },
+  mirrorPreviewOutput: {
+    width: 'auto',
+    height: 'min(74svh, calc(100svh - 270px))',
+    maxWidth: '94vw',
+    maxHeight: 'calc(100svh - 230px)',
+    alignSelf: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    boxShadow: '0 28px 90px rgba(0,0,0,0.36)',
+  },
+  mirrorPreviewOutputMobile: {
+    height: 'min(76svh, calc(100svh - 210px))',
+    maxHeight: 'calc(100svh - 190px)',
+    maxWidth: '96vw',
+  },
+  mirrorPreviewOutputPhone: {
+    height: 'min(78svh, calc(100svh - 188px))',
+    maxWidth: '98vw',
+    borderRadius: 6,
+  },
+  mirrorPreviewOutputShort: {
+    height: 'min(72svh, calc(100svh - 168px))',
+    maxHeight: 'calc(100svh - 154px)',
+  },
+  mirrorPreviewToast: {
+    position: 'absolute',
+    left: 'clamp(80px, 30vw, 430px)',
+    bottom: 'clamp(82px, 8svh, 112px)',
+    right: 'clamp(80px, 30vw, 430px)',
+    minHeight: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 5,
+  },
+  mirrorPreviewToastMobile: {
+    left: 24,
+    right: 24,
+    bottom: 74,
+    minHeight: 28,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(255,255,255,0.62)',
+  },
+  mirrorPreviewActions: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    bottom: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 14,
+    zIndex: 5,
+  },
+  mirrorPreviewActionsMobile: {
+    left: 14,
+    right: 14,
+    bottom: 14,
+  },
+  mirrorPreviewActionsPhone: {
+    left: 12,
+    right: 88,
+    bottom: 12,
+  },
+  mirrorPreviewSecondaryButton: {
+    minHeight: 58,
+    borderRadius: 29,
+    borderWidth: 2,
+    borderColor: colors.rose,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 14px 34px rgba(0,0,0,0.22)',
+  },
+  mirrorPreviewSecondaryText: {
+    color: colors.rose,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  mirrorPreviewButtonMobile: {
+    minHeight: 46,
+    borderRadius: 23,
+    paddingHorizontal: 16,
+    maxWidth: 170,
+  },
+  mirrorPreviewButtonTextMobile: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  mirrorPreviewPrimaryButton: {
+    minHeight: 58,
+    borderRadius: 29,
+    backgroundColor: colors.rose,
+    paddingHorizontal: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 16px 34px rgba(10,77,232,0.28)',
+  },
+  mirrorPreviewPrimaryText: {
+    color: '#ffffff',
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  mirrorShareScrim: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(0,0,0,0.20)',
+    zIndex: 6,
+  },
+  mirrorShareDock: {
+    position: 'absolute',
+    right: 24,
+    bottom: 22,
+    alignItems: 'center',
+    gap: 14,
+    zIndex: 8,
+  },
+  mirrorShareDockMobile: {
+    right: 16,
+    bottom: 14,
+    gap: 10,
+  },
+  mirrorShareDockPhone: {
+    right: 10,
+    bottom: 10,
+    gap: 8,
+  },
+  mirrorShareMenu: {
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 4,
+  },
+  mirrorShareMenuMobile: {
+    gap: 8,
+    maxHeight: 'calc(100svh - 104px)',
+    overflowY: 'auto',
+    paddingVertical: 2,
+  },
+  mirrorShareMenuPhone: {
+    gap: 7,
+    maxHeight: 'calc(100svh - 96px)',
+  },
+  mirrorShareOption: {
+    width: 76,
+    minHeight: 76,
+    borderRadius: 38,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.76)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    boxShadow: '0 12px 28px rgba(0,0,0,0.28)',
+    cursor: 'pointer',
+  },
+  mirrorShareOptionMobile: {
+    width: 62,
+    minHeight: 62,
+    borderRadius: 31,
+  },
+  mirrorShareOptionPhone: {
+    width: 56,
+    minHeight: 56,
+    borderRadius: 28,
+  },
+  mirrorShareOptionIcon: {
+    color: colors.rose,
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '950',
+    textAlign: 'center',
+  },
+  mirrorShareOptionIconMobile: {
+    fontSize: 12,
+    lineHeight: 14,
+  },
+  mirrorShareOptionIconPhone: {
+    fontSize: 11,
+    lineHeight: 13,
+  },
+  mirrorShareOptionLabel: {
+    color: '#6b7280',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  mirrorShareOptionLabelMobile: {
+    fontSize: 8,
+    lineHeight: 10,
+  },
+  mirrorShareOptionLabelPhone: {
+    fontSize: 7,
+    lineHeight: 9,
+  },
+  mirrorShareToggle: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: colors.rose,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 18px 42px rgba(10,77,232,0.38)',
+    cursor: 'pointer',
+  },
+  mirrorShareToggleMobile: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+  },
+  mirrorShareTogglePhone: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+  },
+  mirrorShareToggleOpen: {
+    backgroundColor: 'rgba(5,10,22,0.94)',
+    boxShadow: '0 16px 42px rgba(0,0,0,0.44)',
+  },
+  mirrorShareHamburger: {
+    width: 34,
+    gap: 7,
+  },
+  mirrorShareHamburgerLine: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#ffffff',
+  },
+  mirrorShareToggleClose: {
+    color: '#ffffff',
+    fontSize: 58,
+    lineHeight: 62,
+    fontWeight: '300',
+  },
+  eventGalleryThumbButton: {
+    position: 'absolute',
+    left: 26,
+    bottom: 96,
+    width: 118,
+    height: 86,
+    borderRadius: 8,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    backgroundColor: '#ffffff',
+    overflow: 'visible',
+    zIndex: 7,
+    boxShadow: '0 18px 42px rgba(0,0,0,0.34)',
+    cursor: 'pointer',
+  },
+  eventGalleryThumbButtonMobile: {
+    left: 16,
+    bottom: 78,
+    width: 88,
+    height: 64,
+    borderWidth: 2,
+  },
+  eventGalleryThumbButtonPhone: {
+    left: 12,
+    bottom: 68,
+    width: 76,
+    height: 56,
+    borderRadius: 7,
+  },
+  eventGalleryThumbImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 5,
+    objectFit: 'cover',
+  },
+  eventGalleryThumbStack: {
+    position: 'absolute',
+    left: 8,
+    top: 8,
+    right: -10,
+    bottom: -10,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    zIndex: -1,
+    transform: [{ rotate: '7deg' }],
+  },
+  eventGalleryThumbCount: {
+    position: 'absolute',
+    right: -10,
+    top: -10,
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.rose,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  eventGalleryThumbCountText: {
+    color: '#ffffff',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
+  eventGalleryOverlay: {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventGalleryBackdrop: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(3,7,18,0.82)',
+  },
+  eventGalleryPanel: {
+    width: 'min(92vw, 980px)',
+    maxHeight: '88svh',
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.98)',
+    overflow: 'hidden',
+    boxShadow: '0 34px 90px rgba(0,0,0,0.46)',
+  },
+  eventGalleryPanelMobile: {
+    width: '96vw',
+    maxHeight: '90svh',
+    borderRadius: 7,
+  },
+  eventGalleryHeaderMobile: {
+    minHeight: 72,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  eventGalleryHeader: {
+    minHeight: 86,
+    paddingHorizontal: 22,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  eventGalleryEyebrow: {
+    color: colors.rose,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '950',
+    textTransform: 'uppercase',
+  },
+  eventGalleryTitle: {
+    color: colors.ink,
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '950',
+  },
+  eventGalleryTitleMobile: {
+    fontSize: 21,
+    lineHeight: 26,
+  },
+  eventGalleryMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  eventGalleryClose: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.dark,
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+  },
+  eventGalleryCloseMobile: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  eventGalleryCloseText: {
+    color: '#ffffff',
+    fontSize: 38,
+    lineHeight: 42,
+    fontWeight: '300',
+  },
+  eventGalleryCloseTextMobile: {
+    fontSize: 32,
+    lineHeight: 36,
+  },
+  eventGalleryGrid: {
+    padding: 16,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+    gap: 14,
+  },
+  eventGalleryGridMobile: {
+    padding: 12,
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  eventGalleryGridPhone: {
+    padding: 10,
+    gap: 8,
+  },
+  eventGalleryCard: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    overflow: 'hidden',
+    boxShadow: '0 12px 30px rgba(15,23,42,0.10)',
+    cursor: 'pointer',
+  },
+  eventGalleryImage: {
+    width: '100%',
+    aspectRatio: 0.78,
+    objectFit: 'cover',
+    backgroundColor: colors.dark,
+  },
+  eventGalleryImageMobile: {
+    aspectRatio: 0.74,
+  },
+  eventGalleryCardFooter: {
+    padding: 10,
+    gap: 2,
+  },
+  eventGalleryCardTitle: {
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '950',
+  },
+  eventGalleryCardText: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+  },
   mirrorCameraShell: {
     height: '100vh',
     minHeight: 720,
@@ -6980,6 +8313,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 14,
     alignItems: 'center',
+  },
+  mirrorPreviewTopBar: {
+    left: 28,
+    right: 28,
+    top: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    backgroundColor: 'rgba(255,255,255,0.62)',
+    boxShadow: '0 10px 28px rgba(0,0,0,0.08)',
+  },
+  mirrorPreviewTopBarMobile: {
+    left: 10,
+    right: 10,
+    top: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(255,255,255,0.52)',
   },
   mirrorTopBarMobile: {
     left: 12,
@@ -7021,12 +8371,22 @@ const styles = StyleSheet.create({
     fontSize: 24,
     lineHeight: 29,
   },
+  mirrorPreviewTitleMobile: {
+    fontSize: 18,
+    lineHeight: 22,
+    marginTop: 1,
+  },
   mirrorSubText: {
     color: colors.muted,
     fontSize: 13,
     lineHeight: 18,
     marginTop: 4,
     maxWidth: '100%',
+  },
+  mirrorPreviewSubTextMobile: {
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 1,
   },
   mirrorStatusPill: {
     minWidth: 56,
@@ -7035,6 +8395,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.roseSoft,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  mirrorPreviewStatusPill: {
+    minWidth: 46,
+    minHeight: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(238,245,255,0.72)',
+  },
+  mirrorPreviewStatusTextMobile: {
+    fontSize: 13,
   },
   mirrorStatusText: {
     color: colors.rose,
@@ -7367,7 +8736,7 @@ const styles = StyleSheet.create({
   cameraShade: {
     position: 'absolute',
     inset: 0,
-    backgroundColor: 'rgba(0,0,0,0.18)',
+    backgroundColor: 'rgba(0,0,0,0.1)',
   },
   cameraGifOverlay: {
     position: 'absolute',
@@ -7387,6 +8756,62 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.75)',
     borderRadius: 8,
+  },
+  liveFrameOverlayLayer: {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 1,
+  },
+  liveFrameOverlaySurface: {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  liveFrameOverlayImage: {
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    opacity: 0.68,
+  },
+  liveFrameOverlaySoftWash: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+  },
+  liveFrameOuterBorder: {
+    position: 'absolute',
+    left: '10%',
+    right: '10%',
+    top: '12%',
+    bottom: '12%',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.46)',
+  },
+  liveFrameCurrentBadge: {
+    position: 'absolute',
+    right: 14,
+    bottom: 14,
+    minHeight: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(10,77,232,0.94)',
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.86)',
+  },
+  liveFrameCurrentBadgeText: {
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   cameraBadge: {
     position: 'absolute',
@@ -7534,41 +8959,42 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(10,18,32,0.38)',
+    backgroundColor: 'rgba(10,18,32,0.30)',
     overflow: 'hidden',
+    zIndex: 4,
   },
   animationHalo: {
     position: 'absolute',
-    width: 230,
-    height: 230,
-    borderRadius: 115,
+    width: 'min(58vw, 560px)',
+    height: 'min(58vw, 560px)',
+    borderRadius: 999,
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.76)',
-    backgroundColor: 'rgba(10,77,232,0.22)',
-    transform: [{ scale: 1.08 }],
+    borderColor: 'rgba(255,255,255,0.56)',
+    backgroundColor: 'rgba(10,77,232,0.18)',
+    boxShadow: '0 0 90px rgba(10,77,232,0.32)',
   },
   animationHaloConfetti: {
     borderStyle: 'dashed',
-    backgroundColor: 'rgba(56,189,248,0.22)',
+    backgroundColor: 'rgba(56,189,248,0.18)',
   },
   animationCard: {
-    minWidth: 220,
-    maxWidth: '76%',
+    minWidth: 'min(88vw, 390px)',
+    maxWidth: 'min(88vw, 560px)',
     borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.93)',
-    paddingHorizontal: 24,
-    paddingVertical: 22,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    paddingHorizontal: 'clamp(28px, 4vw, 48px)',
+    paddingVertical: 'clamp(26px, 4svh, 42px)',
     alignItems: 'center',
-    boxShadow: '0 24px 70px rgba(0,0,0,0.28)',
+    boxShadow: '0 34px 90px rgba(0,0,0,0.34)',
   },
   animationCardLight: {
     backgroundColor: 'rgba(255,253,248,0.95)',
   },
   animationVideoMockInline: {
     width: '100%',
-    height: 150,
+    height: 'clamp(190px, 24svh, 290px)',
     borderRadius: 8,
-    marginBottom: 12,
+    marginBottom: 18,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -7582,35 +9008,35 @@ const styles = StyleSheet.create({
   },
   animationVideoMockInlineText: {
     color: '#9f1239',
-    fontSize: 32,
-    lineHeight: 38,
+    fontSize: 'clamp(38px, 5.2vw, 70px)',
+    lineHeight: 'clamp(42px, 5.8vw, 78px)',
     fontFamily: '"Brush Script MT", "Segoe Script", "Comic Sans MS", cursive',
     textAlign: 'center',
   },
   animationTitle: {
     color: '#172554',
-    fontSize: 36,
-    lineHeight: 42,
+    fontSize: 'clamp(44px, 5.2vw, 74px)',
+    lineHeight: 'clamp(48px, 5.8vw, 82px)',
     fontFamily: '"Brush Script MT", "Segoe Script", "Comic Sans MS", cursive',
     textAlign: 'center',
   },
   animationText: {
     color: '#475569',
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 'clamp(16px, 1.8vw, 24px)',
+    lineHeight: 'clamp(21px, 2.3vw, 30px)',
     fontWeight: '900',
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: 8,
   },
   animationDots: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 16,
+    gap: 12,
+    marginTop: 22,
   },
   animationDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 13,
+    height: 13,
+    borderRadius: 7,
     backgroundColor: colors.rose,
     opacity: 0.55,
   },
@@ -8027,10 +9453,50 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     backgroundColor: '#ffffff',
   },
+  previewMainOutput: {
+    width: 'min(92vw, 760px)',
+    maxWidth: '100%',
+    alignSelf: 'center',
+    boxShadow: '0 18px 50px rgba(15,23,42,0.12)',
+  },
   outputImage: {
     width: '100%',
     height: '100%',
     objectFit: 'contain',
+  },
+  previewRetakeLayer: {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 2,
+  },
+  previewRetakeHotspot: {
+    position: 'absolute',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(10,77,232,0.28)',
+    backgroundColor: 'rgba(10,77,232,0.02)',
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+    padding: 10,
+    cursor: 'pointer',
+  },
+  previewRetakePill: {
+    minHeight: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(10,77,232,0.94)',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 8px 22px rgba(15,23,42,0.18)',
+  },
+  previewRetakePillText: {
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   previewFrameGrid: {
     minHeight: 300,
