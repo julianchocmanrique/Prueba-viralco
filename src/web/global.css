@@ -196,9 +196,9 @@ textarea {
 
 .viralco-capture-effect {
   position: relative;
-  width: min(72vw, 430px);
-  height: min(34svh, 320px);
-  margin: 0 auto 18px;
+  width: min(86vw, 720px);
+  height: min(46svh, 520px);
+  margin: 0 auto 24px;
   display: grid;
   place-items: center;
   isolation: isolate;
@@ -236,8 +236,8 @@ textarea {
 .viralco-effect-photo {
   position: relative;
   z-index: 2;
-  width: min(58vw, 260px);
-  min-height: min(27svh, 230px);
+  width: min(66vw, 430px);
+  min-height: min(34svh, 360px);
   border-radius: 22px;
   overflow: hidden;
   background: #ffffff;
@@ -248,14 +248,14 @@ textarea {
 }
 
 .viralco-effect-photo-top {
-  height: min(12svh, 105px);
+  height: min(15svh, 160px);
   background:
     linear-gradient(90deg, #3244a4 0 18%, transparent 18% 74%, #3244a4 74% 100%),
     linear-gradient(135deg, #7a74bd, #4544a0);
 }
 
 .viralco-effect-photo-body {
-  min-height: min(15svh, 125px);
+  min-height: min(19svh, 200px);
   display: grid;
   place-items: center;
   gap: 8px;
@@ -265,13 +265,13 @@ textarea {
 }
 
 .viralco-effect-check {
-  width: 62px;
-  height: 62px;
+  width: clamp(74px, 8vw, 116px);
+  height: clamp(74px, 8vw, 116px);
   border-radius: 999px;
   display: grid;
   place-items: center;
   color: #ffffff;
-  font-size: 42px;
+  font-size: clamp(48px, 5.8vw, 78px);
   font-weight: 950;
   background: linear-gradient(135deg, #0a4de8, #38bdf8);
   box-shadow: 0 12px 26px rgba(10, 77, 232, .34);
@@ -279,7 +279,7 @@ textarea {
 
 .viralco-effect-caption {
   color: #172554;
-  font-size: clamp(17px, 2.3vw, 24px);
+  font-size: clamp(24px, 3vw, 42px);
   line-height: 1.1;
   font-weight: 950;
   text-transform: uppercase;
@@ -385,11 +385,583 @@ textarea {
 
 @media (max-width: 540px) {
   .viralco-capture-effect {
-    width: min(84vw, 330px);
-    height: min(31svh, 260px);
+    width: min(92vw, 390px);
+    height: min(42svh, 360px);
   }
 
   .viralco-effect-photo {
-    width: min(64vw, 220px);
+    width: min(76vw, 300px);
+  }
+}
+
+.viralco-capture-effect {
+  position: relative;
+  width: min(96vw, 980px);
+  height: min(70svh, 760px);
+  margin: 0 auto 20px;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+  perspective: 900px;
+}
+
+.viralco-capture-effect::before,
+.viralco-capture-effect::after {
+  content: "";
+  position: absolute;
+  inset: 4%;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.34);
+  box-shadow:
+    0 0 46px rgba(255, 255, 255, 0.22),
+    inset 0 0 38px rgba(10, 77, 232, 0.24);
+  animation: viralco-mirror-ring 3s ease-in-out infinite;
+}
+
+.viralco-capture-effect::after {
+  inset: 18%;
+  border-color: rgba(96, 165, 250, 0.42);
+  animation-delay: .35s;
+  animation-duration: 2.5s;
+}
+
+.viralco-effect-scanline {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 8%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.92), transparent);
+  box-shadow: 0 0 26px rgba(255,255,255,.72);
+  animation: viralco-scanline 3s ease-in-out infinite;
+}
+
+.viralco-effect-orbit {
+  position: absolute;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,.22);
+  transform: rotateX(68deg);
+}
+
+.viralco-effect-orbit-one {
+  width: min(70vw, 700px);
+  height: min(70vw, 700px);
+  animation: viralco-orbit-spin 6s linear infinite;
+}
+
+.viralco-effect-orbit-two {
+  width: min(50vw, 470px);
+  height: min(50vw, 470px);
+  border-color: rgba(10,77,232,.28);
+  animation: viralco-orbit-spin 4.6s linear infinite reverse;
+}
+
+.viralco-effect-triangle {
+  position: relative;
+  z-index: 4;
+  width: min(78vw, 620px);
+  height: min(58vw, 540px);
+  display: grid;
+  place-items: center;
+  clip-path: polygon(50% 4%, 96% 92%, 4% 92%);
+  background:
+    radial-gradient(circle at 50% 46%, rgba(255,255,255,.92), rgba(255,255,255,.72) 26%, rgba(191,219,254,.36) 48%, rgba(10,77,232,.08) 70%, transparent 72%),
+    linear-gradient(135deg, rgba(255,255,255,.84), rgba(147,197,253,.24));
+  filter: drop-shadow(0 34px 80px rgba(0,0,0,.38));
+  animation: viralco-triangle-enter 3s cubic-bezier(.18,.9,.2,1) infinite;
+}
+
+.viralco-effect-triangle-glow {
+  position: absolute;
+  inset: 12%;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background:
+    repeating-linear-gradient(135deg, rgba(255,255,255,.18) 0 10px, rgba(10,77,232,.08) 10px 20px),
+    radial-gradient(circle at 50% 48%, rgba(255,255,255,.88), transparent 48%);
+  animation: viralco-triangle-glow 1.7s ease-in-out infinite;
+}
+
+.viralco-effect-camera {
+  position: relative;
+  z-index: 3;
+  width: min(30vw, 220px);
+  height: min(22vw, 160px);
+  border-radius: 18px;
+  background:
+    linear-gradient(#334155 0 22%, transparent 22%),
+    linear-gradient(135deg, #f8fafc, #cbd5e1);
+  box-shadow:
+    0 18px 46px rgba(15,23,42,.38),
+    inset 0 0 0 2px rgba(255,255,255,.72);
+  animation: viralco-camera-pop 1.35s ease-in-out infinite;
+}
+
+.viralco-effect-camera-top {
+  position: absolute;
+  left: 31%;
+  top: -14%;
+  width: 38%;
+  height: 26%;
+  border-radius: 18px 18px 4px 4px;
+  background: #e5e7eb;
+}
+
+.viralco-effect-camera-lens {
+  position: absolute;
+  left: 50%;
+  top: 57%;
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background:
+    radial-gradient(circle at 50% 50%, #bae6fd 0 24%, #38bdf8 25% 38%, #e0f2fe 39% 52%, #475569 53% 64%, #f8fafc 65%);
+  box-shadow: 0 0 28px rgba(56,189,248,.82);
+}
+
+.viralco-effect-caption {
+  position: absolute;
+  z-index: 4;
+  left: 0;
+  right: 0;
+  bottom: 19%;
+  color: #ffffff;
+  font-size: clamp(42px, 8vw, 104px);
+  line-height: 1;
+  font-weight: 950;
+  text-transform: uppercase;
+  text-align: center;
+  letter-spacing: 0;
+  text-shadow:
+    0 4px 0 rgba(10,77,232,.64),
+    0 16px 38px rgba(0,0,0,.42);
+  animation: viralco-caption-pop 1.5s ease-in-out infinite;
+}
+
+.viralco-effect-spark {
+  width: clamp(13px, 1.8vw, 22px);
+  height: clamp(13px, 1.8vw, 22px);
+  animation: viralco-effect-spark 2.35s ease-in-out infinite;
+}
+
+.viralco-capture-stage-afterCapture .viralco-effect-triangle {
+  clip-path: inset(0 round 32px);
+  width: min(74vw, 520px);
+  height: min(44svh, 430px);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.94), rgba(236,253,245,.9)),
+    radial-gradient(circle at 50% 10%, rgba(34,197,94,.24), transparent 52%);
+}
+
+.viralco-capture-stage-afterCapture .viralco-effect-caption {
+  color: #172554;
+  bottom: 14%;
+  font-size: clamp(32px, 5vw, 70px);
+  text-shadow: 0 16px 34px rgba(15,23,42,.2);
+}
+
+.viralco-capture-stage-afterCapture .viralco-effect-camera::after {
+  content: "✓";
+  position: absolute;
+  right: -14%;
+  top: -20%;
+  width: clamp(52px, 7vw, 84px);
+  height: clamp(52px, 7vw, 84px);
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  font-size: clamp(34px, 4vw, 52px);
+  font-weight: 950;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  box-shadow: 0 16px 34px rgba(22,163,74,.36);
+}
+
+@keyframes viralco-mirror-ring {
+  0%, 100% {
+    opacity: .36;
+    transform: scale(.82);
+  }
+  50% {
+    opacity: .9;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes viralco-scanline {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  20%, 78% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(min(52svh, 560px));
+  }
+}
+
+@keyframes viralco-orbit-spin {
+  to {
+    transform: rotateX(68deg) rotateZ(360deg);
+  }
+}
+
+@keyframes viralco-triangle-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) rotateY(-14deg) scale(.78);
+  }
+  24%, 82% {
+    opacity: 1;
+    transform: translateY(0) rotateY(0) scale(1);
+  }
+  100% {
+    opacity: .86;
+    transform: translateY(-8px) rotateY(8deg) scale(.98);
+  }
+}
+
+@keyframes viralco-triangle-glow {
+  0%, 100% {
+    opacity: .42;
+  }
+  50% {
+    opacity: .9;
+  }
+}
+
+@keyframes viralco-camera-pop {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-8px) scale(1.06);
+  }
+}
+
+@keyframes viralco-caption-pop {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-5px) scale(1.035);
+  }
+}
+
+@media (max-width: 540px) {
+  .viralco-capture-effect {
+    width: 100vw;
+    height: 68svh;
+  }
+
+  .viralco-effect-triangle {
+    width: min(96vw, 430px);
+    height: min(74vw, 390px);
+  }
+
+  .viralco-effect-camera {
+    width: 130px;
+    height: 96px;
+  }
+
+  .viralco-effect-caption {
+    font-size: clamp(38px, 13vw, 72px);
+  }
+}
+
+.viralco-capture-effect {
+  width: min(98vw, 1080px);
+  height: min(78svh, 820px);
+  margin-bottom: 10px;
+  color: #fff;
+}
+
+.viralco-capture-effect::before {
+  inset: 7%;
+  border-width: 2px;
+  border-color: rgba(255, 255, 255, 0.38);
+  box-shadow:
+    0 0 64px rgba(255, 255, 255, 0.18),
+    inset 0 0 52px rgba(255, 255, 255, 0.12);
+  animation: viralco-video-ring 3.4s ease-in-out infinite;
+}
+
+.viralco-capture-effect::after {
+  inset: 22%;
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.12);
+  animation: viralco-video-ring 3.4s ease-in-out infinite reverse;
+}
+
+.viralco-effect-scanline {
+  left: 16%;
+  right: 16%;
+  top: 9%;
+  height: 5px;
+  background: linear-gradient(90deg, transparent, #fff, transparent);
+  box-shadow: 0 0 28px rgba(255, 255, 255, 0.72);
+  animation: viralco-video-scanline 3.2s ease-in-out infinite;
+}
+
+.viralco-effect-orbit-one {
+  width: min(72vw, 760px);
+  height: min(72vw, 760px);
+  border-color: rgba(255, 255, 255, 0.24);
+  animation-duration: 9s;
+}
+
+.viralco-effect-orbit-two {
+  width: min(48vw, 520px);
+  height: min(48vw, 520px);
+  border-color: rgba(255, 255, 255, 0.14);
+  animation-duration: 6.5s;
+}
+
+.viralco-effect-triangle {
+  width: min(78vw, 600px);
+  height: min(62vw, 560px);
+  clip-path: polygon(50% 2%, 98% 94%, 2% 94%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.56) 44%, rgba(255, 255, 255, 0.18) 72%, transparent 94%),
+    radial-gradient(circle at 50% 44%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.22) 48%, transparent 70%);
+  filter: drop-shadow(0 28px 82px rgba(0, 0, 0, 0.44));
+  animation: viralco-video-triangle 3.4s cubic-bezier(.18, .88, .2, 1) infinite;
+}
+
+.viralco-effect-triangle-glow {
+  inset: 10%;
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0 12px, rgba(255, 255, 255, 0.03) 12px 24px),
+    radial-gradient(circle at 50% 44%, rgba(255, 255, 255, 0.9), transparent 54%);
+}
+
+.viralco-effect-kicker {
+  position: absolute;
+  z-index: 5;
+  top: 33%;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.98);
+  font-size: clamp(18px, 2vw, 30px);
+  font-weight: 950;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  animation: viralco-video-kicker 1.8s ease-in-out infinite;
+}
+
+.viralco-effect-camera {
+  width: min(24vw, 170px);
+  height: min(18vw, 128px);
+  border-radius: 18px;
+  background:
+    linear-gradient(#a3a36a 0 18%, transparent 18%),
+    linear-gradient(135deg, #f9d94d, #f3b61f);
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, .32),
+    inset 0 0 0 4px rgba(255, 255, 255, .82);
+  animation: viralco-video-camera 1.8s ease-in-out infinite;
+}
+
+.viralco-effect-camera-top {
+  left: 31%;
+  top: -13%;
+  width: 38%;
+  height: 25%;
+  background: #f5d44d;
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, .68);
+}
+
+.viralco-effect-camera-lens {
+  width: 42%;
+  background:
+    radial-gradient(circle at 50% 50%, #0f172a 0 15%, #38bdf8 16% 30%, #e0f2fe 31% 46%, #64748b 47% 60%, #f8fafc 61%);
+  box-shadow:
+    0 0 32px rgba(125, 211, 252, .82),
+    inset 0 0 0 3px rgba(255, 255, 255, .72);
+}
+
+.viralco-effect-caption {
+  bottom: 22%;
+  font-size: clamp(46px, 8.4vw, 112px);
+  text-shadow:
+    0 4px 0 rgba(15, 23, 42, .48),
+    0 18px 36px rgba(0, 0, 0, .42);
+  animation: viralco-video-caption 1.65s ease-in-out infinite;
+}
+
+.viralco-effect-footer {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: 16%;
+  transform: translateX(-50%);
+  min-width: min(72%, 430px);
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .76);
+  color: rgba(255, 255, 255, .92);
+  font-size: clamp(14px, 1.45vw, 20px);
+  font-weight: 900;
+  text-align: center;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .32);
+}
+
+.viralco-capture-stage-afterCapture .viralco-effect-triangle {
+  clip-path: inset(0 round 24px);
+  width: min(76vw, 640px);
+  height: min(46svh, 420px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(255, 255, 255, .9)),
+    radial-gradient(circle at 50% 10%, rgba(96, 165, 250, .24), transparent 54%);
+}
+
+.viralco-capture-stage-afterCapture .viralco-effect-kicker {
+  top: 18%;
+  color: #1e3a8a;
+}
+
+.viralco-capture-stage-afterCapture .viralco-effect-camera {
+  top: 36%;
+  background:
+    linear-gradient(#6966aa 0 25%, transparent 25%),
+    linear-gradient(135deg, #3730a3, #4f46e5);
+}
+
+.viralco-capture-stage-afterCapture .viralco-effect-caption {
+  bottom: 28%;
+  color: #312e81;
+  font-size: clamp(38px, 5.6vw, 78px);
+  text-shadow: 0 16px 34px rgba(15, 23, 42, .18);
+}
+
+.viralco-capture-stage-afterCapture .viralco-effect-footer {
+  bottom: 16%;
+  background: rgba(30, 64, 175, .9);
+}
+
+.viralco-capture-stage-processing .viralco-effect-triangle {
+  clip-path: inset(0 round 999px);
+  width: min(62vw, 520px);
+  height: min(62vw, 520px);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, .96), rgba(219, 234, 254, .72) 46%, rgba(96, 165, 250, .18) 68%, transparent 74%);
+}
+
+.viralco-capture-stage-processing .viralco-effect-kicker {
+  top: 24%;
+}
+
+.viralco-capture-stage-processing .viralco-effect-caption {
+  bottom: 24%;
+}
+
+@keyframes viralco-video-ring {
+  0%, 100% {
+    opacity: .22;
+    transform: scale(.82);
+  }
+  45%, 65% {
+    opacity: .74;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes viralco-video-scanline {
+  0% {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  12%, 72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(min(54svh, 560px));
+  }
+}
+
+@keyframes viralco-video-triangle {
+  0% {
+    opacity: 0;
+    transform: translateY(36px) rotateX(12deg) scale(.76);
+  }
+  24%, 78% {
+    opacity: 1;
+    transform: translateY(0) rotateX(0) scale(1);
+  }
+  100% {
+    opacity: .84;
+    transform: translateY(-10px) rotateX(-5deg) scale(.98);
+  }
+}
+
+@keyframes viralco-video-camera {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  48% {
+    transform: translateY(-10px) scale(1.06);
+  }
+}
+
+@keyframes viralco-video-kicker {
+  0%, 100% {
+    opacity: .76;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes viralco-video-caption {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  48% {
+    transform: translateY(-6px) scale(1.04);
+  }
+}
+
+@media (max-width: 540px) {
+  .viralco-capture-effect {
+    width: 100vw;
+    height: 72svh;
+  }
+
+  .viralco-effect-scanline {
+    left: 9%;
+    right: 9%;
+    top: 7%;
+  }
+
+  .viralco-effect-triangle {
+    width: min(104vw, 430px);
+    height: min(94vw, 440px);
+  }
+
+  .viralco-effect-kicker {
+    top: 31%;
+    font-size: clamp(16px, 5vw, 22px);
+  }
+
+  .viralco-effect-camera {
+    width: 118px;
+    height: 88px;
+  }
+
+  .viralco-effect-caption {
+    bottom: 23%;
+    font-size: clamp(42px, 16vw, 72px);
+  }
+
+  .viralco-effect-footer {
+    bottom: 14%;
+    min-width: 78%;
+    font-size: 13px;
   }
 }

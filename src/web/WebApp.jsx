@@ -36,6 +36,59 @@ const recentEventsStorageKey = 'viralco-mirror-recent-events'
 const eventGalleryStorageKey = 'viralco-mirror-event-galleries'
 const activeProfileStorageKey = 'viralco-mirror-active-profile'
 const photoUploadEndpoint = '/prueba-viralco/api/photos'
+const persistentPhotoDbName = 'viralco-mirror-photo-images'
+const persistentPhotoStoreName = 'images'
+const persistentFinalPhotoKey = 'final'
+const persistentFrameKey = (index) => `frame-${index}`
+
+const openPersistentPhotoDb = () =>
+  new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      reject(new Error('IndexedDB no disponible'))
+      return
+    }
+    const request = window.indexedDB.open(persistentPhotoDbName, 1)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(persistentPhotoStoreName)) {
+        db.createObjectStore(persistentPhotoStoreName)
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error || new Error('No se pudo abrir IndexedDB'))
+  })
+
+const writePersistentPhoto = async (key, value) => {
+  const db = await openPersistentPhotoDb()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(persistentPhotoStoreName, 'readwrite')
+    const store = transaction.objectStore(persistentPhotoStoreName)
+    const request = value ? store.put(value, key) : store.delete(key)
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error)
+    transaction.oncomplete = () => db.close()
+    transaction.onerror = () => {
+      db.close()
+      reject(transaction.error)
+    }
+  })
+}
+
+const readPersistentPhoto = async (key) => {
+  const db = await openPersistentPhotoDb()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(persistentPhotoStoreName, 'readonly')
+    const store = transaction.objectStore(persistentPhotoStoreName)
+    const request = store.get(key)
+    request.onsuccess = () => resolve(request.result || '')
+    request.onerror = () => reject(request.error)
+    transaction.oncomplete = () => db.close()
+    transaction.onerror = () => {
+      db.close()
+      reject(transaction.error)
+    }
+  })
+}
 
 const photoTypes = [
   {
@@ -170,7 +223,13 @@ const shareTools = ['WhatsApp', 'QR', 'Imprimir']
 const photoTextPresets = ['El tiempo de Dios es perfecto', 'Gracias por acompañarnos', 'Un recuerdo especial']
 const customPhotoMaxSlots = 8
 const customTextFonts = ['Arial', 'Georgia', 'Impact', 'Verdana', 'Courier New']
-const customTextColors = ['#7f1d1d', '#111827', '#0a4de8', '#ffffff', '#facc15', '#ec4899']
+const customTextColors = [
+  '#111827', '#ffffff', '#6b7280', '#d1d5db',
+  '#7f1d1d', '#dc2626', '#f97316', '#facc15',
+  '#16a34a', '#22c55e', '#14b8a6', '#06b6d4',
+  '#0a4de8', '#2563eb', '#6366f1', '#7c3aed',
+  '#a21caf', '#ec4899', '#f43f5e', '#b96f71',
+]
 const customTextLabels = {
   script: 'Frase',
   name: 'Nombre',
@@ -305,11 +364,7 @@ const designTools = [
   { id: 'diseno', label: 'Diseño de impresión', icon: '▦' },
 ]
 const printPaperPresets = [
-  { id: '4x6', label: '4x6', sizeText: '10.16 x 15.24 cm', width: '10.16', height: '15.24', margin: '0', note: 'Postal 4x6 pulgadas.' },
   { id: '10x15', label: '10 x 15', sizeText: '10 x 15 cm', width: '10', height: '15', margin: '0', note: 'Hoja para dos tiras 5x15.' },
-  { id: '5x15', label: '5 x 15', sizeText: '5 x 15 cm', width: '5', height: '15', margin: '0', note: 'Una tira vertical.' },
-  { id: '10x20', label: '10 x 20', sizeText: '10 x 20 cm', width: '10', height: '20', margin: '0', note: 'Formato vertical más alto.' },
-  { id: '15x20', label: '15 x 20', sizeText: '15 x 20 cm', width: '15', height: '20', margin: '0.2', note: 'Ampliación para marco.' },
 ]
 const printDpiOptions = [203, 300, 600]
 const defaultPrintSettings = {
@@ -494,7 +549,7 @@ const WebApp = () => {
   const [captureOriginal, setCaptureOriginal] = useState(true)
   const [photoCountdownFirst, setPhotoCountdownFirst] = useState(5)
   const [photoCountdownNext, setPhotoCountdownNext] = useState(5)
-  const [photoReviewSeconds, setPhotoReviewSeconds] = useState(4)
+  const [photoReviewSeconds, setPhotoReviewSeconds] = useState(5)
   const [flashBeforePhoto, setFlashBeforePhoto] = useState(true)
   const [roamingMode, setRoamingMode] = useState(false)
   const [gifOverlayUrl, setGifOverlayUrl] = useState('')
@@ -516,8 +571,14 @@ const WebApp = () => {
   const [customPhotoOrder, setCustomPhotoOrder] = useState([])
   const [customPhotoLayout, setCustomPhotoLayout] = useState([])
   const [selectedCustomLayoutPhoto, setSelectedCustomLayoutPhoto] = useState(1)
+  const [selectedCustomLayoutPhotos, setSelectedCustomLayoutPhotos] = useState([1])
+  const [multiCustomLayoutSelect, setMultiCustomLayoutSelect] = useState(false)
+  const [customMirrorMode, setCustomMirrorMode] = useState(false)
   const [customTextLayers, setCustomTextLayers] = useState(defaultCustomTextLayers)
   const [selectedCustomTextLayer, setSelectedCustomTextLayer] = useState('name')
+  const [showCustomTextColorPalette, setShowCustomTextColorPalette] = useState(false)
+  const [showCustomTextFontMenu, setShowCustomTextFontMenu] = useState(false)
+  const [uploadedCustomFonts, setUploadedCustomFonts] = useState([])
   const [activeCustomMenu, setActiveCustomMenu] = useState('photos')
   const [customAlignmentGuides, setCustomAlignmentGuides] = useState({ x: [], y: [] })
   const [captureAnimation, setCaptureAnimation] = useState(captureAnimationPresets[0].id)
@@ -543,6 +604,7 @@ const WebApp = () => {
   const [printSettings, setPrintSettings] = useState(defaultPrintSettings)
   const videoRef = useRef(null)
   const streamRef = useRef(null)
+  const cameraOpenRequestRef = useRef(0)
   const countdownRef = useRef(null)
   const customEditorStripRef = useRef(null)
   const customLayoutPointerRef = useRef(null)
@@ -575,20 +637,23 @@ const WebApp = () => {
     () => normalizeCustomPhotoLayout(customPhotoLayout, customPhotoCount),
     [customPhotoLayout, customPhotoCount],
   )
+  const customFontChoices = useMemo(
+    () => [...customTextFonts, ...uploadedCustomFonts.map((font) => font.family)],
+    [uploadedCustomFonts],
+  )
   const selectedShotCount = selectedType.id === 'personalizar-5x15' ? customPhotoCount : selectedType.shots
   const normalizedPrintSettings = useMemo(() => {
     const parsePositive = (value, fallback) => {
       const parsed = Number(String(value).replace(',', '.'))
       return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
     }
-    const widthCm = Math.max(parsePositive(printSettings.widthCm, 10), 1)
-    const heightCm = Math.max(parsePositive(printSettings.heightCm, 15), 1)
+    const widthCm = 10
+    const heightCm = 15
     const marginCm = Math.min(parsePositive(printSettings.marginCm, 0), Math.min(widthCm, heightCm) / 3)
     const copies = Math.min(Math.max(Math.round(parsePositive(printSettings.copies, 1)), 1), 20)
     const dpi = printDpiOptions.includes(Number(printSettings.dpi)) ? Number(printSettings.dpi) : 300
-    const landscape = printSettings.orientation === 'Horizontal'
-    const orientedWidthCm = landscape ? Math.max(widthCm, heightCm) : Math.min(widthCm, heightCm)
-    const orientedHeightCm = landscape ? Math.min(widthCm, heightCm) : Math.max(widthCm, heightCm)
+    const orientedWidthCm = widthCm
+    const orientedHeightCm = heightCm
     const printableWidthCm = Math.max(orientedWidthCm - marginCm * 2, 0.1)
     const printableHeightCm = Math.max(orientedHeightCm - marginCm * 2, 0.1)
     return {
@@ -615,8 +680,7 @@ const WebApp = () => {
   )
   const eventTemplateOptions = useMemo(() => getTemplatesForEventType(eventType), [eventType])
   const printSizeLabel = `${normalizedPrintSettings.widthCm}x${normalizedPrintSettings.heightCm} cm`
-  const activePrintPreset = printPaperPresets.find((preset) => preset.id === printSettings.presetId)
-  const activePrintLabel = activePrintPreset?.label || 'Manual'
+  const activePrintLabel = '10 x 15'
   const getAppRoutePath = (route = 'inicio') => {
     const base = import.meta.env.BASE_URL || '/'
     const normalizedBase = base.endsWith('/') ? base : `${base}/`
@@ -665,8 +729,8 @@ const WebApp = () => {
     setShowPrintConfigScreen(nextRoute === 'impresion')
     setShowBackgroundRemovalScreen(nextRoute === 'fondo')
     setShowEventOptionsScreen(nextRoute === 'configurar-evento')
-    setShowAnimationVideoScreen(nextRoute === 'animacion')
-    setShowLaunchIntroScreen(nextRoute === 'lanzar-evento')
+    setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(nextRoute === 'lanzar-evento' || nextRoute === 'animacion')
     setShowCustomPhotoLayoutScreen(nextRoute === 'personalizar')
     setShowCapturePhotoScreen(nextRoute === 'captura')
     setCaptureIntroActive(nextRoute === 'captura')
@@ -718,7 +782,9 @@ const WebApp = () => {
     customPhotoCount,
     customPhotoOrder: customPhotoSequence,
     customPhotoLayout: customLayoutSlots,
+    customMirrorMode,
     customTextLayers,
+    uploadedCustomFonts,
     templateId: selectedTemplate.id,
     filter: selectedFilter,
     updatedAt: 'Ahora',
@@ -749,10 +815,16 @@ const WebApp = () => {
       setCustomPhotoCount(nextCustomCount)
       setCustomPhotoOrder(normalizeCustomPhotoOrder(savedManualLayout ? setup.customPhotoOrder : [], nextCustomCount))
       setCustomPhotoLayout(normalizeCustomPhotoLayout(savedLayout, nextCustomCount))
+      setCustomMirrorMode(Boolean(setup.customMirrorMode))
       if (setup.customTextLayers && typeof setup.customTextLayers === 'object') {
         setCustomTextLayers({ ...defaultCustomTextLayers, ...setup.customTextLayers })
       }
+      if (Array.isArray(setup.uploadedCustomFonts)) {
+        setUploadedCustomFonts(setup.uploadedCustomFonts)
+      }
       setSelectedCustomLayoutPhoto(1)
+      setSelectedCustomLayoutPhotos(nextCustomCount ? [1] : [])
+      setMultiCustomLayoutSelect(false)
     }
     setSelectedTemplate(nextTemplate)
     setSelectedFilter(nextFilter)
@@ -771,21 +843,38 @@ const WebApp = () => {
       const next = [
         { ...setup, id: setup.id || `evento-${Date.now()}`, updatedAt: 'Ahora' },
         ...current.filter((item) => (item.id || item.name) !== (setup.id || setup.name)),
-      ].slice(0, 1)
+      ].slice(0, 30)
       return next
     })
   }
 
+  const saveCurrentSetupToRecentEvents = (status = 'Evento guardado.') => {
+    const currentSetup = getCurrentSetup()
+    const existingSetup =
+      selectedRecentEvent ||
+      recentEvents.find((item) => (item.id || item.name) === selectedRecentId)
+    const savedSetup = {
+      ...existingSetup,
+      ...currentSetup,
+      id: existingSetup?.id || selectedRecentId || currentSetup.id,
+      operatorId: existingSetup?.operatorId || currentSetup.operatorId,
+      updatedAt: 'Ahora',
+    }
+
+    rememberRecentEvent(savedSetup)
+    setSelectedRecentId(savedSetup.id || savedSetup.name)
+    setCaptureStatus(status)
+    return savedSetup
+  }
+
   const launchEvent = (setup = getCurrentSetup(), destination = 'capture') => {
-    const nextType = photoTypes.find((item) => item.id === setup.photoTypeId) || selectedType
-    const shouldAskAnimationVideo = destination === 'capture' && nextType.id === 'personalizar-5x15'
-    const shouldShowLaunchIntro = destination === 'capture' && !shouldAskAnimationVideo
+    const shouldShowLaunchIntro = destination === 'capture'
     applyEventSetup(setup)
     rememberRecentEvent(setup)
     setShowHomeLauncher(false)
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(destination === 'options')
-    setShowAnimationVideoScreen(shouldAskAnimationVideo)
+    setShowAnimationVideoScreen(false)
     setShowLaunchIntroScreen(shouldShowLaunchIntro)
     setShowCustomPhotoLayoutScreen(false)
     setShowCapturePhotoScreen(false)
@@ -799,7 +888,6 @@ const WebApp = () => {
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
     if (destination === 'options') updateAppRoute('configurar-evento')
-    else if (shouldAskAnimationVideo) updateAppRoute('animacion')
     else if (shouldShowLaunchIntro) updateAppRoute('lanzar-evento')
     else if (destination === 'preview') updateAppRoute('preview')
     else if (destination === 'share') updateAppRoute('compartir')
@@ -847,6 +935,26 @@ const WebApp = () => {
     setCaptureStatus(`Perfil ${profileOptions.find((profile) => profile.id === profileId)?.name || 'Viralco'} activo.`)
   }
 
+  const returnToHomeScreen = () => {
+    setShowPreviewShareMenu(false)
+    setShowEventGallery(false)
+    setShowOperatorMenu(false)
+    setOperatorQuickPanel(null)
+    applyAppRouteState('inicio')
+    updateAppRoute('inicio')
+  }
+
+  const renderHiddenHomeButton = () => (
+    <Pressable
+      onPress={returnToHomeScreen}
+      style={styles.hiddenHomeButton}
+      accessibilityRole="button"
+      accessibilityLabel="Volver a inicio"
+    >
+      <View style={styles.hiddenHomeButtonDot} />
+    </Pressable>
+  )
+
   const startLaunchIntroExperience = () => {
     setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(true)
@@ -854,7 +962,7 @@ const WebApp = () => {
     setCountdown('')
     setCaptureStatus(`${selectedType.name}: listo para tomar fotos`)
     updateAppRoute('captura')
-    if (!cameraStream) openCamera()
+    void ensureCameraReady('Verificando cámara antes de iniciar el evento...')
   }
 
   const nextShotLabel = useMemo(() => {
@@ -910,60 +1018,75 @@ const WebApp = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    const saved = window.localStorage.getItem(appSetupStorageKey)
-    const savedSession = window.localStorage.getItem(appSessionStorageKey)
-    const savedRecent = window.localStorage.getItem(recentEventsStorageKey)
-    const savedGalleries = window.localStorage.getItem(eventGalleryStorageKey)
-    const savedProfile = window.localStorage.getItem(activeProfileStorageKey)
+    let cancelled = false
+    const hydrateStorage = async () => {
+      const saved = window.localStorage.getItem(appSetupStorageKey)
+      const savedSession = window.localStorage.getItem(appSessionStorageKey)
+      const savedRecent = window.localStorage.getItem(recentEventsStorageKey)
+      const savedGalleries = window.localStorage.getItem(eventGalleryStorageKey)
+      const savedProfile = window.localStorage.getItem(activeProfileStorageKey)
 
-    try {
-      if (profileOptions.some((profile) => profile.id === savedProfile)) {
-        setActiveProfileId(savedProfile)
+      try {
+        if (profileOptions.some((profile) => profile.id === savedProfile)) {
+          setActiveProfileId(savedProfile)
+        }
+        const parsedRecent = savedRecent ? JSON.parse(savedRecent) : []
+        if (Array.isArray(parsedRecent) && parsedRecent.length) {
+          setRecentEvents(parsedRecent.slice(0, 30))
+          setSelectedRecentId(parsedRecent[0].id || parsedRecent[0].name || '')
+        }
+        if (saved) {
+          const setup = JSON.parse(saved)
+          applyEventSetup(setup, 'listo para fotos')
+        }
+        if (savedSession) {
+          const session = JSON.parse(savedSession)
+          const inlineFrames = Array.isArray(session.photoFrames) ? session.photoFrames.filter(Boolean) : []
+          const frameCount = Number(session.photoFrameCount) || inlineFrames.length || 0
+          const storedFrames = frameCount
+            ? await Promise.all(Array.from({ length: frameCount }, (_, index) => readPersistentPhoto(persistentFrameKey(index)).catch(() => '')))
+            : []
+          const nextFrames = storedFrames.filter(Boolean).length ? storedFrames.filter(Boolean) : inlineFrames
+          const storedFinalPhoto = await readPersistentPhoto(persistentFinalPhotoKey).catch(() => '')
+          if (!cancelled) {
+            if (nextFrames.length) setPhotoFrames(nextFrames)
+            if (storedFinalPhoto || typeof session.finalPhotoUrl === 'string') {
+              setFinalPhotoUrl(storedFinalPhoto || session.finalPhotoUrl)
+            }
+            if (typeof session.savedPhotoUrl === 'string') {
+              setSavedPhotoUrl(session.savedPhotoUrl)
+            }
+            if (typeof session.savedPhotoId === 'string') {
+              setSavedPhotoId(session.savedPhotoId)
+            }
+            if (typeof session.photoSaveStatus === 'string') {
+              setPhotoSaveStatus(session.photoSaveStatus)
+            }
+            if (typeof session.captureStatus === 'string' && session.captureStatus.trim()) {
+              setCaptureStatus(session.captureStatus)
+            }
+          }
+        }
+        if (savedGalleries) {
+          const galleries = JSON.parse(savedGalleries)
+          if (galleries && typeof galleries === 'object') {
+            setEventGalleries(galleries)
+          }
+        }
+      } catch {
+        window.localStorage.removeItem(appSetupStorageKey)
+        window.localStorage.removeItem(appSessionStorageKey)
+        window.localStorage.removeItem(recentEventsStorageKey)
+        window.localStorage.removeItem(eventGalleryStorageKey)
+        window.localStorage.removeItem(activeProfileStorageKey)
+      } finally {
+        storageHydratedRef.current = true
       }
-      const parsedRecent = savedRecent ? JSON.parse(savedRecent) : []
-      if (Array.isArray(parsedRecent) && parsedRecent.length) {
-        setRecentEvents(parsedRecent.slice(0, 1))
-        setSelectedRecentId(parsedRecent[0].id || parsedRecent[0].name || '')
-      }
-      if (saved) {
-        const setup = JSON.parse(saved)
-        applyEventSetup(setup, 'listo para fotos')
-      }
-      if (savedSession) {
-        const session = JSON.parse(savedSession)
-        if (Array.isArray(session.photoFrames)) {
-          setPhotoFrames(session.photoFrames.filter(Boolean))
-        }
-        if (typeof session.finalPhotoUrl === 'string') {
-          setFinalPhotoUrl(session.finalPhotoUrl)
-        }
-        if (typeof session.savedPhotoUrl === 'string') {
-          setSavedPhotoUrl(session.savedPhotoUrl)
-        }
-        if (typeof session.savedPhotoId === 'string') {
-          setSavedPhotoId(session.savedPhotoId)
-        }
-        if (typeof session.photoSaveStatus === 'string') {
-          setPhotoSaveStatus(session.photoSaveStatus)
-        }
-        if (typeof session.captureStatus === 'string' && session.captureStatus.trim()) {
-          setCaptureStatus(session.captureStatus)
-        }
-      }
-      if (savedGalleries) {
-        const galleries = JSON.parse(savedGalleries)
-        if (galleries && typeof galleries === 'object') {
-          setEventGalleries(galleries)
-        }
-      }
-    } catch {
-      window.localStorage.removeItem(appSetupStorageKey)
-      window.localStorage.removeItem(appSessionStorageKey)
-      window.localStorage.removeItem(recentEventsStorageKey)
-      window.localStorage.removeItem(eventGalleryStorageKey)
-      window.localStorage.removeItem(activeProfileStorageKey)
-    } finally {
-      storageHydratedRef.current = true
+    }
+
+    hydrateStorage()
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -977,32 +1100,76 @@ const WebApp = () => {
       customPhotoCount,
       customPhotoOrder: customPhotoSequence,
       customPhotoLayout: customLayoutSlots,
+      customMirrorMode,
       customTextLayers,
+      uploadedCustomFonts,
       templateId: selectedTemplate.id,
       filter: selectedFilter,
     }
-    window.localStorage.setItem(appSetupStorageKey, JSON.stringify(setup))
-  }, [eventName, eventType, selectedType, customPhotoCount, customPhotoSequence, customLayoutSlots, customTextLayers, selectedTemplate, selectedFilter])
+    try {
+      window.localStorage.setItem(appSetupStorageKey, JSON.stringify(setup))
+    } catch {
+      window.localStorage.setItem(appSetupStorageKey, JSON.stringify({ ...setup, uploadedCustomFonts: [] }))
+    }
+  }, [eventName, eventType, selectedType, customPhotoCount, customPhotoSequence, customLayoutSlots, customMirrorMode, customTextLayers, uploadedCustomFonts, selectedTemplate, selectedFilter])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof FontFace === 'undefined') return
+    uploadedCustomFonts.forEach((font) => {
+      if (!font?.family || !font?.source) return
+      const fontFace = new FontFace(font.family, `url(${font.source})`)
+      fontFace.load()
+        .then((loadedFace) => {
+          document.fonts?.add?.(loadedFace)
+        })
+        .catch(() => {})
+    })
+  }, [uploadedCustomFonts])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageHydratedRef.current) return
-    try {
-      const session = {
-        photoFrames,
-        finalPhotoUrl,
-        savedPhotoUrl,
-        savedPhotoId,
-        photoSaveStatus,
-        captureStatus,
-        updatedAt: Date.now(),
-      }
-      window.localStorage.setItem(appSessionStorageKey, JSON.stringify(session))
-    } catch {
+    let cancelled = false
+    const persistSession = async () => {
       try {
-        window.localStorage.removeItem(appSessionStorageKey)
+        await Promise.all([
+          writePersistentPhoto(persistentFinalPhotoKey, finalPhotoUrl),
+          ...Array.from({ length: customPhotoMaxSlots }, (_, index) => (
+            writePersistentPhoto(persistentFrameKey(index), photoFrames[index] || '')
+          )),
+        ])
       } catch {
-        // Ignore storage cleanup failures.
+        // Keep metadata even if large image storage is not available.
       }
+
+      if (cancelled) return
+      try {
+        const session = {
+          photoFrameCount: photoFrames.length,
+          hasFinalPhoto: Boolean(finalPhotoUrl),
+          savedPhotoUrl,
+          savedPhotoId,
+          photoSaveStatus,
+          captureStatus,
+          updatedAt: Date.now(),
+        }
+        window.localStorage.setItem(appSessionStorageKey, JSON.stringify(session))
+      } catch {
+        try {
+          window.localStorage.setItem(appSessionStorageKey, JSON.stringify({
+            photoFrameCount: photoFrames.length,
+            hasFinalPhoto: Boolean(finalPhotoUrl),
+            captureStatus,
+            updatedAt: Date.now(),
+          }))
+        } catch {
+          // Ignore session metadata persistence failures.
+        }
+      }
+    }
+
+    persistSession()
+    return () => {
+      cancelled = true
     }
   }, [photoFrames, finalPhotoUrl, savedPhotoUrl, savedPhotoId, photoSaveStatus, captureStatus])
 
@@ -1147,26 +1314,37 @@ const WebApp = () => {
 
       setCustomPhotoLayout((current) =>
         normalizeCustomPhotoLayout(current, customPhotoCount).map((slot) => {
-          if (slot.photoNumber !== active.photoNumber) return slot
           if (active.mode === 'resize') {
+            if (slot.photoNumber !== active.photoNumber) return slot
             const nextWidth = clampNumber(active.slot.width + deltaX, 18, 100 - active.slot.x)
             const nextHeight = clampNumber(active.slot.height + deltaY, 7, 100 - active.slot.y)
             setCustomAlignmentGuides({ x: [], y: [] })
             return { ...slot, width: nextWidth, height: nextHeight }
           }
 
+          const groupSlots = active.slots?.length ? active.slots : [active.slot]
+          const minDeltaX = Math.max(...groupSlots.map((item) => -item.x))
+          const maxDeltaX = Math.min(...groupSlots.map((item) => 100 - item.x - item.width))
+          const minDeltaY = Math.max(...groupSlots.map((item) => -item.y))
+          const maxDeltaY = Math.min(...groupSlots.map((item) => 100 - item.y - item.height))
+          let nextDeltaX = clampNumber(deltaX, minDeltaX, maxDeltaX)
+          let nextDeltaY = clampNumber(deltaY, minDeltaY, maxDeltaY)
           const rawBox = {
-            x: clampNumber(active.slot.x + deltaX, 0, 100 - active.slot.width),
-            y: clampNumber(active.slot.y + deltaY, 0, 100 - active.slot.height),
+            x: clampNumber(active.slot.x + nextDeltaX, 0, 100 - active.slot.width),
+            y: clampNumber(active.slot.y + nextDeltaY, 0, 100 - active.slot.height),
             width: active.slot.width,
             height: active.slot.height,
           }
           const snapped = getSnapPosition(rawBox, getAlignmentTargets(`photo-${active.photoNumber}`))
+          nextDeltaX = clampNumber(snapped.x - active.slot.x, minDeltaX, maxDeltaX)
+          nextDeltaY = clampNumber(snapped.y - active.slot.y, minDeltaY, maxDeltaY)
           setCustomAlignmentGuides(snapped.guides)
+          if (!active.photoNumbers?.includes(slot.photoNumber)) return slot
+          const startSlot = groupSlots.find((item) => item.photoNumber === slot.photoNumber) || slot
           return {
             ...slot,
-            x: snapped.x,
-            y: snapped.y,
+            x: clampNumber(startSlot.x + nextDeltaX, 0, 100 - startSlot.width),
+            y: clampNumber(startSlot.y + nextDeltaY, 0, 100 - startSlot.height),
           }
         }),
       )
@@ -1208,47 +1386,151 @@ const WebApp = () => {
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
+    if (videoRef.current) {
+      videoRef.current.pause?.()
+      videoRef.current.srcObject = null
+    }
     streamRef.current = null
     setCameraStream(null)
   }
 
-  const openCamera = async () => {
+  const waitForVideoReady = async (stream, timeoutMs = 3200) => {
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < timeoutMs) {
+      const video = videoRef.current
+      const liveTrack = stream.getVideoTracks?.().some((track) => track.readyState === 'live')
+      if (!liveTrack) throw new Error('La cámara se detuvo antes de iniciar.')
+
+      if (video) {
+        if (video.srcObject !== stream) video.srcObject = stream
+        await video.play?.().catch(() => undefined)
+        if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) return true
+      }
+      await wait(120)
+    }
+    return Boolean(stream.getVideoTracks?.().some((track) => track.readyState === 'live'))
+  }
+
+  const getCameraAttemptConstraints = () => [
+    {
+      video: {
+        facingMode: { ideal: 'user' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30, max: 30 },
+      },
+      audio: false,
+    },
+    {
+      video: {
+        facingMode: { ideal: 'user' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    },
+    {
+      video: true,
+      audio: false,
+    },
+  ]
+
+  const checkCameraEnvironment = async () => {
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      throw new Error('Este navegador no permite abrir la cámara.')
+    }
+
+    if (navigator.permissions?.query) {
+      try {
+        const permission = await navigator.permissions.query({ name: 'camera' })
+        if (permission?.state === 'denied') {
+          throw new Error('El navegador tiene bloqueado el permiso de cámara.')
+        }
+      } catch (error) {
+        if (/bloqueado|permiso/i.test(error?.message || '')) throw error
+      }
+    }
+
+    if (navigator.mediaDevices?.enumerateDevices) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const videoInputs = devices.filter((device) => device.kind === 'videoinput')
+        if (devices.length && !videoInputs.length) {
+          throw new Error('No encontré una cámara conectada en este dispositivo.')
+        }
+      } catch (error) {
+        if (/No encontré/i.test(error?.message || '')) throw error
+      }
+    }
+  }
+
+  const openCamera = async ({ force = true, reason = 'Abriendo cámara del espejo mágico...' } = {}) => {
+    if (cameraOpening && !force) return streamRef.current
+    const requestId = cameraOpenRequestRef.current + 1
+    cameraOpenRequestRef.current = requestId
     setCameraError('')
     setCameraOpening(true)
-    setCaptureStatus('Abriendo cámara del espejo mágico...')
+    setCaptureStatus(reason)
 
     try {
-      if (!navigator?.mediaDevices?.getUserMedia) {
-        throw new Error('Este navegador no permite abrir la cámara.')
-      }
+      await checkCameraEnvironment()
 
       stopCamera()
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'user' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      })
+      await wait(180)
+
+      let stream = null
+      let lastError = null
+      const attempts = getCameraAttemptConstraints()
+      for (let index = 0; index < attempts.length; index += 1) {
+        if (requestId !== cameraOpenRequestRef.current) return null
+        try {
+          setCaptureStatus(index === 0 ? 'Verificando cámara del espejo mágico...' : 'Reintentando cámara con configuración compatible...')
+          stream = await navigator.mediaDevices.getUserMedia(attempts[index])
+          await waitForVideoReady(stream)
+          break
+        } catch (error) {
+          lastError = error
+          stream?.getTracks?.().forEach((track) => track.stop())
+          stream = null
+          await wait(180)
+        }
+      }
+
+      if (!stream) throw lastError || new Error('No se pudo abrir la cámara.')
+      if (requestId !== cameraOpenRequestRef.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return null
+      }
 
       streamRef.current = stream
       setCameraStream(stream)
-      setCaptureStatus('Cámara activa. Ubica a la persona frente al espejo.')
+      setCaptureStatus('Cámara verificada. Ubica a la persona frente al espejo.')
       return stream
     } catch (error) {
       const readableError =
-        error?.name === 'NotFoundError' || /requested device not found/i.test(error?.message || '')
+        error?.name === 'NotFoundError' || /requested device not found|No encontré/i.test(error?.message || '')
           ? 'No encontré una cámara conectada en este dispositivo.'
-          : error?.name === 'NotAllowedError'
+          : error?.name === 'NotAllowedError' || /bloqueado|permiso/i.test(error?.message || '')
             ? 'El navegador no tiene permiso para usar la cámara.'
+            : error?.name === 'NotReadableError'
+              ? 'La cámara está ocupada por otra app. Cierra la otra cámara y vuelve a intentar.'
             : 'No se pudo abrir la cámara.'
       setCameraError(readableError)
       setCaptureStatus('No se pudo abrir la cámara. Revisa permisos del navegador.')
       return null
     } finally {
-      setCameraOpening(false)
+      if (requestId === cameraOpenRequestRef.current) setCameraOpening(false)
     }
+  }
+
+  const ensureCameraReady = async (reason = 'Verificando cámara antes de tomar foto...') => {
+    const stream = streamRef.current
+    const liveTrack = stream?.getVideoTracks?.().some((track) => track.readyState === 'live')
+    const videoReady = videoRef.current?.readyState >= 2 && videoRef.current?.videoWidth > 0 && videoRef.current?.videoHeight > 0
+    if (stream && liveTrack && videoReady) return stream
+
+    setCaptureStatus(reason)
+    return openCamera({ force: true, reason })
   }
 
   const captureFrame = () => {
@@ -1546,10 +1828,12 @@ const WebApp = () => {
       const canvasWidth = selectedType.width
       const canvasHeight = selectedType.height
       const pagePad = canvasWidth * 0.035
-      const gutter = canvasWidth * 0.018
-      const stripWidth = (canvasWidth - pagePad * 2 - gutter) / 2
       const stripHeight = canvasHeight - pagePad * 2
-      const strips = [pagePad, pagePad + stripWidth + gutter]
+      const gutter = customMirrorMode ? canvasWidth * 0.018 : 0
+      const stripWidth = customMirrorMode
+        ? (canvasWidth - pagePad * 2 - gutter) / 2
+        : canvasWidth - pagePad * 2
+      const strips = customMirrorMode ? [pagePad, pagePad + stripWidth + gutter] : [pagePad]
 
       return strips.flatMap((stripX) =>
         customPhotoSequence.map((photoNumber) => {
@@ -1615,6 +1899,30 @@ const WebApp = () => {
     return `${String(date.getDate()).padStart(2, '0')}-${months[date.getMonth()]}-${date.getFullYear()}`
   }
 
+  const formatDateFromISO = (value) => {
+    if (!value) return ''
+    const [year, month, day] = value.split('-').map(Number)
+    if (!year || !month || !day) return ''
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+    return `${String(day).padStart(2, '0')}-${months[month - 1]}-${year}`
+  }
+
+  const dateTextToISO = (value) => {
+    if (!value) return ''
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+    const match = value.trim().toLowerCase().match(/^(\d{1,2})-([a-záéíóú]{3})-(\d{4})$/)
+    if (!match) return ''
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+    const monthIndex = months.indexOf(match[2])
+    if (monthIndex < 0) return ''
+    return `${match[3]}-${String(monthIndex + 1).padStart(2, '0')}-${String(Number(match[1])).padStart(2, '0')}`
+  }
+
+  const updatePhotoDateFromISO = (value, status = 'Fecha de la foto actualizada.') => {
+    setPhotoDateText(formatDateFromISO(value))
+    setCaptureStatus(status)
+  }
+
   const getPhotoNameText = () => photoNameText.trim() || eventTitle
   const getPhotoDateText = () => photoDateText.trim() || formatEventDate()
   const getPhotoEventText = () => photoEventText.trim()
@@ -1657,10 +1965,10 @@ const WebApp = () => {
     return lines
   }
 
-  const drawCustom5x15Strip = (context, frameImages, x, y, widthValue, heightValue) => {
+  const drawCustom5x15Strip = (context, frameImages, x, y, widthValue, heightValue, templateImage = null) => {
     const orderedImages = customPhotoSequence.map((photoNumber) => frameImages[photoNumber - 1]).filter(Boolean)
     const layoutByPhoto = new Map(customLayoutSlots.map((slot) => [slot.photoNumber, slot]))
-    const photoSlots = customPhotoSequence.map((photoNumber) => {
+    const basePhotoSlots = customPhotoSequence.map((photoNumber) => {
       const slot = layoutByPhoto.get(photoNumber) || createDefaultCustomPhotoLayout(customPhotoCount)[photoNumber - 1]
       return {
         photoNumber,
@@ -1670,11 +1978,19 @@ const WebApp = () => {
         height: (slot.height / 100) * heightValue,
       }
     })
+    const photoSlots = basePhotoSlots
 
     context.save()
     context.fillStyle = '#fffdf8'
     context.fillRect(x, y, widthValue, heightValue)
-    drawCustom5x15Decor(context, x, y, widthValue, heightValue)
+    if (templateImage) {
+      context.save()
+      context.globalAlpha = overlayImageUrl ? 0.94 : 1
+      drawCover(context, templateImage, x, y, widthValue, heightValue)
+      context.restore()
+    } else {
+      drawCustom5x15Decor(context, x, y, widthValue, heightValue)
+    }
 
     context.strokeStyle = 'rgba(17, 24, 39, 0.14)'
     context.setLineDash([5, 8])
@@ -1682,20 +1998,52 @@ const WebApp = () => {
     context.strokeRect(x + 2, y + 2, widthValue - 4, heightValue - 4)
     context.setLineDash([])
 
-    context.textAlign = 'center'
-    context.fillStyle = '#1f2937'
-    context.font = `500 ${Math.round(widthValue * 0.073)}px "Brush Script MT", "Segoe Script", "Comic Sans MS", cursive`
-    drawMultilineCenteredText(context, getPhotoScriptLines(), x + widthValue / 2, y + heightValue * 0.078, heightValue * 0.055)
+    const drawCustomCanvasTextLayer = (textId, value) => {
+      if (!value) return
+      const layer = customTextLayers[textId] || defaultCustomTextLayers[textId]
+      const fontSize = Math.round(widthValue * (layer.size / 520))
+      const centerX = x + ((layer.x + layer.width / 2) / 100) * widthValue
+      const centerY = y + (layer.y / 100) * heightValue
+      context.save()
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      context.fillStyle = layer.color
+      const fontFamily = layer.font?.includes(' ') ? `"${layer.font}"` : layer.font || 'Arial'
+      context.font = `900 ${fontSize}px ${fontFamily}, "Helvetica Neue", sans-serif`
+      context.shadowColor = 'rgba(255,255,255,0.78)'
+      context.shadowBlur = Math.max(8, widthValue * 0.012)
+      const text = String(value)
+      const words = text.split(/\s+/)
+      const maxWidth = (layer.width / 100) * widthValue
+      const lines = ['']
+      words.forEach((word) => {
+        const current = lines[lines.length - 1]
+        const next = current ? `${current} ${word}` : word
+        if (context.measureText(next).width > maxWidth && current && lines.length < 3) {
+          lines.push(word)
+        } else {
+          lines[lines.length - 1] = next
+        }
+      })
+      const lineHeight = fontSize * 1.12
+      const startY = centerY - ((lines.length - 1) * lineHeight) / 2
+      lines.forEach((line, index) => {
+        context.fillText(line, centerX, startY + index * lineHeight)
+      })
+      context.restore()
+    }
+
+    drawCustomCanvasTextLayer('script', photoScriptText.trim() || photoTextPresets[0])
 
     photoSlots.forEach((slot, index) => {
-      const image = orderedImages[index] || orderedImages[index % orderedImages.length] || frameImages[index] || frameImages[index % frameImages.length]
+      const image = frameImages[slot.photoNumber - 1] || orderedImages[index % orderedImages.length] || frameImages[index % frameImages.length]
       context.save()
       context.beginPath()
       context.rect(slot.x, slot.y, slot.width, slot.height)
       context.clip()
       context.fillStyle = '#111827'
       context.fillRect(slot.x, slot.y, slot.width, slot.height)
-      if (image) drawContain(context, image, slot.x, slot.y, slot.width, slot.height)
+      if (image) drawCover(context, image, slot.x, slot.y, slot.width, slot.height)
       context.restore()
 
       context.lineWidth = Math.max(10, widthValue * 0.014)
@@ -1703,20 +2051,9 @@ const WebApp = () => {
       context.strokeRect(slot.x, slot.y, slot.width, slot.height)
     })
 
-    const eventText = getPhotoEventText()
-    context.fillStyle = '#b96f71'
-    context.font = `800 ${Math.round(widthValue * 0.092)}px Arial, "Helvetica Neue", sans-serif`
-    drawMultilineCenteredText(context, getPhotoNameLines(), x + widthValue / 2, y + heightValue * 0.84, heightValue * 0.052)
-
-    if (eventText) {
-      context.fillStyle = '#b96f71'
-      context.font = `700 ${Math.round(widthValue * 0.036)}px Arial, "Helvetica Neue", sans-serif`
-      context.fillText(eventText, x + widthValue / 2, y + heightValue * 0.91)
-    }
-
-    context.fillStyle = '#b96f71'
-    context.font = `700 ${Math.round(widthValue * 0.038)}px Arial, "Helvetica Neue", sans-serif`
-    context.fillText(getPhotoDateText(), x + widthValue / 2, y + heightValue * 0.955)
+    drawCustomCanvasTextLayer('name', getPhotoNameText())
+    drawCustomCanvasTextLayer('event', getPhotoEventText())
+    drawCustomCanvasTextLayer('date', getPhotoDateText())
     context.restore()
   }
 
@@ -1737,20 +2074,25 @@ const WebApp = () => {
       context.fillStyle = '#f8fafc'
       context.fillRect(0, 0, canvasWidth, canvasHeight)
       const frameImages = await Promise.all(frames.map((frame) => loadCanvasImage(frame).catch(() => null)))
+      const templateImage = await loadCanvasImage(overlayImageUrl || getTemplateImageUrl()).catch(() => null)
       const pagePad = canvasWidth * 0.035
-      const gutter = canvasWidth * 0.018
-      const stripWidth = (canvasWidth - pagePad * 2 - gutter) / 2
       const stripHeight = canvasHeight - pagePad * 2
-      drawCustom5x15Strip(context, frameImages, pagePad, pagePad, stripWidth, stripHeight)
-      drawCustom5x15Strip(context, frameImages, pagePad + stripWidth + gutter, pagePad, stripWidth, stripHeight)
-      context.strokeStyle = 'rgba(17, 24, 39, 0.18)'
-      context.setLineDash([12, 14])
-      context.lineWidth = Math.max(3, canvasWidth * 0.002)
-      context.beginPath()
-      context.moveTo(canvasWidth / 2, pagePad)
-      context.lineTo(canvasWidth / 2, canvasHeight - pagePad)
-      context.stroke()
-      context.setLineDash([])
+      if (customMirrorMode) {
+        const gutter = canvasWidth * 0.018
+        const stripWidth = (canvasWidth - pagePad * 2 - gutter) / 2
+        drawCustom5x15Strip(context, frameImages, pagePad, pagePad, stripWidth, stripHeight, templateImage)
+        drawCustom5x15Strip(context, frameImages, pagePad + stripWidth + gutter, pagePad, stripWidth, stripHeight, templateImage)
+        context.strokeStyle = 'rgba(17, 24, 39, 0.18)'
+        context.setLineDash([12, 14])
+        context.lineWidth = Math.max(3, canvasWidth * 0.002)
+        context.beginPath()
+        context.moveTo(canvasWidth / 2, pagePad)
+        context.lineTo(canvasWidth / 2, canvasHeight - pagePad)
+        context.stroke()
+        context.setLineDash([])
+      } else {
+        drawCustom5x15Strip(context, frameImages, pagePad, pagePad, canvasWidth - pagePad * 2, stripHeight, templateImage)
+      }
       await drawGifOverlay(context, canvasWidth, canvasHeight)
       return canvas.toDataURL('image/jpeg', qualityMode === 'Superior' ? 0.96 : qualityMode === 'Media' ? 0.84 : 0.92)
     }
@@ -1965,15 +2307,23 @@ const WebApp = () => {
       return
     }
 
-    if (!cameraStream && !streamRef.current) {
-      setCaptureStatus('Solicitando permiso de cámara...')
-      const openedStream = await openCamera()
-      if (!openedStream) {
+    setCaptureStatus('Verificando cámara antes del conteo...')
+    const openedStream = await ensureCameraReady('Verificando cámara antes del conteo...')
+    if (!openedStream) {
+      countdownRef.current = null
+      return
+    }
+
+    if (videoRef.current && (!videoRef.current.videoWidth || !videoRef.current.videoHeight)) {
+      await wait(450)
+      if (!videoRef.current.videoWidth || !videoRef.current.videoHeight) {
         countdownRef.current = null
+        setCaptureStatus('La cámara abrió pero aún no muestra imagen. Oprime otra vez para reiniciarla.')
+        await openCamera({ force: true, reason: 'Reiniciando cámara sin imagen...' })
         return
       }
-      await wait(650)
     }
+    await wait(300)
 
     setCaptureIntroActive(false)
     const countdownSeconds = replacingIndex === null && framesReady > 0 ? photoCountdownNext : photoCountdownFirst
@@ -1981,13 +2331,19 @@ const WebApp = () => {
     countdownRef.current = { active: true }
     setAnimationOverlay({
       mode: captureAnimation,
-      title: preCaptureText,
-      text: replacingIndex === null ? (framesReady ? 'Video antes de la siguiente foto' : 'Video de animación antes de tomar la foto') : `Video antes de repetir foto ${replacingIndex + 1}`,
+      title: 'SONRÍE',
+      text: replacingIndex === null
+        ? (framesReady ? `Prepárate para la foto ${framesReady + 1}` : 'La foto empieza en segundos')
+        : `Prepárate para repetir foto ${replacingIndex + 1}`,
       stage: 'beforeCountdown',
       videoUrl: getAnimationStageVideoUrl('beforeCountdown'),
     })
     setCaptureStatus(replacingIndex === null ? 'Mostrando animación antes de la foto...' : `Preparando reemplazo de foto ${replacingIndex + 1}...`)
-    await wait(flashBeforePhoto ? 900 : 350)
+    await wait(flashBeforePhoto ? 3400 : 2800)
+
+    if (!countdownRef.current?.active) return
+    setAnimationOverlay(null)
+    await wait(250)
 
     if (!countdownRef.current?.active) return
 
@@ -1998,7 +2354,6 @@ const WebApp = () => {
     }
 
     setCountdown('')
-    setAnimationOverlay(null)
 
     const frame = captureFrame()
     if (!frame) {
@@ -2016,8 +2371,9 @@ const WebApp = () => {
     if (replacingIndex !== null) {
       setAnimationOverlay({
         mode: captureAnimation,
-        title: 'Foto reemplazada',
+        title: 'FOTO REEMPLAZADA',
         text: `Actualizando foto ${replacingIndex + 1}`,
+        stage: 'processing',
         videoUrl: getAnimationStageVideoUrl('processing'),
       })
       setCaptureStatus(`Foto ${replacingIndex + 1} reemplazada. Armando resultado final...`)
@@ -2046,8 +2402,8 @@ const WebApp = () => {
     if (nextFrames.length < selectedShotCount) {
       setAnimationOverlay({
         mode: captureAnimation,
-        title: 'Foto guardada',
-        text: `Efecto entre fotos ${nextFrames.length} de ${selectedShotCount}`,
+        title: 'FOTO GUARDADA',
+        text: `Prepárate para la siguiente foto`,
         stage: 'afterCapture',
         videoUrl: getAnimationStageVideoUrl('afterCapture'),
       })
@@ -2062,8 +2418,9 @@ const WebApp = () => {
 
     setAnimationOverlay({
       mode: captureAnimation,
-      title: 'Listo',
+      title: 'LISTO',
       text: 'Armando recuerdo final',
+      stage: 'processing',
       videoUrl: getAnimationStageVideoUrl('processing'),
     })
     setCaptureStatus('Armando foto final...')
@@ -2111,6 +2468,8 @@ const WebApp = () => {
       setCustomPhotoOrder((current) => normalizeCustomPhotoOrder(current, customPhotoCount))
       setCustomPhotoLayout((current) => normalizeCustomPhotoLayout(current, customPhotoCount))
       setSelectedCustomLayoutPhoto(1)
+      setSelectedCustomLayoutPhotos(customPhotoCount ? [1] : [])
+      setMultiCustomLayoutSelect(false)
       setCaptureStatus(customPhotoCount ? `${type.name}: ${customPhotoCount} recuadro${customPhotoCount === 1 ? '' : 's'} manual${customPhotoCount === 1 ? '' : 'es'}.` : 'Personalizar: agrega fotos manualmente sobre el fondo.')
       return
     }
@@ -2118,12 +2477,59 @@ const WebApp = () => {
     setCaptureStatus(`${type.name}: toma ${type.shots} foto${type.shots === 1 ? '' : 's'}`)
   }
 
+  const getSelectedTypeLayoutSlots = () => {
+    if (selectedType.id === 'personalizar-5x15') {
+      return customPhotoSequence.map((photoNumber) => (
+        customLayoutSlots.find((slot) => slot.photoNumber === photoNumber)
+        || createDefaultCustomPhotoLayout(customPhotoCount)[photoNumber - 1]
+      )).filter(Boolean)
+    }
+
+    return getSlots(selectedType, selectedType.width, selectedType.height).map((slot, index) => ({
+      photoNumber: index + 1,
+      x: (slot.x / selectedType.width) * 100,
+      y: (slot.y / selectedType.height) * 100,
+      width: (slot.width / selectedType.width) * 100,
+      height: (slot.height / selectedType.height) * 100,
+    }))
+  }
+
+  const openSelectedTypeLayoutEditor = () => {
+    const nextCount = selectedType.id === 'personalizar-5x15'
+      ? Math.max(customPhotoCount, customLayoutSlots.length)
+      : selectedType.shots
+    const nextSlots = selectedType.id === 'personalizar-5x15'
+      ? customLayoutSlots
+      : getSelectedTypeLayoutSlots()
+    const customType = photoTypes.find((item) => item.id === 'personalizar-5x15') || selectedType
+
+    setSelectedType(customType)
+    setCustomPhotoCount(nextCount)
+    setCustomPhotoOrder(normalizeCustomPhotoOrder([], nextCount))
+    setCustomPhotoLayout(normalizeCustomPhotoLayout(nextSlots, nextCount))
+    setSelectedCustomLayoutPhoto(1)
+    setSelectedCustomLayoutPhotos(nextCount ? [1] : [])
+    setMultiCustomLayoutSelect(false)
+    setPhotoFrames([])
+    setFinalPhotoUrl('')
+    clearSavedPhoto()
+    setRetakeFrameIndex(null)
+    setShowCustomPhotoLayoutScreen(true)
+    updateAppRoute('personalizar')
+    setCaptureStatus(`Layout editable creado con ${nextCount} foto${nextCount === 1 ? '' : 's'}.`)
+  }
+
   const updateCustomPhotoCount = (nextCount) => {
     const boundedCount = Math.min(Math.max(Math.round(Number(nextCount) || 0), 0), customPhotoMaxSlots)
     setCustomPhotoCount(boundedCount)
     setCustomPhotoOrder((current) => normalizeCustomPhotoOrder(current, boundedCount))
     setCustomPhotoLayout((current) => normalizeCustomPhotoLayout(current, boundedCount))
-    setSelectedCustomLayoutPhoto((current) => Math.min(current, Math.max(boundedCount, 1)))
+    setSelectedCustomLayoutPhoto((current) => {
+      const nextSelected = Math.min(current, Math.max(boundedCount, 1))
+      setSelectedCustomLayoutPhotos(boundedCount ? [nextSelected] : [])
+      return nextSelected
+    })
+    setMultiCustomLayoutSelect(false)
     setPhotoFrames([])
     setFinalPhotoUrl('')
     clearSavedPhoto()
@@ -2144,6 +2550,7 @@ const WebApp = () => {
     setCustomPhotoOrder(normalizeCustomPhotoOrder([], nextSlots.length))
     setCustomPhotoLayout(nextSlots)
     setSelectedCustomLayoutPhoto(nextPhotoNumber)
+    setSelectedCustomLayoutPhotos([nextPhotoNumber])
     setPhotoFrames([])
     setFinalPhotoUrl('')
     clearSavedPhoto()
@@ -2151,24 +2558,66 @@ const WebApp = () => {
     setCaptureStatus(`Recuadro ${nextPhotoNumber} agregado. Muévelo y agrándalo manualmente.`)
   }
 
+  const selectCustomLayoutPhoto = (photoNumber, additive = multiCustomLayoutSelect) => {
+    setSelectedCustomLayoutPhoto(photoNumber)
+    setSelectedCustomLayoutPhotos((current) => {
+      if (!additive) return [photoNumber]
+      if (current.includes(photoNumber)) {
+        const next = current.filter((item) => item !== photoNumber)
+        return next.length ? next : [photoNumber]
+      }
+      return [...current, photoNumber].sort((a, b) => a - b)
+    })
+  }
+
   const duplicateCustomLayoutPhoto = () => {
-    const sourceSlot = customLayoutSlots.find((item) => item.photoNumber === selectedCustomLayoutPhoto) || customLayoutSlots[customLayoutSlots.length - 1]
-    if (!sourceSlot) {
+    const selectedSlots = customLayoutSlots.filter((item) => selectedCustomLayoutPhotos.includes(item.photoNumber))
+    const sourceSlots = selectedSlots.length > 1 ? selectedSlots : [customLayoutSlots.find((item) => item.photoNumber === selectedCustomLayoutPhoto) || customLayoutSlots[customLayoutSlots.length - 1]].filter(Boolean)
+    if (!sourceSlots.length) {
       addCustomLayoutPhoto()
       return
     }
-    addCustomLayoutPhoto(sourceSlot)
+    const available = customPhotoMaxSlots - customLayoutSlots.length
+    const slotsToCopy = sourceSlots.slice(0, available)
+    if (!slotsToCopy.length) {
+      setCaptureStatus(`Máximo ${customPhotoMaxSlots} recuadros por diseño.`)
+      return
+    }
+    const nextSlots = [...customLayoutSlots]
+    slotsToCopy.forEach((sourceSlot, index) => {
+      const nextPhotoNumber = nextSlots.length + 1
+      nextSlots.push(createManualCustomPhotoSlot(nextPhotoNumber, nextSlots.length, {
+        ...sourceSlot,
+        x: clampNumber(sourceSlot.x + 4 + index * 2, 0, 100 - sourceSlot.width),
+        y: clampNumber(sourceSlot.y + 4 + index * 2, 0, 100 - sourceSlot.height),
+      }))
+    })
+    const normalizedSlots = normalizeCustomPhotoLayout(nextSlots, nextSlots.length)
+    const duplicatedNumbers = normalizedSlots.slice(-slotsToCopy.length).map((slot) => slot.photoNumber)
+    setCustomPhotoCount(normalizedSlots.length)
+    setCustomPhotoOrder(normalizeCustomPhotoOrder([], normalizedSlots.length))
+    setCustomPhotoLayout(normalizedSlots)
+    setSelectedCustomLayoutPhoto(duplicatedNumbers[0] || 1)
+    setSelectedCustomLayoutPhotos(duplicatedNumbers)
+    setPhotoFrames([])
+    setFinalPhotoUrl('')
+    clearSavedPhoto()
+    setRetakeFrameIndex(null)
+    setCaptureStatus(`${duplicatedNumbers.length} recuadro${duplicatedNumbers.length === 1 ? '' : 's'} duplicado${duplicatedNumbers.length === 1 ? '' : 's'}.`)
   }
 
   const deleteCustomLayoutPhoto = () => {
     if (!customLayoutSlots.length) return
+    const numbersToDelete = selectedCustomLayoutPhotos.length ? selectedCustomLayoutPhotos : [selectedCustomLayoutPhoto]
     const nextSlots = customLayoutSlots
-      .filter((slot) => slot.photoNumber !== selectedCustomLayoutPhoto)
+      .filter((slot) => !numbersToDelete.includes(slot.photoNumber))
       .map((slot, index) => ({ ...slot, photoNumber: index + 1 }))
     setCustomPhotoCount(nextSlots.length)
     setCustomPhotoOrder(normalizeCustomPhotoOrder([], nextSlots.length))
     setCustomPhotoLayout(normalizeCustomPhotoLayout(nextSlots, nextSlots.length))
-    setSelectedCustomLayoutPhoto(Math.min(selectedCustomLayoutPhoto, Math.max(nextSlots.length, 1)))
+    const nextSelected = Math.min(selectedCustomLayoutPhoto, Math.max(nextSlots.length, 1))
+    setSelectedCustomLayoutPhoto(nextSelected)
+    setSelectedCustomLayoutPhotos(nextSlots.length ? [nextSelected] : [])
     setPhotoFrames([])
     setFinalPhotoUrl('')
     clearSavedPhoto()
@@ -2184,17 +2633,29 @@ const WebApp = () => {
     const rect = customEditorStripRef.current?.getBoundingClientRect?.()
     const slot = customLayoutSlots.find((item) => item.photoNumber === photoNumber)
     if (!rect || !slot || !Number.isFinite(startX) || !Number.isFinite(startY)) return
+    const activePhotoNumbers = mode === 'move' && selectedCustomLayoutPhotos.includes(photoNumber)
+      ? selectedCustomLayoutPhotos.filter((item) => customLayoutSlots.some((slotItem) => slotItem.photoNumber === item))
+      : [photoNumber]
+    const activeSlots = customLayoutSlots.filter((slotItem) => activePhotoNumbers.includes(slotItem.photoNumber))
 
     event?.preventDefault?.()
     event?.stopPropagation?.()
     nativeEvent.preventDefault?.()
     nativeEvent.stopPropagation?.()
-    setSelectedCustomLayoutPhoto(photoNumber)
+    if (multiCustomLayoutSelect) {
+      setSelectedCustomLayoutPhoto(photoNumber)
+      setSelectedCustomLayoutPhotos((current) => current.includes(photoNumber) ? current : [...current, photoNumber].sort((a, b) => a - b))
+    } else {
+      setSelectedCustomLayoutPhoto(photoNumber)
+      setSelectedCustomLayoutPhotos([photoNumber])
+    }
     customLayoutPointerRef.current = {
       mode,
       photoNumber,
+      photoNumbers: activePhotoNumbers,
       rect,
       slot,
+      slots: activeSlots,
       startX,
       startY,
     }
@@ -2249,9 +2710,45 @@ const WebApp = () => {
 
   const cycleCustomTextFont = (textId) => {
     const layer = customTextLayers[textId] || defaultCustomTextLayers[textId]
-    const nextFont = customTextFonts[(customTextFonts.indexOf(layer.font) + 1) % customTextFonts.length]
+    const fonts = customFontChoices.length ? customFontChoices : customTextFonts
+    const nextFont = fonts[(fonts.indexOf(layer.font) + 1) % fonts.length]
     updateCustomTextLayer(textId, { font: nextFont })
     setCaptureStatus(`Fuente de texto cambiada a ${nextFont}.`)
+  }
+
+  const chooseCustomTextFont = (textId, font) => {
+    updateCustomTextLayer(textId, { font })
+    setShowCustomTextFontMenu(false)
+    setCaptureStatus(`Fuente de texto cambiada a ${font}.`)
+  }
+
+  const handleCustomFontFile = (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const cleanName = file.name
+      .replace(/\.(ttf|otf|woff2?|TTF|OTF|WOFF2?)$/, '')
+      .replace(/[^a-zA-Z0-9_-]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 34) || 'Fuente personalizada'
+    const family = `Viralco-${cleanName}-${Date.now().toString(36)}`
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const source = String(reader.result || '')
+      try {
+        if (typeof FontFace !== 'undefined') {
+          const fontFace = new FontFace(family, `url(${source})`)
+          const loadedFace = await fontFace.load()
+          document.fonts?.add?.(loadedFace)
+        }
+        setUploadedCustomFonts((current) => [...current, { family, name: cleanName, source }].slice(-8))
+        chooseCustomTextFont(selectedCustomTextLayer, family)
+        setCaptureStatus(`Fuente ${cleanName} cargada.`)
+      } catch {
+        setCaptureStatus('No se pudo cargar esa fuente. Intenta con TTF, OTF, WOFF o WOFF2.')
+      }
+    }
+    reader.readAsDataURL(file)
+    event.target.value = ''
   }
 
   const cycleCustomTextColor = (textId) => {
@@ -2261,14 +2758,37 @@ const WebApp = () => {
     setCaptureStatus('Color de texto actualizado.')
   }
 
+  const chooseCustomTextColor = (textId, color) => {
+    updateCustomTextLayer(textId, { color })
+    setCaptureStatus('Color de texto actualizado.')
+  }
+
   const nudgeCustomLayoutPhoto = (photoNumber, axis, amount) => {
     if (!customLayoutSlots.length) return
     setSelectedCustomLayoutPhoto(photoNumber)
+    const selectedNumbers = selectedCustomLayoutPhotos.length && selectedCustomLayoutPhotos.includes(photoNumber)
+      ? selectedCustomLayoutPhotos
+      : [photoNumber]
+    const selectedSlots = customLayoutSlots.filter((slot) => selectedNumbers.includes(slot.photoNumber))
+    const clampGroupAmount = () => {
+      if (axis === 'x') {
+        const minAmount = Math.max(...selectedSlots.map((slot) => -slot.x))
+        const maxAmount = Math.min(...selectedSlots.map((slot) => 100 - slot.x - slot.width))
+        return clampNumber(amount, minAmount, maxAmount)
+      }
+      if (axis === 'y') {
+        const minAmount = Math.max(...selectedSlots.map((slot) => -slot.y))
+        const maxAmount = Math.min(...selectedSlots.map((slot) => 100 - slot.y - slot.height))
+        return clampNumber(amount, minAmount, maxAmount)
+      }
+      return amount
+    }
+    const nextAmount = clampGroupAmount()
     setCustomPhotoLayout((current) =>
       normalizeCustomPhotoLayout(current, customPhotoCount).map((slot) => {
+        if (axis === 'x' && selectedNumbers.includes(slot.photoNumber)) return { ...slot, x: clampNumber(slot.x + nextAmount, 0, 100 - slot.width) }
+        if (axis === 'y' && selectedNumbers.includes(slot.photoNumber)) return { ...slot, y: clampNumber(slot.y + nextAmount, 0, 100 - slot.height) }
         if (slot.photoNumber !== photoNumber) return slot
-        if (axis === 'x') return { ...slot, x: clampNumber(slot.x + amount, 0, 100 - slot.width) }
-        if (axis === 'y') return { ...slot, y: clampNumber(slot.y + amount, 0, 100 - slot.height) }
         if (axis === 'width') return { ...slot, width: clampNumber(slot.width + amount, 18, 100 - slot.x) }
         return { ...slot, height: clampNumber(slot.height + amount, 7, 100 - slot.y) }
       }),
@@ -2284,6 +2804,8 @@ const WebApp = () => {
     setCustomPhotoOrder([])
     setCustomPhotoLayout([])
     setSelectedCustomLayoutPhoto(1)
+    setSelectedCustomLayoutPhotos([])
+    setMultiCustomLayoutSelect(false)
     setPhotoFrames([])
     setFinalPhotoUrl('')
     clearSavedPhoto()
@@ -2737,7 +3259,7 @@ const WebApp = () => {
     setShowBackgroundRemovalScreen(false)
     setCaptureStatus(`${selectedType.name}: listo para tomar fotos`)
     updateAppRoute('captura')
-    openCamera()
+    void ensureCameraReady('Verificando cámara antes de abrir captura...')
   }
 
   const closeOperatorSettingsToCapture = () => {
@@ -2761,7 +3283,7 @@ const WebApp = () => {
     setShowBackgroundRemovalScreen(false)
     setCountdown('')
     setCaptureStatus(`${selectedType.name}: listo para tomar fotos`)
-    if (!cameraStream) openCamera()
+    void ensureCameraReady('Verificando cámara antes de volver a captura...')
   }
 
   const openOperatorQuickPanel = (panel) => {
@@ -2784,7 +3306,7 @@ const WebApp = () => {
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
     setCountdown('')
-    if (!cameraStream) openCamera()
+    void ensureCameraReady('Verificando cámara para el panel del operario...')
   }
 
   const runOperatorAction = (action, opensSettings = false) => {
@@ -2815,27 +3337,13 @@ const WebApp = () => {
     setCountdown('')
     setCaptureStatus(`Vuelve a tomar la foto ${index + 1}. Las otras fotos se conservan.`)
     updateAppRoute('captura')
-    openCamera()
+    void ensureCameraReady(`Verificando cámara para repetir foto ${index + 1}...`)
   }
 
   const openAnimationVideoScreen = () => {
-    setShowHomeLauncher(false)
-    setShowCreateEventModal(false)
-    setShowEventOptionsScreen(false)
-    setShowAnimationVideoScreen(true)
-    setShowLaunchIntroScreen(false)
-    setShowCapturePhotoScreen(false)
-    setShowPreviewScreen(false)
-    setShowShareScreen(false)
-    setShowStartEditor(false)
-    setShowPhotoDesignScreen(false)
-    setShowCaptureModeScreen(false)
-    setShowCaptureConfigScreen(false)
-    setShowPrintConfigScreen(false)
-    setShowBackgroundRemovalScreen(false)
-    updateAppRoute('animacion')
-    setAnimationVideoQuestionMode('question')
-    setCaptureStatus('Pregunta de video de animación antes de tomar fotos.')
+    setShowAnimationVideoScreen(false)
+    setAnimationVideoPromptAnswered(true)
+    openCapturePhotoScreen()
   }
 
   const continueAfterAnimationVideo = () => {
@@ -2920,11 +3428,6 @@ const WebApp = () => {
       setShowCustomPhotoLayoutScreen(true)
       updateAppRoute('personalizar')
       setCaptureStatus('Agrega al menos un recuadro de foto antes de capturar.')
-      return
-    }
-
-    if (selectedType.id === 'personalizar-5x15' && !animationVideoPromptAnswered) {
-      openAnimationVideoScreen()
       return
     }
 
@@ -3078,9 +3581,12 @@ const WebApp = () => {
   }
 
   const updatePrintSetting = (key, value) => {
+    if (key === 'widthCm' || key === 'heightCm') return
     setPrintSettings((current) => ({
       ...current,
-      presetId: key === 'widthCm' || key === 'heightCm' || key === 'marginCm' ? 'manual' : current.presetId,
+      presetId: '10x15',
+      widthCm: '10',
+      heightCm: '15',
       [key]: value,
     }))
   }
@@ -3099,8 +3605,7 @@ const WebApp = () => {
 
       <View style={styles.printReferenceRow}>
         <View style={styles.printPaperSelector}>
-          <Text style={styles.printPaperSelectorText}>{activePrintLabel}</Text>
-          <Text style={styles.printPaperSelectorArrow}>⌄</Text>
+          <Text style={styles.printPaperSelectorText}>10 x 15</Text>
         </View>
         <View style={styles.printOrientationSwitch}>
           {['Vertical', 'Horizontal'].map((option) => (
@@ -3122,7 +3627,7 @@ const WebApp = () => {
 
       <View style={styles.printPresetGrid}>
         {printPaperPresets.map((preset) => {
-          const active = printSettings.presetId === preset.id
+          const active = true
           return (
             <Pressable
               key={preset.id}
@@ -3179,8 +3684,8 @@ const WebApp = () => {
 
       <View style={styles.printInputGrid}>
         {[
-          { key: 'widthCm', label: 'Ancho cm', value: printSettings.widthCm },
-          { key: 'heightCm', label: 'Alto cm', value: printSettings.heightCm },
+          { key: 'widthCm', label: 'Ancho cm', value: '10', locked: true },
+          { key: 'heightCm', label: 'Alto cm', value: '15', locked: true },
           { key: 'marginCm', label: 'Margen cm', value: printSettings.marginCm },
           { key: 'copies', label: 'Copias', value: printSettings.copies },
         ].map((field) => (
@@ -3189,10 +3694,11 @@ const WebApp = () => {
             <TextInput
               value={field.value}
               onChangeText={(value) => updatePrintSetting(field.key, value)}
+              editable={!field.locked}
               keyboardType="decimal-pad"
               placeholder="0"
               placeholderTextColor="#9ca3af"
-              style={styles.printInput}
+              style={[styles.printInput, field.locked && styles.printInputLocked]}
             />
           </View>
         ))}
@@ -3415,53 +3921,100 @@ const WebApp = () => {
     </View>
   )
 
-  const renderRecentEventsLauncher = () => (
-    <View style={[styles.recentEventsPanel, isPhone && styles.recentEventsPanelPhone]}>
-      <View style={[styles.recentEventsHeader, isMobile && styles.recentEventsHeaderMobile]}>
-        <View style={styles.recentEventsHeading}>
-          <Text style={styles.panelTitle}>{isAdminProfile ? 'Lanzar evento' : `Evento de ${activeProfile.shortName}`}</Text>
-          <Text style={styles.recentEventsIntro}>
-            {isAdminProfile
-              ? 'Crea, configura o lanza el último evento guardado.'
-              : 'Este perfil solo puede lanzar el evento asignado por el administrador.'}
-          </Text>
-        </View>
-      </View>
+  const renderRecentEventsLauncher = () => {
+    const mainEvent = visibleLaunchEvents[0]
+    const getEventDisplayData = (recentEvent) => {
+      const type = photoTypes.find((item) => item.id === recentEvent.photoTypeId) || photoTypes[0]
+      const recentEventTemplates = getTemplatesForEventType(recentEvent.eventType)
+      const template =
+        recentEventTemplates.find((item) => item.id === recentEvent.templateId) ||
+        templates.find((item) => item.id === recentEvent.templateId) ||
+        recentEventTemplates[0] ||
+        templates[0]
+      const shotCount = recentEvent.photoTypeId === 'personalizar-5x15'
+        ? Math.max(Number(recentEvent.customPhotoCount) || type.shots || 0, 0)
+        : type.shots
+      const active = (recentEvent.id || recentEvent.name) === (selectedRecentEvent?.id || selectedRecentEvent?.name)
+      return { type, template, shotCount, active }
+    }
 
-      <View style={styles.recentEventsGrid}>
-        {visibleLaunchEvents.length ? visibleLaunchEvents.map((recentEvent) => {
-          const type = photoTypes.find((item) => item.id === recentEvent.photoTypeId) || photoTypes[0]
-          const recentEventTemplates = getTemplatesForEventType(recentEvent.eventType)
-          const template =
-            recentEventTemplates.find((item) => item.id === recentEvent.templateId) ||
-            templates.find((item) => item.id === recentEvent.templateId) ||
-            recentEventTemplates[0] ||
-            templates[0]
-          const active = (recentEvent.id || recentEvent.name) === (selectedRecentEvent?.id || selectedRecentEvent?.name)
+    return (
+      <View style={[styles.recentEventsPanel, isPhone && styles.recentEventsPanelPhone]}>
+        <View style={[styles.recentEventsHeader, isMobile && styles.recentEventsHeaderMobile]}>
+          <View style={styles.recentEventsHeading}>
+            <Text style={styles.panelTitle}>{isAdminProfile ? 'Lanzar evento' : `Evento de ${activeProfile.shortName}`}</Text>
+            <Text style={styles.recentEventsIntro}>
+              {isAdminProfile
+                ? 'Crea, configura o lanza el último evento guardado.'
+                : 'Este perfil solo puede lanzar el evento asignado por el administrador.'}
+            </Text>
+          </View>
+        </View>
+
+        {mainEvent ? (() => {
+          const { type, template, shotCount, active } = getEventDisplayData(mainEvent)
           return (
-            <Pressable
-              key={recentEvent.id || recentEvent.name}
-              onPress={() => {
-                setSelectedRecentId(recentEvent.id || recentEvent.name)
-                launchEvent(recentEvent)
-              }}
-              style={[styles.recentEventCard, isPhone && styles.recentEventCardPhone, active && styles.recentEventCardActive]}
-              accessibilityRole="button"
-              accessibilityLabel={`Lanzar ${recentEvent.name || 'último evento'}`}
-            >
-              <Image source={template.image} style={styles.recentEventImage} accessibilityLabel={`Plantilla de ${recentEvent.eventType || 'evento'}`} />
-              <View style={styles.recentEventShade} />
-              <View style={styles.recentEventContent}>
-                <Text style={styles.recentEventMeta}>{recentEvent.updatedAt || 'Reciente'}</Text>
-                <Text style={styles.recentEventTitle}>{recentEvent.name || 'Último evento'}</Text>
-                <Text style={styles.recentEventDetails}>{recentEvent.eventType || 'Evento'} / {type.name}</Text>
-                <View style={styles.launchRecentButton}>
-                  <Text style={styles.launchRecentButtonText}>Lanzar evento</Text>
+            <View style={styles.recentEventsGrid}>
+              <View
+                key={mainEvent.id || mainEvent.name}
+                style={[styles.recentEventCard, isPhone && styles.recentEventCardPhone, active && styles.recentEventCardActive]}
+              >
+                <View style={styles.recentEventContent}>
+                  <View style={styles.recentEventTopRow}>
+                    <Text style={styles.recentEventMeta}>{mainEvent.updatedAt || 'Reciente'}</Text>
+                    <Text style={styles.recentEventProfile}>{isAdminProfile ? 'Administrador' : activeProfile.name}</Text>
+                  </View>
+                  <Text style={styles.recentEventTitle}>{mainEvent.name || 'Último evento'}</Text>
+                  <Text style={styles.recentEventDetails}>{mainEvent.eventType || 'Evento'} / {type.name}</Text>
+                  <View style={styles.recentEventDataGrid}>
+                    <View style={styles.recentEventDataItem}>
+                      <Text style={styles.recentEventDataLabel}>Formato</Text>
+                      <Text style={styles.recentEventDataValue}>{type.name}</Text>
+                    </View>
+                    <View style={styles.recentEventDataItem}>
+                      <Text style={styles.recentEventDataLabel}>Plantilla</Text>
+                      <Text style={styles.recentEventDataValue}>{template.name}</Text>
+                    </View>
+                    <View style={styles.recentEventDataItem}>
+                      <Text style={styles.recentEventDataLabel}>Fotos</Text>
+                      <Text style={styles.recentEventDataValue}>{shotCount || type.shots}</Text>
+                    </View>
+                    <View style={styles.recentEventDataItem}>
+                      <Text style={styles.recentEventDataLabel}>Entrega</Text>
+                      <Text style={styles.recentEventDataValue}>QR / WhatsApp / Print</Text>
+                    </View>
+                  </View>
+                  <View style={styles.recentEventActions}>
+                    {isAdminProfile ? (
+                      <Pressable
+                        onPress={() => {
+                          setSelectedRecentId(mainEvent.id || mainEvent.name)
+                          launchEvent(mainEvent, 'options')
+                        }}
+                        style={styles.editRecentButton}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Editar ${mainEvent.name || 'evento'}`}
+                      >
+                        <Text style={styles.editRecentButtonText}>Editar evento</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      onPress={() => {
+                        setSelectedRecentId(mainEvent.id || mainEvent.name)
+                        launchEvent(mainEvent)
+                      }}
+                      style={styles.launchRecentButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Lanzar ${mainEvent.name || 'último evento'}`}
+                    >
+                      <Text style={styles.launchRecentButtonText}>Lanzar evento</Text>
+                    </Pressable>
+                  </View>
                 </View>
               </View>
-            </Pressable>
+            </View>
           )
-        }) : (
+        })() : (
           <View style={styles.recentEventEmpty}>
             <Text style={styles.recentEventEmptyTitle}>Sin eventos recientes</Text>
             <Text style={styles.recentEventEmptyText}>
@@ -3470,8 +4023,8 @@ const WebApp = () => {
           </View>
         )}
       </View>
-    </View>
-  )
+    )
+  }
 
   const renderHomeActionCard = () => {
     if (!isAdminProfile) return null
@@ -3481,6 +4034,74 @@ const WebApp = () => {
         <Pressable onPress={openNewEventModal} style={styles.homeCreateButton} accessibilityRole="button" accessibilityLabel="Crear evento nuevo">
           <Text style={styles.homeCreateButtonText}>+ Crear evento nuevo</Text>
         </Pressable>
+      </View>
+    )
+  }
+
+  const renderAdminEventsSummary = () => {
+    if (!isAdminProfile) return null
+    const orderedEvents = (recentEvents.length ? recentEvents : defaultRecentEvents).slice()
+
+    return (
+      <View style={[styles.adminEventsSummary, isPhone && styles.adminEventsSummaryPhone]}>
+        <View style={styles.adminEventsSummaryHeader}>
+          <View>
+            <Text style={styles.panelEyebrow}>Administrador</Text>
+            <Text style={styles.adminEventsSummaryTitle}>Resumen de eventos</Text>
+          </View>
+          <Text style={styles.adminEventsSummaryCount}>{orderedEvents.length}</Text>
+        </View>
+        <View style={styles.adminEventsList}>
+          {orderedEvents.map((item, index) => {
+            const type = photoTypes.find((photoType) => photoType.id === item.photoTypeId) || photoTypes[0]
+            const templateOptions = getTemplatesForEventType(item.eventType)
+            const template =
+              templateOptions.find((templateItem) => templateItem.id === item.templateId) ||
+              templates.find((templateItem) => templateItem.id === item.templateId) ||
+              templateOptions[0] ||
+              templates[0]
+            const assignedProfile = profileOptions.find((profile) => profile.id === item.operatorId)
+            const active = (item.id || item.name) === (selectedRecentEvent?.id || selectedRecentEvent?.name)
+            const shotCount = item.photoTypeId === 'personalizar-5x15'
+              ? Math.max(Number(item.customPhotoCount) || type.shots || 0, 0)
+              : type.shots
+
+            return (
+              <Pressable
+                key={`admin-event-${item.id || item.name}-${index}`}
+                onPress={() => {
+                  setSelectedRecentId(item.id || item.name)
+                  applyEventSetup(item, 'cargado desde resumen')
+                }}
+                style={[styles.adminEventRow, active && styles.adminEventRowActive]}
+                accessibilityRole="button"
+                accessibilityLabel={`Cargar evento ${item.name || 'sin nombre'}`}
+              >
+                <Text style={styles.adminEventIndex}>{index + 1}</Text>
+                <View style={styles.adminEventMain}>
+                  <Text style={styles.adminEventName}>{item.name || 'Evento sin nombre'}</Text>
+                  <Text style={styles.adminEventMeta}>{item.eventType || 'Evento'} / {type.name}</Text>
+                </View>
+                <View style={styles.adminEventTags}>
+                  <Text style={styles.adminEventTag}>{template.name}</Text>
+                  <Text style={styles.adminEventTag}>{shotCount} foto{shotCount === 1 ? '' : 's'}</Text>
+                  <Text style={styles.adminEventTag}>{assignedProfile?.shortName || 'Admin'}</Text>
+                </View>
+                <Pressable
+                  onPress={() => {
+                    setSelectedRecentId(item.id || item.name)
+                    launchEvent(item, 'options')
+                  }}
+                  style={styles.adminEventEditButton}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Editar evento ${item.name || 'sin nombre'}`}
+                >
+                  <Text style={styles.adminEventEditText}>Editar</Text>
+                </Pressable>
+              </Pressable>
+            )
+          })}
+        </View>
       </View>
     )
   }
@@ -3508,8 +4129,81 @@ const WebApp = () => {
       <Text style={[styles.homeWelcomeSub, isPhone && styles.homeWelcomeSubPhone]}>Eventos, fotos y entregas listas para imprimir o compartir</Text>
       {renderRecentEventsLauncher()}
       {renderHomeActionCard()}
+      {renderAdminEventsSummary()}
     </View>
   )
+
+  const renderEventSetupPreview = () => {
+    const slots = getSelectedTypeLayoutSlots()
+    const frameSource = overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image
+
+    return (
+      <View style={[styles.eventOptionsSection, styles.setupPreviewSection, isPhone && styles.eventOptionsSectionPhone]}>
+        <View style={styles.panelHeader}>
+          <View>
+            <Text style={styles.panelEyebrow}>Previsualizador</Text>
+            <Text style={styles.panelTitle}>Así quedaría</Text>
+          </View>
+          <Pressable
+            onPress={openSelectedTypeLayoutEditor}
+            style={styles.setupPreviewEditButton}
+            accessibilityRole="button"
+            accessibilityLabel="Editar layout manual"
+          >
+            <Text style={styles.setupPreviewEditText}>{isMobile ? 'Editar' : 'Editar layout'}</Text>
+          </Pressable>
+        </View>
+
+        <View style={[styles.setupPreviewContent, isMobile && styles.setupPreviewContentMobile]}>
+          <View
+            style={[
+              styles.setupPreviewCanvas,
+              { aspectRatio: selectedType.width / selectedType.height },
+              isMobile && styles.setupPreviewCanvasMobile,
+            ]}
+          >
+            <Image source={frameSource} style={styles.setupPreviewFrameImage} accessibilityLabel={`Vista previa de ${selectedTemplate.name}`} />
+            <View style={styles.setupPreviewWash} />
+            <View style={styles.setupPreviewEventText}>
+              <Text style={styles.setupPreviewEventName}>{eventTitle}</Text>
+              <Text style={styles.setupPreviewEventMeta}>{selectedType.name} / {selectedTemplate.name}</Text>
+            </View>
+            {slots.length ? slots.map((slot) => (
+              <View
+                key={`setup-preview-slot-${slot.photoNumber}`}
+                style={[
+                  styles.setupPreviewSlot,
+                  {
+                    left: `${slot.x}%`,
+                    top: `${slot.y}%`,
+                    width: `${slot.width}%`,
+                    height: `${slot.height}%`,
+                  },
+                ]}
+              >
+                <Text style={styles.setupPreviewSlotNumber}>{slot.photoNumber}</Text>
+                <Text style={styles.setupPreviewSlotLabel}>Foto</Text>
+              </View>
+            )) : (
+              <View style={styles.setupPreviewEmpty}>
+                <Text style={styles.setupPreviewEmptyText}>Agrega recuadros para ver el diseño.</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.setupPreviewInfo}>
+            <Text style={styles.setupPreviewInfoTitle}>{selectedType.name}</Text>
+            <Text style={styles.setupPreviewInfoText}>{selectedType.note}</Text>
+            <View style={styles.setupPreviewStats}>
+              <Text style={styles.setupPreviewStat}>{slots.length || selectedShotCount} foto{(slots.length || selectedShotCount) === 1 ? '' : 's'}</Text>
+              <Text style={styles.setupPreviewStat}>{selectedTemplate.name}</Text>
+            </View>
+            <Text style={styles.setupPreviewHint}>Puedes editar posición, tamaño, textos, colores y marco desde el layout manual.</Text>
+          </View>
+        </View>
+      </View>
+    )
+  }
 
   const renderEventOptionsScreen = () => (
     <View style={styles.eventOptionsPage}>
@@ -3566,93 +4260,7 @@ const WebApp = () => {
           </View>
         </View>
 
-        {selectedType.id === 'personalizar-5x15' ? (
-          <View style={[styles.eventOptionsSection, isPhone && styles.eventOptionsSectionPhone]}>
-            <View style={styles.panelHeader}>
-            <View>
-              <Text style={styles.panelEyebrow}>Personalizar</Text>
-              <Text style={styles.panelTitle}>Textos y animación</Text>
-            </View>
-              <Text style={styles.nextShot}>Texto normal</Text>
-            </View>
-
-            <View style={styles.photoTextQuickPanel}>
-              <Pressable
-                onPress={() => {
-                  setShowCustomPhotoLayoutScreen(true)
-                  updateAppRoute('personalizar')
-                }}
-                style={styles.customOpenButton}
-                accessibilityRole="button"
-                accessibilityLabel="Abrir cantidad y orden de fotos"
-              >
-                <Text style={styles.customOpenTitle}>Layout manual</Text>
-                <Text style={styles.customOpenMeta}>{customPhotoCount ? `${customPhotoCount} recuadro${customPhotoCount === 1 ? '' : 's'}` : 'Fondo vacío / agregar fotos'}</Text>
-              </Pressable>
-              <View style={styles.scriptPreviewBox}>
-                <Text style={styles.normalPreviewName}>{getPhotoNameText()}</Text>
-                {getPhotoEventText() ? <Text style={styles.normalPreviewDetail}>{getPhotoEventText()}</Text> : null}
-                <Text style={styles.normalPreviewDate}>{getPhotoDateText()}</Text>
-                <Text style={styles.scriptPreviewMeta}>Nombre, fecha y texto en letra normal.</Text>
-              </View>
-              <TextInput
-                value={photoNameText}
-                onChangeText={(value) => {
-                  setPhotoNameText(value)
-                  setCaptureStatus('Nombre de la foto actualizado.')
-                }}
-                placeholder={`Nombre (${eventTitle})`}
-                placeholderTextColor="#9ca3af"
-                style={styles.scriptInput}
-              />
-              <TextInput
-                value={photoEventText}
-                onChangeText={(value) => {
-                  setPhotoEventText(value)
-                  setCaptureStatus('Texto inferior de la foto actualizado.')
-                }}
-                placeholder="Texto inferior opcional"
-                placeholderTextColor="#9ca3af"
-                style={styles.scriptInput}
-              />
-              <TextInput
-                value={photoDateText}
-                onChangeText={(value) => {
-                  setPhotoDateText(value)
-                  setCaptureStatus('Fecha de la foto actualizada.')
-                }}
-                placeholder={`Fecha (${formatEventDate()})`}
-                placeholderTextColor="#9ca3af"
-                style={styles.scriptInput}
-              />
-              <TextInput
-                value={photoScriptText}
-                onChangeText={(value) => {
-                  setPhotoScriptText(value)
-                  setCaptureStatus('Frase superior de la foto actualizada.')
-                }}
-                placeholder="Frase superior de la tira"
-                placeholderTextColor="#9ca3af"
-                style={styles.scriptInput}
-              />
-              <View style={styles.animationPicker}>
-                {captureAnimationPresets.map((animation) => (
-                  <Pressable
-                    key={animation.id}
-                    onPress={() => {
-                      setCaptureAnimation(animation.id)
-                      setCaptureStatus(`Animación antes y entre fotos: ${animation.label}.`)
-                    }}
-                    style={[styles.animationChoice, captureAnimation === animation.id && styles.animationChoiceActive]}
-                  >
-                    <View style={styles.animationChoiceIcon} />
-                    <Text style={[styles.animationChoiceText, captureAnimation === animation.id && styles.animationChoiceTextActive]}>{animation.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          </View>
-        ) : null}
+        {renderEventSetupPreview()}
 
         <View style={[styles.eventOptionsSection, isPhone && styles.eventOptionsSectionPhone]}>
           <View style={styles.panelHeader}>
@@ -3722,6 +4330,111 @@ const WebApp = () => {
     </View>
   )
 
+  const getCustomTextPreviewItems = () => [
+    { id: 'script', label: 'Frase', value: photoScriptText.trim() || photoTextPresets[0] },
+    { id: 'name', label: 'Nombre', value: getPhotoNameText() },
+    { id: 'event', label: 'Evento', value: getPhotoEventText() },
+    { id: 'date', label: 'Fecha', value: getPhotoDateText() },
+  ].filter((item) => item.value)
+
+  const renderCustomTextPreviewLayers = (interactive = false) => getCustomTextPreviewItems().map((item) => {
+    const layer = customTextLayers[item.id] || defaultCustomTextLayers[item.id]
+    const selected = interactive && selectedCustomTextLayer === item.id
+    const content = (
+      <Text
+        style={[
+          styles.customTextLayerValue,
+          {
+            color: layer.color,
+            fontFamily: layer.font,
+            fontSize: `clamp(${Math.max(10, layer.size - 4)}px, ${layer.size / 10}vw, ${layer.size + 8}px)`,
+            lineHeight: `clamp(${Math.max(14, layer.size)}px, ${(layer.size + 5) / 10}vw, ${layer.size + 14}px)`,
+          },
+        ]}
+      >
+        {item.value}
+      </Text>
+    )
+    const layerStyle = [
+      styles.customTextLayer,
+      {
+        left: `${layer.x}%`,
+        top: `${layer.y}%`,
+        width: `${layer.width}%`,
+      },
+      selected && styles.customTextLayerSelected,
+      !interactive && styles.customMirrorPreviewLayer,
+    ]
+
+    if (!interactive) {
+      return (
+        <View key={`custom-text-preview-${item.id}`} style={layerStyle}>
+          {content}
+        </View>
+      )
+    }
+
+    return (
+      <Pressable
+        key={`custom-text-${item.id}`}
+        onPress={() => setSelectedCustomTextLayer(item.id)}
+        onPressIn={(event) => beginCustomTextPointer(item.id, event)}
+        style={layerStyle}
+        accessibilityRole="button"
+        accessibilityLabel={`Editar texto ${item.label}`}
+      >
+        {content}
+      </Pressable>
+    )
+  })
+
+  const renderCustomLayoutPhotoSlots = (interactive = false) => customLayoutSlots.map((slot, index) => {
+    const photoNumber = slot.photoNumber
+    const selected = interactive && selectedCustomLayoutPhotos.includes(photoNumber)
+    if (!slot) return null
+    const slotStyle = [
+      styles.customLayoutSlot,
+      !interactive && styles.customLayoutSlotMirror,
+      {
+        left: `${slot.x}%`,
+        top: `${slot.y}%`,
+        width: `${slot.width}%`,
+        height: `${slot.height}%`,
+        zIndex: selected ? 10 : index + 1,
+      },
+      selected && styles.customLayoutSlotSelected,
+    ]
+
+    if (!interactive) {
+      return (
+        <View key={`custom-layout-preview-slot-${photoNumber}-${index}`} style={slotStyle}>
+          <Text style={styles.customLayoutSlotNumber}>{photoNumber}</Text>
+          <Text style={styles.customLayoutSlotMeta}>Foto {photoNumber}</Text>
+        </View>
+      )
+    }
+
+    return (
+      <Pressable
+        key={`custom-layout-slot-${photoNumber}-${index}`}
+        testID={`custom-layout-slot-${photoNumber}`}
+        onPress={() => selectCustomLayoutPhoto(photoNumber)}
+        onPressIn={(event) => beginCustomLayoutPointer(photoNumber, 'move', event)}
+        style={slotStyle}
+      >
+        <Text style={styles.customLayoutSlotNumber}>{photoNumber}</Text>
+        <Text style={styles.customLayoutSlotMeta}>Foto {photoNumber}</Text>
+        <Pressable
+          testID={`custom-layout-resize-${photoNumber}`}
+          onPressIn={(event) => beginCustomLayoutPointer(photoNumber, 'resize', event)}
+          style={styles.customLayoutResizeHandle}
+        >
+          <Text style={styles.customLayoutResizeText}>↘</Text>
+        </Pressable>
+      </Pressable>
+    )
+  })
+
   const renderCustomPhotoLayoutScreen = () => (
     <View style={styles.customLayoutPage}>
       <View style={[styles.startEditorHeader, isMobile && styles.startEditorHeaderMobile]}>
@@ -3736,10 +4449,10 @@ const WebApp = () => {
 
       <View style={[styles.customLayoutContent, isMobile && styles.customLayoutContentMobile]}>
         <View style={styles.customLayoutPreviewPanel}>
-          <View style={[styles.customLayoutSheet, isMobile && styles.customLayoutSheetMobile]}>
+          <View style={[styles.customLayoutSheet, customMirrorMode && styles.customLayoutSheetMirrorPaper, isMobile && styles.customLayoutSheetMobile]}>
             <View
               ref={customEditorStripRef}
-              style={[styles.customLayoutStrip, styles.customLayoutStripEditable]}
+              style={[styles.customLayoutStrip, customMirrorMode && styles.customLayoutStripHalf, styles.customLayoutStripEditable]}
             >
               <Image
                 source={overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image}
@@ -3753,91 +4466,35 @@ const WebApp = () => {
               {customAlignmentGuides.y.map((guide) => (
                 <View key={`guide-y-${guide}`} style={[styles.customAlignGuideHorizontal, { top: `${guide}%` }]} />
               ))}
-              {[
-                { id: 'script', label: 'Frase', value: photoScriptText.trim() || photoTextPresets[0] },
-                { id: 'name', label: 'Nombre', value: getPhotoNameText() },
-                { id: 'event', label: 'Evento', value: getPhotoEventText() },
-                { id: 'date', label: 'Fecha', value: getPhotoDateText() },
-              ].filter((item) => item.value).map((item) => {
-                const layer = customTextLayers[item.id] || defaultCustomTextLayers[item.id]
-                const selected = selectedCustomTextLayer === item.id
-                return (
-                  <Pressable
-                    key={`custom-text-${item.id}`}
-                    onPress={() => setSelectedCustomTextLayer(item.id)}
-                    onPressIn={(event) => beginCustomTextPointer(item.id, event)}
-                    style={[
-                      styles.customTextLayer,
-                      {
-                        left: `${layer.x}%`,
-                        top: `${layer.y}%`,
-                        width: `${layer.width}%`,
-                      },
-                      selected && styles.customTextLayerSelected,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Editar texto ${item.label}`}
-                  >
-                    <Text
-                      style={[
-                        styles.customTextLayerValue,
-                        {
-                          color: layer.color,
-                          fontFamily: layer.font,
-                          fontSize: `clamp(${Math.max(10, layer.size - 4)}px, ${layer.size / 10}vw, ${layer.size + 8}px)`,
-                          lineHeight: `clamp(${Math.max(14, layer.size)}px, ${(layer.size + 5) / 10}vw, ${layer.size + 14}px)`,
-                        },
-                      ]}
-                    >
-                      {item.value}
-                    </Text>
-                  </Pressable>
-                )
-              })}
+              {renderCustomTextPreviewLayers(true)}
               {!customLayoutSlots.length ? (
                 <View style={styles.customLayoutEmptyState}>
                   <Text style={styles.customLayoutEmptyTitle}>Fondo activo</Text>
                   <Text style={styles.customLayoutEmptyText}>Toca “Agregar foto” para crear un recuadro.</Text>
                 </View>
               ) : null}
-              {customLayoutSlots.map((slot, index) => {
-                const photoNumber = slot.photoNumber
-                const selected = selectedCustomLayoutPhoto === photoNumber
-                if (!slot) return null
-                return (
-                  <Pressable
-                    key={`custom-layout-slot-${photoNumber}-${index}`}
-                    testID={`custom-layout-slot-${photoNumber}`}
-                    onPress={() => setSelectedCustomLayoutPhoto(photoNumber)}
-                    onPressIn={(event) => beginCustomLayoutPointer(photoNumber, 'move', event)}
-                    style={[
-                      styles.customLayoutSlot,
-                      {
-                        left: `${slot.x}%`,
-                        top: `${slot.y}%`,
-                        width: `${slot.width}%`,
-                        height: `${slot.height}%`,
-                        zIndex: selected ? 10 : index + 1,
-                      },
-                      selected && styles.customLayoutSlotSelected,
-                    ]}
-                  >
-                    <Text style={styles.customLayoutSlotNumber}>{photoNumber}</Text>
-                    <Text style={styles.customLayoutSlotMeta}>Foto {photoNumber}</Text>
-                    <Pressable
-                      testID={`custom-layout-resize-${photoNumber}`}
-                      onPressIn={(event) => beginCustomLayoutPointer(photoNumber, 'resize', event)}
-                      style={styles.customLayoutResizeHandle}
-                    >
-                      <Text style={styles.customLayoutResizeText}>↘</Text>
-                    </Pressable>
-                  </Pressable>
-                )
-              })}
+              {renderCustomLayoutPhotoSlots(true)}
             </View>
+            {customMirrorMode ? (
+              <View style={[styles.customLayoutStrip, styles.customLayoutStripHalf, styles.customLayoutMirrorCopy]}>
+                <Image
+                  source={overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image}
+                  style={styles.customLayoutBackgroundImage}
+                  accessibilityLabel={`Copia de plantilla ${selectedTemplate.name}`}
+                />
+                <View style={styles.customLayoutBackgroundShade} />
+                {renderCustomTextPreviewLayers(false)}
+                {renderCustomLayoutPhotoSlots(false)}
+                <View style={styles.customLayoutMirrorBadge}>
+                  <Text style={styles.customLayoutMirrorBadgeText}>Copia 5x15</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
           <Text style={styles.customLayoutHint}>
-            Arrastra los recuadros sobre el fondo. Al imprimir, la app repite el diseño si necesitas dos tiras.
+            {customMirrorMode
+              ? 'Modo espejo activo: editas la tira izquierda 5x15 y la app imprime una copia igual en la derecha para papel 10x15.'
+              : 'Arrastra los recuadros sobre el fondo. Activa modo espejo para imprimir dos tiras 5x15 en papel 10x15.'}
           </Text>
         </View>
 
@@ -3881,8 +4538,40 @@ const WebApp = () => {
               <Pressable onPress={deleteCustomLayoutPhoto} disabled={!customLayoutSlots.length} style={[styles.customManualButton, !customLayoutSlots.length && styles.customManualButtonDisabled]} accessibilityRole="button" accessibilityLabel="Borrar recuadro seleccionado">
                 <Text style={styles.customManualButtonText}>Borrar</Text>
               </Pressable>
+              <Pressable
+                onPress={() => {
+                  setMultiCustomLayoutSelect((current) => {
+                    const next = !current
+                    if (!next) setSelectedCustomLayoutPhotos([selectedCustomLayoutPhoto])
+                    return next
+                  })
+                  setCaptureStatus(`Selección múltiple ${multiCustomLayoutSelect ? 'desactivada' : 'activa'}.`)
+                }}
+                style={[styles.customManualButton, multiCustomLayoutSelect && styles.customManualButtonActive]}
+                accessibilityRole="button"
+                accessibilityLabel="Seleccionar varios recuadros"
+              >
+                <Text style={[styles.customManualButtonText, multiCustomLayoutSelect && styles.customManualButtonTextActive]}>Seleccionar varios</Text>
+              </Pressable>
               <Pressable onPress={resetCustomPhotoLayout} style={styles.customManualGhostButton} accessibilityRole="button" accessibilityLabel="Limpiar todos los recuadros">
                 <Text style={styles.customManualGhostText}>Limpiar fondo</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setCustomMirrorMode((current) => !current)
+                  setPhotoFrames([])
+                  setFinalPhotoUrl('')
+                  clearSavedPhoto()
+                  setRetakeFrameIndex(null)
+                  setCaptureStatus(`Modo espejo ${customMirrorMode ? 'desactivado' : 'activado'}.`)
+                }}
+                style={[styles.customManualMirrorButton, customMirrorMode && styles.customManualMirrorButtonActive]}
+                accessibilityRole="button"
+                accessibilityLabel="Activar modo espejo"
+              >
+                <Text style={[styles.customManualMirrorText, customMirrorMode && styles.customManualMirrorTextActive]}>
+                  Modo espejo {customMirrorMode ? 'activo' : ''}
+                </Text>
               </Pressable>
             </View>
           </View> : null}
@@ -3895,48 +4584,6 @@ const WebApp = () => {
               </View>
               <Text style={styles.customLayoutCount}>{customTextLabels[selectedCustomTextLayer]}</Text>
             </View>
-            <View style={styles.customTextGrid}>
-              <TextInput
-                value={photoNameText}
-                onChangeText={(value) => {
-                  setPhotoNameText(value)
-                  setCaptureStatus('Nombre del diseño actualizado.')
-                }}
-                placeholder="Nombre principal"
-                placeholderTextColor="#9ca3af"
-                style={styles.customTextInput}
-              />
-              <TextInput
-                value={photoEventText}
-                onChangeText={(value) => {
-                  setPhotoEventText(value)
-                  setCaptureStatus('Texto del evento actualizado.')
-                }}
-                placeholder="Texto del evento"
-                placeholderTextColor="#9ca3af"
-                style={styles.customTextInput}
-              />
-              <TextInput
-                value={photoDateText}
-                onChangeText={(value) => {
-                  setPhotoDateText(value)
-                  setCaptureStatus('Fecha del diseño actualizada.')
-                }}
-                placeholder="Fecha"
-                placeholderTextColor="#9ca3af"
-                style={styles.customTextInput}
-              />
-              <TextInput
-                value={photoScriptText}
-                onChangeText={(value) => {
-                  setPhotoScriptText(value)
-                  setCaptureStatus('Frase superior actualizada.')
-                }}
-                placeholder="Frase superior"
-                placeholderTextColor="#9ca3af"
-                style={styles.customTextInput}
-              />
-            </View>
             <View style={styles.customTextLayerPicker}>
               {[
                 { id: 'script', label: 'Frase' },
@@ -3946,19 +4593,84 @@ const WebApp = () => {
               ].map((item) => (
                 <Pressable
                   key={`text-picker-${item.id}`}
-                  onPress={() => setSelectedCustomTextLayer(item.id)}
+                  onPress={() => {
+                    setSelectedCustomTextLayer(item.id)
+                    setShowCustomTextColorPalette(false)
+                    setShowCustomTextFontMenu(false)
+                  }}
                   style={[styles.customTextPickerButton, selectedCustomTextLayer === item.id && styles.customTextPickerButtonActive]}
                 >
                   <Text style={[styles.customTextPickerText, selectedCustomTextLayer === item.id && styles.customTextPickerTextActive]}>{item.label}</Text>
                 </Pressable>
               ))}
             </View>
+            <View style={[styles.customTextGrid, styles.customTextGridSingle]}>
+              {selectedCustomTextLayer === 'name' ? (
+                <TextInput
+                  value={photoNameText}
+                  onChangeText={(value) => {
+                    setPhotoNameText(value)
+                    setCaptureStatus('Nombre del diseño actualizado.')
+                  }}
+                  placeholder="Nombre principal"
+                  placeholderTextColor="#9ca3af"
+                  style={styles.customTextInput}
+                />
+              ) : null}
+              {selectedCustomTextLayer === 'event' ? (
+                <TextInput
+                  value={photoEventText}
+                  onChangeText={(value) => {
+                    setPhotoEventText(value)
+                    setCaptureStatus('Texto del evento actualizado.')
+                  }}
+                  placeholder="Texto del evento"
+                  placeholderTextColor="#9ca3af"
+                  style={styles.customTextInput}
+                />
+              ) : null}
+              {selectedCustomTextLayer === 'date' ? (
+                <input
+                  type="date"
+                  value={dateTextToISO(photoDateText)}
+                  onChange={(event) => updatePhotoDateFromISO(event.target.value, 'Fecha del diseño actualizada.')}
+                  aria-label="Fecha del diseño"
+                  style={styles.customTextDateInput}
+                />
+              ) : null}
+              {selectedCustomTextLayer === 'script' ? (
+                <TextInput
+                  value={photoScriptText}
+                  onChangeText={(value) => {
+                    setPhotoScriptText(value)
+                    setCaptureStatus('Frase superior actualizada.')
+                  }}
+                  placeholder="Frase superior"
+                  placeholderTextColor="#9ca3af"
+                  style={styles.customTextInput}
+                />
+              ) : null}
+            </View>
             <View style={styles.customTextStyleGrid}>
-              <Pressable onPress={() => cycleCustomTextFont(selectedCustomTextLayer)} style={styles.customTextStyleButton}>
+              <Pressable
+                onPress={() => {
+                  setShowCustomTextColorPalette(false)
+                  setShowCustomTextFontMenu((current) => !current)
+                }}
+                style={styles.customTextStyleButton}
+              >
                 <Text style={styles.customTextStyleButtonText}>Fuente</Text>
-                <Text style={styles.customTextStyleButtonValue}>{customTextLayers[selectedCustomTextLayer]?.font}</Text>
+                <Text style={styles.customTextStyleButtonValue}>
+                  {uploadedCustomFonts.find((font) => font.family === customTextLayers[selectedCustomTextLayer]?.font)?.name || customTextLayers[selectedCustomTextLayer]?.font}
+                </Text>
               </Pressable>
-              <Pressable onPress={() => cycleCustomTextColor(selectedCustomTextLayer)} style={styles.customTextStyleButton}>
+              <Pressable
+                onPress={() => {
+                  setShowCustomTextFontMenu(false)
+                  setShowCustomTextColorPalette((current) => !current)
+                }}
+                style={styles.customTextStyleButton}
+              >
                 <Text style={styles.customTextStyleButtonText}>Color</Text>
                 <View style={[styles.customTextColorSwatch, { backgroundColor: customTextLayers[selectedCustomTextLayer]?.color }]} />
               </Pressable>
@@ -3974,6 +4686,70 @@ const WebApp = () => {
               >
                 <Text style={styles.customTextStyleButtonText}>Texto +</Text>
               </Pressable>
+              {showCustomTextFontMenu ? (
+                <View style={styles.customTextFontMenu}>
+                  {customFontChoices.map((font) => {
+                    const uploadedFont = uploadedCustomFonts.find((item) => item.family === font)
+                    const label = uploadedFont?.name || font
+                    const active = customTextLayers[selectedCustomTextLayer]?.font === font
+                    return (
+                      <Pressable
+                        key={`custom-text-font-${font}`}
+                        onPress={() => chooseCustomTextFont(selectedCustomTextLayer, font)}
+                        style={[styles.customTextFontChoice, active && styles.customTextFontChoiceActive]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Elegir fuente ${label}`}
+                      >
+                        <Text style={[styles.customTextFontChoiceText, active && styles.customTextFontChoiceTextActive, { fontFamily: font }]}>
+                          {label}
+                        </Text>
+                      </Pressable>
+                    )
+                  })}
+                  <label style={styles.customTextFontUpload}>
+                    <Text style={styles.customTextFontUploadTitle}>+ Subir fuente</Text>
+                    <Text style={styles.customTextFontUploadText}>TTF, OTF, WOFF</Text>
+                    <input
+                      accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"
+                      type="file"
+                      onChange={handleCustomFontFile}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                </View>
+              ) : null}
+              {showCustomTextColorPalette ? (
+                <View style={styles.customTextColorPalette}>
+                  <View style={styles.customTextColorPaletteHeader}>
+                    <Text style={styles.customTextColorPaletteTitle}>Paleta de colores</Text>
+                    <label style={styles.customTextColorPickerLabel}>
+                      <Text style={styles.customTextColorPickerText}>Color libre</Text>
+                      <input
+                        type="color"
+                        value={customTextLayers[selectedCustomTextLayer]?.color || defaultCustomTextLayers[selectedCustomTextLayer]?.color || '#111827'}
+                        onChange={(event) => chooseCustomTextColor(selectedCustomTextLayer, event.target.value)}
+                        style={styles.customTextColorPickerInput}
+                      />
+                    </label>
+                  </View>
+                  <View style={styles.customTextColorGrid}>
+                    {customTextColors.map((color) => {
+                      const active = (customTextLayers[selectedCustomTextLayer]?.color || defaultCustomTextLayers[selectedCustomTextLayer]?.color) === color
+                      return (
+                        <Pressable
+                          key={`custom-text-color-${color}`}
+                          onPress={() => chooseCustomTextColor(selectedCustomTextLayer, color)}
+                          style={[styles.customTextColorChoice, active && styles.customTextColorChoiceActive]}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Elegir color ${color}`}
+                        >
+                          <View style={[styles.customTextColorChoiceSwatch, { backgroundColor: color }]} />
+                        </Pressable>
+                      )
+                    })}
+                  </View>
+                </View>
+              ) : null}
               <Pressable onPress={() => nudgeCustomTextLayer(selectedCustomTextLayer, 'y', -1.5)} style={styles.customFineButton}>
                 <Text style={styles.customFineButtonText}>↑</Text>
               </Pressable>
@@ -4046,9 +4822,11 @@ const WebApp = () => {
             <View style={styles.customLayoutCardHeader}>
               <View>
                 <Text style={styles.panelEyebrow}>Mouse</Text>
-                <Text style={styles.customLayoutTitle}>Tamaño y posición</Text>
+              <Text style={styles.customLayoutTitle}>Tamaño y posición</Text>
               </View>
-              <Text style={styles.customLayoutCount}>{customLayoutSlots.length ? `Foto ${selectedCustomLayoutPhoto}` : 'Sin foto'}</Text>
+              <Text style={styles.customLayoutCount}>
+                {customLayoutSlots.length ? (selectedCustomLayoutPhotos.length > 1 ? `${selectedCustomLayoutPhotos.length} fotos` : `Foto ${selectedCustomLayoutPhoto}`) : 'Sin foto'}
+              </Text>
             </View>
             <View style={styles.customFineGrid}>
               <Pressable disabled={!customLayoutSlots.length} onPress={() => nudgeCustomLayoutPhoto(selectedCustomLayoutPhoto, 'y', -1.5)} style={[styles.customFineButton, !customLayoutSlots.length && styles.customFineButtonDisabled]} accessibilityRole="button" accessibilityLabel="Subir foto seleccionada">
@@ -4090,7 +4868,7 @@ const WebApp = () => {
             <View style={styles.customOrderList}>
               {customLayoutSlots.length ? customLayoutSlots.map((slot, index) => {
                 const photoNumber = slot.photoNumber
-                const selected = selectedCustomLayoutPhoto === photoNumber
+                const selected = selectedCustomLayoutPhotos.includes(photoNumber)
                 return (
                 <View key={`custom-order-${photoNumber}-${index}`} style={styles.customOrderRow}>
                   <View style={styles.customOrderBadge}>
@@ -4102,7 +4880,7 @@ const WebApp = () => {
                   </View>
                   <View style={styles.customOrderActions}>
                     <Pressable
-                      onPress={() => setSelectedCustomLayoutPhoto(photoNumber)}
+                      onPress={() => selectCustomLayoutPhoto(photoNumber)}
                       style={[styles.customOrderButton, selected && styles.customOrderButtonActive]}
                       accessibilityRole="button"
                       accessibilityLabel={`Seleccionar foto ${photoNumber}`}
@@ -4119,7 +4897,20 @@ const WebApp = () => {
           </View> : null}
 
           <Pressable
-            onPress={() => {
+            onPress={async () => {
+              setFinalPhotoUrl('')
+              clearSavedPhoto()
+              setRetakeFrameIndex(null)
+              setSelectedCustomLayoutPhotos(selectedCustomLayoutPhotos.length ? selectedCustomLayoutPhotos : [selectedCustomLayoutPhoto])
+              saveCurrentSetupToRecentEvents('Layout manual guardado en el evento.')
+              if (photoFrames.length >= selectedShotCount) {
+                setCaptureStatus('Layout manual guardado. Actualizando resultado final...')
+                const output = await composeFinalPhoto(photoFrames)
+                setFinalPhotoUrl(output)
+                setCaptureStatus('Layout manual guardado y resultado actualizado.')
+              } else {
+                setCaptureStatus('Layout manual guardado. Toma o repite las fotos para generar el resultado actualizado.')
+              }
               setShowCustomPhotoLayoutScreen(false)
               updateAppRoute('configurar-evento')
             }}
@@ -4188,15 +4979,18 @@ const WebApp = () => {
 
   const renderAnimationOverlay = () => {
     if (!animationOverlay) return null
-    if (animationOverlay.stage === 'beforeCountdown') return null
 
     const hasAnimationVideo = Boolean(animationOverlay.videoUrl || animationVideoUrl)
-    const fallbackTitle = animationOverlay.stage === 'afterCapture' ? 'Efecto entre fotos' : 'Video de animación'
+    const isBeforeCountdown = animationOverlay.stage === 'beforeCountdown'
+    const isAfterCapture = animationOverlay.stage === 'afterCapture'
+    const fallbackTitle = isBeforeCountdown ? 'SONRÍE' : isAfterCapture ? 'GENIAL' : 'LISTO'
+    const stageKicker = isBeforeCountdown ? 'DI QUESO' : isAfterCapture ? 'QUEDÓ' : 'VIRALCO'
+    const stageFooter = isBeforeCountdown ? 'Prepárate para brillar' : isAfterCapture ? 'Foto guardada' : 'Armando recuerdo'
 
     return (
-      <View style={styles.animationOverlay}>
-        <View style={[styles.animationHalo, animationOverlay.mode === 'confeti' && styles.animationHaloConfetti]} />
-        <View style={[styles.animationCard, animationOverlay.mode === 'destello' && styles.animationCardLight]}>
+      <View style={[styles.animationOverlay, isBeforeCountdown && styles.animationOverlayBefore]}>
+        <View style={[styles.animationHalo, (isBeforeCountdown || isAfterCapture) && styles.animationHaloLarge, animationOverlay.mode === 'confeti' && styles.animationHaloConfetti]} />
+        <View style={[styles.animationCard, (isBeforeCountdown || isAfterCapture) && styles.animationCardImmersive, animationOverlay.mode === 'destello' && styles.animationCardLight]}>
           {hasAnimationVideo ? (
             React.createElement('video', {
               src: animationOverlay.videoUrl || animationVideoUrl,
@@ -4206,18 +5000,20 @@ const WebApp = () => {
               loop: true,
               style: {
                 width: '100%',
-                height: 150,
+                height: isBeforeCountdown || isAfterCapture ? 'clamp(260px, 52svh, 680px)' : 150,
                 objectFit: 'cover',
                 display: 'block',
                 borderRadius: 8,
-                marginBottom: 12,
+                marginBottom: isBeforeCountdown || isAfterCapture ? 20 : 12,
               },
             })
           ) : (
             React.createElement(
               'div',
-              { className: `viralco-capture-effect viralco-capture-effect-${animationOverlay.mode || 'base'}` },
-              React.createElement('div', { className: 'viralco-effect-burst' }),
+              { className: `viralco-capture-effect viralco-capture-effect-${animationOverlay.mode || 'base'} viralco-capture-stage-${animationOverlay.stage || 'processing'}` },
+              React.createElement('div', { className: 'viralco-effect-scanline' }),
+              React.createElement('div', { className: 'viralco-effect-orbit viralco-effect-orbit-one' }),
+              React.createElement('div', { className: 'viralco-effect-orbit viralco-effect-orbit-two' }),
               React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-a' }),
               React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-b' }),
               React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-c' }),
@@ -4225,19 +5021,22 @@ const WebApp = () => {
               React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-e' }),
               React.createElement(
                 'div',
-                { className: 'viralco-effect-photo' },
-                React.createElement('div', { className: 'viralco-effect-photo-top' }),
+                { className: 'viralco-effect-triangle' },
+                React.createElement('div', { className: 'viralco-effect-triangle-glow' }),
+                React.createElement('div', { className: 'viralco-effect-kicker' }, stageKicker),
                 React.createElement(
                   'div',
-                  { className: 'viralco-effect-photo-body' },
-                  React.createElement('div', { className: 'viralco-effect-check' }, '✓'),
-                  React.createElement('div', { className: 'viralco-effect-caption' }, fallbackTitle),
+                  { className: 'viralco-effect-camera' },
+                  React.createElement('div', { className: 'viralco-effect-camera-top' }),
+                  React.createElement('div', { className: 'viralco-effect-camera-lens' }),
                 ),
+                React.createElement('div', { className: 'viralco-effect-caption' }, fallbackTitle),
+                React.createElement('div', { className: 'viralco-effect-footer' }, stageFooter),
               ),
             )
           )}
-          <Text style={styles.animationTitle}>{animationOverlay.title}</Text>
-          <Text style={styles.animationText}>{animationOverlay.text}</Text>
+          {isBeforeCountdown || isAfterCapture ? null : <Text style={styles.animationTitle}>{animationOverlay.title}</Text>}
+          <Text style={[styles.animationText, (isBeforeCountdown || isAfterCapture) && styles.animationTextPill]}>{animationOverlay.text}</Text>
           <View style={styles.animationDots}>
             {[0, 1, 2].map((dot) => (
               <View key={`animation-dot-${dot}`} style={[styles.animationDot, dot === 1 && styles.animationDotMiddle]} />
@@ -5095,8 +5894,20 @@ const WebApp = () => {
           <Text style={[styles.mirrorTitle, isMobile && styles.mirrorTitleMobile, isMobile && styles.mirrorPreviewTitleMobile]}>Preview</Text>
           <Text style={[styles.mirrorSubText, isMobile && styles.mirrorPreviewSubTextMobile]}>{eventTitle} / {selectedType.name}</Text>
         </View>
-        <View style={[styles.mirrorStatusPill, styles.mirrorPreviewStatusPill]}>
-          <Text style={[styles.mirrorStatusText, isMobile && styles.mirrorPreviewStatusTextMobile]}>{framesReady}/{selectedShotCount}</Text>
+        <View style={[styles.mirrorPreviewTopActions, isMobile && styles.mirrorPreviewTopActionsMobile]}>
+          <Pressable
+            onPress={returnToHomeScreen}
+            style={[styles.mirrorPreviewHomeButton, isMobile && styles.mirrorPreviewHomeButtonMobile]}
+            accessibilityRole="button"
+            accessibilityLabel="Volver a pantalla principal"
+          >
+            <Text style={[styles.mirrorPreviewHomeButtonText, isMobile && styles.mirrorPreviewHomeButtonTextMobile]}>
+              {isMobile ? 'Inicio' : '← Inicio'}
+            </Text>
+          </Pressable>
+          <View style={[styles.mirrorStatusPill, styles.mirrorPreviewStatusPill]}>
+            <Text style={[styles.mirrorStatusText, isMobile && styles.mirrorPreviewStatusTextMobile]}>{framesReady}/{selectedShotCount}</Text>
+          </View>
         </View>
       </View>
 
@@ -5678,7 +6489,9 @@ const WebApp = () => {
       <View style={styles.captureConfigContent}>
         <View style={styles.activeToolNotice}>
           <Text style={styles.activeToolTitle}>Configuración activa</Text>
-          <Text style={styles.activeToolText}>{captureStatus}</Text>
+          <Text style={styles.activeToolText}>
+            {captureStatus.toLowerCase().includes('gif') ? 'Configuración de captura lista para fotos.' : captureStatus}
+          </Text>
         </View>
         <View style={styles.photoConfigCard}>
           <Text style={styles.photoConfigTitle}>Foto</Text>
@@ -5751,8 +6564,6 @@ const WebApp = () => {
           </Pressable>
         </View>
 
-        {renderGifSettingsCard()}
-
         <View style={styles.photoConfigCard}>
           <Text style={styles.photoConfigTitle}>Calidad y guía</Text>
 
@@ -5784,17 +6595,6 @@ const WebApp = () => {
 
           <Pressable
             onPress={() => {
-              const currentIndex = photoTypes.findIndex((item) => item.id === selectedType.id)
-              chooseType(photoTypes[(currentIndex + 1) % photoTypes.length])
-            }}
-            style={styles.sizeRow}
-          >
-            <Text style={styles.photoSettingLabel}>Tamaño</Text>
-            <Text style={styles.sizeValue}>{selectedType.name}⌄</Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => {
               setFlashBeforePhoto((value) => !value)
               setCaptureStatus(`Flash antes de la foto ${flashBeforePhoto ? 'desactivado' : 'activado'}.`)
             }}
@@ -5822,105 +6622,6 @@ const WebApp = () => {
                 </Pressable>
               ))}
             </View>
-          </View>
-        </View>
-
-        <View style={styles.photoConfigCard}>
-          <Text style={styles.photoConfigTitle}>Textos y animación</Text>
-
-          <View style={styles.scriptPreviewBox}>
-            <Text style={styles.normalPreviewName}>{getPhotoNameText()}</Text>
-            {getPhotoEventText() ? <Text style={styles.normalPreviewDetail}>{getPhotoEventText()}</Text> : null}
-            <Text style={styles.normalPreviewDate}>{getPhotoDateText()}</Text>
-            <Text style={styles.scriptPreviewMeta}>Nombre, fecha y texto en letra normal.</Text>
-          </View>
-
-          <TextInput
-            value={photoNameText}
-            onChangeText={(value) => {
-              setPhotoNameText(value)
-              setCaptureStatus('Nombre de la foto actualizado.')
-            }}
-            placeholder={`Nombre (${eventTitle})`}
-            placeholderTextColor="#9ca3af"
-            style={styles.scriptInput}
-          />
-
-          <TextInput
-            value={photoEventText}
-            onChangeText={(value) => {
-              setPhotoEventText(value)
-              setCaptureStatus('Texto inferior de la foto actualizado.')
-            }}
-            placeholder="Texto inferior opcional"
-            placeholderTextColor="#9ca3af"
-            style={styles.scriptInput}
-          />
-
-          <TextInput
-            value={photoDateText}
-            onChangeText={(value) => {
-              setPhotoDateText(value)
-              setCaptureStatus('Fecha de la foto actualizada.')
-            }}
-            placeholder={`Fecha (${formatEventDate()})`}
-            placeholderTextColor="#9ca3af"
-            style={styles.scriptInput}
-          />
-
-          <TextInput
-            value={photoScriptText}
-            onChangeText={(value) => {
-              setPhotoScriptText(value)
-              setCaptureStatus('Frase superior de la foto actualizada.')
-            }}
-            placeholder="Frase superior de la tira"
-            placeholderTextColor="#9ca3af"
-            style={styles.scriptInput}
-          />
-
-          <View style={styles.presetGrid}>
-            {photoTextPresets.map((preset) => (
-              <Pressable
-                key={preset}
-                onPress={() => {
-                  setPhotoScriptText(preset)
-                  setCaptureStatus(`Texto para la foto cambiado a: ${preset}.`)
-                }}
-                style={[styles.presetPill, photoScriptText === preset && styles.presetPillActive]}
-              >
-                <Text style={[styles.presetPillText, photoScriptText === preset && styles.presetPillTextActive]}>{preset}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Pressable
-            onPress={() => {
-              const options = ['Prepárese', 'Sonría', 'Mire al espejo']
-              const nextText = options[(options.indexOf(preCaptureText) + 1) % options.length]
-              setPreCaptureText(nextText)
-              setCaptureStatus(`Texto antes de capturar cambiado a: ${nextText}.`)
-            }}
-            style={styles.sizeRow}
-          >
-            <Text style={styles.photoSettingLabel}>Texto antes de tomar foto</Text>
-            <Text style={styles.sizeValue}>{preCaptureText}</Text>
-          </Pressable>
-
-          <View style={styles.animationPicker}>
-            {captureAnimationPresets.map((animation) => (
-              <Pressable
-                key={animation.id}
-                onPress={() => {
-                  setCaptureAnimation(animation.id)
-                  setCaptureStatus(`Animación antes y entre fotos: ${animation.label}.`)
-                }}
-                style={[styles.animationChoice, captureAnimation === animation.id && styles.animationChoiceActive]}
-              >
-                <View style={styles.animationChoiceIcon} />
-                <Text style={[styles.animationChoiceText, captureAnimation === animation.id && styles.animationChoiceTextActive]}>{animation.label}</Text>
-              </Pressable>
-            ))}
           </View>
         </View>
 
@@ -6012,7 +6713,11 @@ const WebApp = () => {
       <View style={styles.captureConfigContent}>
         <View style={styles.activeToolNotice}>
           <Text style={styles.activeToolTitle}>Impresión activa</Text>
-          <Text style={styles.activeToolText}>{captureStatus}</Text>
+          <Text style={styles.activeToolText}>
+            {captureStatus.match(/4x6|5 x 15|10 x 20|15 x 20|manual/i)
+              ? 'Medida de impresora seleccionada: 10 x 15 (10 x 15 cm).'
+              : captureStatus}
+          </Text>
         </View>
         {renderPrintSettingsMenu()}
       </View>
@@ -6246,9 +6951,13 @@ const WebApp = () => {
   if (showCaptureConfigScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView
+          style={styles.configScrollView}
+          contentContainerStyle={[styles.captureConfigScrollContent, isPhone && styles.captureConfigScrollContentPhone]}
+        >
           {renderCaptureConfigScreen()}
         </ScrollView>
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6269,6 +6978,7 @@ const WebApp = () => {
         <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderBackgroundRemovalScreen()}
         </ScrollView>
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6280,6 +6990,7 @@ const WebApp = () => {
           {renderHomeLauncher()}
         </ScrollView>
         {showCreateEventModal && renderCreateEventModal()}
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6290,6 +7001,7 @@ const WebApp = () => {
         <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderCustomPhotoLayoutScreen()}
         </ScrollView>
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6301,6 +7013,7 @@ const WebApp = () => {
           <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
             {renderCustomPhotoLayoutScreen()}
           </ScrollView>
+          {renderHiddenHomeButton()}
         </View>
       )
     }
@@ -6311,6 +7024,7 @@ const WebApp = () => {
           {renderEventOptionsScreen()}
         </ScrollView>
         {showCreateEventModal && renderCreateEventModal()}
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6321,6 +7035,7 @@ const WebApp = () => {
         <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderAnimationVideoScreen()}
         </ScrollView>
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6329,6 +7044,7 @@ const WebApp = () => {
     return (
       <View style={styles.page}>
         {renderLaunchIntroScreen()}
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6339,6 +7055,7 @@ const WebApp = () => {
         <ScrollView contentContainerStyle={styles.mirrorPageContent}>
           {renderCapturePhotoScreen()}
         </ScrollView>
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6351,6 +7068,7 @@ const WebApp = () => {
         </ScrollView>
         {showPrintOptions && renderPrintOptionsModal()}
         {showQrOptions && renderQrOptionsModal()}
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6363,6 +7081,7 @@ const WebApp = () => {
         </ScrollView>
         {showPrintOptions && renderPrintOptionsModal()}
         {showQrOptions && renderQrOptionsModal()}
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6373,6 +7092,7 @@ const WebApp = () => {
         {renderHomeLauncher()}
       </ScrollView>
       {showCreateEventModal && renderCreateEventModal()}
+      {renderHiddenHomeButton()}
     </View>
   )
 }
@@ -6385,6 +7105,24 @@ const styles = StyleSheet.create({
     width: '100vw',
     backgroundColor: '#f5f7fb',
     overflow: 'hidden',
+  },
+  hiddenHomeButton: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    zIndex: 99999,
+    width: 56,
+    height: 56,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    padding: 10,
+  },
+  hiddenHomeButtonDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.rose,
+    opacity: 0.12,
   },
   pageContent: {
     height: '100svh',
@@ -6400,13 +7138,29 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     overflow: 'visible',
   },
+  configScrollView: {
+    height: '100svh',
+    width: '100vw',
+    overflowY: 'auto',
+    overflowX: 'hidden',
+  },
+  captureConfigScrollContent: {
+    minHeight: '100svh',
+    padding: 'clamp(10px, 2svh, 18px)',
+    paddingBottom: 160,
+    overflow: 'visible',
+  },
+  captureConfigScrollContentPhone: {
+    padding: 8,
+    paddingBottom: 170,
+  },
   homePageContent: {
     height: 'auto',
     minHeight: '100svh',
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 'clamp(18px, 3svh, 42px) clamp(18px, 4vw, 56px)',
-    paddingBottom: 'clamp(18px, 3svh, 42px)',
+    justifyContent: 'flex-start',
+    padding: 'clamp(12px, 2svh, 28px) clamp(18px, 4vw, 56px)',
+    paddingBottom: 'clamp(16px, 2.5svh, 32px)',
   },
   homePageContentPhone: {
     justifyContent: 'flex-start',
@@ -6580,13 +7334,12 @@ const styles = StyleSheet.create({
   homeLauncherPage: {
     width: '100%',
     maxWidth: 1120,
-    height: 'calc(100svh - clamp(36px, 6svh, 84px))',
-    minHeight: 720,
+    minHeight: 'calc(100svh - clamp(28px, 4svh, 56px))',
     alignSelf: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingTop: 0,
     paddingBottom: 0,
-    gap: 'clamp(12px, 1.6svh, 24px)',
+    gap: 'clamp(10px, 1.35svh, 18px)',
   },
   homeLauncherPagePhone: {
     height: 'auto',
@@ -6605,8 +7358,8 @@ const styles = StyleSheet.create({
   },
   homeWelcome: {
     color: colors.ink,
-    fontSize: 'clamp(42px, 5.4svh, 76px)',
-    lineHeight: 'clamp(50px, 6.1svh, 84px)',
+    fontSize: 'clamp(40px, 4.9svh, 68px)',
+    lineHeight: 'clamp(47px, 5.5svh, 76px)',
     fontWeight: '900',
     textAlign: 'center',
   },
@@ -6616,8 +7369,8 @@ const styles = StyleSheet.create({
   },
   homeWelcomeSub: {
     color: colors.muted,
-    fontSize: 'clamp(18px, 2.3svh, 28px)',
-    lineHeight: 'clamp(25px, 3svh, 36px)',
+    fontSize: 'clamp(17px, 2svh, 26px)',
+    lineHeight: 'clamp(23px, 2.6svh, 32px)',
     fontWeight: '800',
     textAlign: 'center',
     marginTop: -4,
@@ -6632,9 +7385,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 'clamp(16px, 2.2svh, 28px)',
-    gap: 'clamp(12px, 1.6svh, 22px)',
-    flexGrow: 1,
+    padding: 'clamp(14px, 1.8svh, 24px)',
+    gap: 'clamp(10px, 1.25svh, 16px)',
+    flexGrow: 0,
     flexShrink: 1,
     minHeight: 0,
   },
@@ -6657,8 +7410,8 @@ const styles = StyleSheet.create({
   },
   recentEventsIntro: {
     color: colors.muted,
-    fontSize: 'clamp(16px, 1.9svh, 22px)',
-    lineHeight: 'clamp(22px, 2.5svh, 30px)',
+    fontSize: 'clamp(15px, 1.7svh, 20px)',
+    lineHeight: 'clamp(20px, 2.25svh, 27px)',
     marginTop: 4,
   },
   newEventButton: {
@@ -6710,16 +7463,16 @@ const styles = StyleSheet.create({
   },
   recentEventCard: {
     position: 'relative',
-    minHeight: 'clamp(520px, calc(100svh - 520px), 980px)',
-    height: '100%',
+    minHeight: 'clamp(330px, 42svh, 460px)',
     borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: colors.dark,
+    backgroundColor: '#ffffff',
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: colors.line,
+    boxShadow: '0 18px 40px rgba(15,23,42,0.08)',
   },
   recentEventCardPhone: {
-    minHeight: 'min(58svh, 560px)',
+    minHeight: 390,
   },
   recentEventCardActive: {
     borderColor: colors.blue,
@@ -6737,34 +7490,75 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(13,18,32,0.56)',
   },
   recentEventContent: {
-    position: 'absolute',
-    inset: 0,
+    minHeight: '100%',
     padding: 'clamp(22px, 2.6svh, 36px)',
-    justifyContent: 'flex-end',
-    gap: 'clamp(8px, 1.1svh, 14px)',
+    justifyContent: 'space-between',
+    gap: 'clamp(12px, 1.4svh, 18px)',
+  },
+  recentEventTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
   recentEventMeta: {
     alignSelf: 'flex-start',
     minHeight: 'clamp(32px, 3.3svh, 44px)',
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.88)',
+    backgroundColor: colors.roseSoft,
     color: colors.rose,
     fontSize: 'clamp(14px, 1.6svh, 18px)',
     lineHeight: 'clamp(32px, 3.3svh, 44px)',
     fontWeight: '900',
     paddingHorizontal: 'clamp(14px, 1.8vw, 22px)',
   },
+  recentEventProfile: {
+    color: colors.muted,
+    fontSize: 'clamp(12px, 1.4svh, 16px)',
+    lineHeight: 'clamp(16px, 1.9svh, 21px)',
+    fontWeight: '900',
+    textAlign: 'right',
+  },
   recentEventTitle: {
-    color: '#ffffff',
+    color: colors.ink,
     fontSize: 'clamp(30px, 4svh, 52px)',
     lineHeight: 'clamp(37px, 4.7svh, 60px)',
     fontWeight: '900',
   },
   recentEventDetails: {
-    color: 'rgba(255,255,255,0.82)',
+    color: colors.muted,
     fontSize: 'clamp(17px, 2svh, 24px)',
     lineHeight: 'clamp(24px, 2.7svh, 32px)',
     fontWeight: '700',
+  },
+  recentEventDataGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  recentEventDataItem: {
+    minHeight: 74,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: 'center',
+  },
+  recentEventDataLabel: {
+    color: colors.rose,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '950',
+    textTransform: 'uppercase',
+  },
+  recentEventDataValue: {
+    color: colors.ink,
+    fontSize: 'clamp(14px, 1.7svh, 18px)',
+    lineHeight: 'clamp(18px, 2.1svh, 23px)',
+    fontWeight: '900',
+    marginTop: 4,
   },
   launchRecentButton: {
     minHeight: 'clamp(58px, 7svh, 86px)',
@@ -6772,12 +7566,135 @@ const styles = StyleSheet.create({
     backgroundColor: colors.blue,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
+    paddingHorizontal: 20,
+    flex: 1,
     boxShadow: '0 8px 14px rgba(10,77,232,0.28)',
   },
   launchRecentButtonText: {
     color: '#ffffff',
     fontSize: 'clamp(18px, 2.1svh, 26px)',
+    fontWeight: '900',
+  },
+  recentEventActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  editRecentButton: {
+    minHeight: 'clamp(58px, 7svh, 86px)',
+    borderRadius: 43,
+    borderWidth: 2,
+    borderColor: colors.blue,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    flex: 0.55,
+  },
+  editRecentButtonText: {
+    color: colors.blue,
+    fontSize: 'clamp(16px, 1.8svh, 22px)',
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  secondaryEventsPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    padding: 14,
+    gap: 10,
+  },
+  secondaryEventsHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  secondaryEventsTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900',
+  },
+  secondaryEventsList: {
+    gap: 8,
+  },
+  secondaryEventRow: {
+    minHeight: 68,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  secondaryEventRowActive: {
+    borderColor: colors.blue,
+    backgroundColor: '#eff6ff',
+  },
+  secondaryEventIndex: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.roseSoft,
+    color: colors.rose,
+    fontSize: 14,
+    lineHeight: 34,
+    fontWeight: '950',
+    textAlign: 'center',
+    flexShrink: 0,
+  },
+  secondaryEventCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  secondaryEventName: {
+    color: colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  secondaryEventMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '750',
+    marginTop: 2,
+  },
+  secondaryEventEditButton: {
+    minHeight: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.blue,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    flexShrink: 0,
+  },
+  secondaryEventEditText: {
+    color: colors.blue,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  secondaryEventLaunchButton: {
+    minHeight: 38,
+    borderRadius: 19,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    flexShrink: 0,
+  },
+  secondaryEventLaunchText: {
+    color: '#ffffff',
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '900',
   },
   homeActionCard: {
@@ -6837,6 +7754,126 @@ const styles = StyleSheet.create({
     color: colors.blue,
     fontSize: 'clamp(20px, 2.3svh, 30px)',
     fontWeight: '900',
+  },
+  adminEventsSummary: {
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 'clamp(14px, 1.7svh, 22px)',
+    gap: 12,
+    boxShadow: '0 10px 18px rgba(15,23,42,0.06)',
+  },
+  adminEventsSummaryPhone: {
+    padding: 10,
+  },
+  adminEventsSummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  adminEventsSummaryTitle: {
+    color: colors.ink,
+    fontSize: 'clamp(22px, 2.4svh, 30px)',
+    lineHeight: 'clamp(27px, 3svh, 36px)',
+    fontWeight: '950',
+  },
+  adminEventsSummaryCount: {
+    minWidth: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.roseSoft,
+    color: colors.rose,
+    fontSize: 20,
+    lineHeight: 46,
+    fontWeight: '950',
+    textAlign: 'center',
+  },
+  adminEventsList: {
+    gap: 8,
+  },
+  adminEventRow: {
+    minHeight: 74,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    cursor: 'pointer',
+  },
+  adminEventRowActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+  },
+  adminEventIndex: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.rose,
+    color: '#ffffff',
+    fontSize: 15,
+    lineHeight: 34,
+    fontWeight: '950',
+    textAlign: 'center',
+    flexShrink: 0,
+  },
+  adminEventMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  adminEventName: {
+    color: colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '950',
+  },
+  adminEventMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  adminEventTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 6,
+    maxWidth: '42%',
+  },
+  adminEventTag: {
+    minHeight: 26,
+    borderRadius: 13,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    color: colors.rose,
+    fontSize: 11,
+    lineHeight: 24,
+    fontWeight: '900',
+    paddingHorizontal: 9,
+  },
+  adminEventEditButton: {
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.rose,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    flexShrink: 0,
+  },
+  adminEventEditText: {
+    color: colors.rose,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
   },
   mainGrid: {
     display: 'grid',
@@ -6974,6 +8011,167 @@ const styles = StyleSheet.create({
   eventOptionsSectionPhone: {
     padding: 9,
     gap: 9,
+  },
+  setupPreviewSection: {
+    backgroundColor: '#ffffff',
+  },
+  setupPreviewContent: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(220px, 360px) minmax(0, 1fr)',
+    gap: 16,
+    alignItems: 'center',
+  },
+  setupPreviewContentMobile: {
+    display: 'flex',
+  },
+  setupPreviewCanvas: {
+    position: 'relative',
+    width: '100%',
+    maxHeight: 420,
+    borderRadius: 8,
+    overflow: 'hidden',
+    alignSelf: 'center',
+    borderWidth: 2,
+    borderColor: colors.blue,
+    backgroundColor: colors.dark,
+    boxShadow: '0 18px 42px rgba(15,23,42,0.16)',
+  },
+  setupPreviewCanvasMobile: {
+    maxHeight: 340,
+  },
+  setupPreviewFrameImage: {
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  setupPreviewWash: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  setupPreviewEventText: {
+    position: 'absolute',
+    left: '7%',
+    top: '6%',
+    right: '7%',
+    zIndex: 2,
+  },
+  setupPreviewEventName: {
+    color: '#ffffff',
+    fontSize: 'clamp(20px, 3.4vw, 30px)',
+    lineHeight: 'clamp(25px, 4vw, 36px)',
+    fontWeight: '950',
+    textShadowColor: 'rgba(0,0,0,0.32)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+  setupPreviewEventMeta: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.28)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  setupPreviewSlot: {
+    position: 'absolute',
+    zIndex: 3,
+    borderRadius: 8,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(224,242,254,0.76)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 12px 26px rgba(15,23,42,0.18)',
+  },
+  setupPreviewSlotNumber: {
+    color: colors.blue,
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '950',
+  },
+  setupPreviewSlotLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  setupPreviewEmpty: {
+    position: 'absolute',
+    left: '10%',
+    right: '10%',
+    top: '42%',
+    minHeight: 72,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.blue,
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+  },
+  setupPreviewEmptyText: {
+    color: colors.blue,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  setupPreviewInfo: {
+    gap: 9,
+  },
+  setupPreviewInfoTitle: {
+    color: colors.ink,
+    fontSize: 26,
+    lineHeight: 31,
+    fontWeight: '950',
+  },
+  setupPreviewInfoText: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '750',
+  },
+  setupPreviewStats: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  setupPreviewStat: {
+    minHeight: 30,
+    borderRadius: 15,
+    backgroundColor: colors.roseSoft,
+    color: colors.roseDark,
+    fontSize: 12,
+    lineHeight: 30,
+    fontWeight: '950',
+    paddingHorizontal: 12,
+  },
+  setupPreviewHint: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+  },
+  setupPreviewEditButton: {
+    minHeight: 42,
+    borderRadius: 21,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    boxShadow: '0 12px 28px rgba(10,77,232,0.22)',
+    cursor: 'pointer',
+  },
+  setupPreviewEditText: {
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
   },
   eventOptionsFooter: {
     borderTopWidth: 1,
@@ -7890,6 +9088,42 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     backgroundColor: 'rgba(255,255,255,0.62)',
+  },
+  mirrorPreviewTopActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    flexShrink: 0,
+  },
+  mirrorPreviewTopActionsMobile: {
+    gap: 6,
+  },
+  mirrorPreviewHomeButton: {
+    minHeight: 40,
+    borderRadius: 20,
+    backgroundColor: colors.blue,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 15,
+    boxShadow: '0 10px 22px rgba(10,77,232,0.24)',
+    cursor: 'pointer',
+  },
+  mirrorPreviewHomeButtonMobile: {
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 10,
+  },
+  mirrorPreviewHomeButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
+  },
+  mirrorPreviewHomeButtonTextMobile: {
+    fontSize: 12,
+    lineHeight: 15,
   },
   mirrorPreviewActions: {
     position: 'absolute',
@@ -8959,9 +10193,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(10,18,32,0.30)',
+    backgroundColor: 'rgba(3,7,18,0.68)',
     overflow: 'hidden',
     zIndex: 4,
+  },
+  animationOverlayBefore: {
+    backgroundColor: 'rgba(3,7,18,0.64)',
   },
   animationHalo: {
     position: 'absolute',
@@ -8969,9 +10206,16 @@ const styles = StyleSheet.create({
     height: 'min(58vw, 560px)',
     borderRadius: 999,
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.56)',
-    backgroundColor: 'rgba(10,77,232,0.18)',
-    boxShadow: '0 0 90px rgba(10,77,232,0.32)',
+    borderColor: 'rgba(255,255,255,0.36)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    boxShadow: '0 0 90px rgba(255,255,255,0.16)',
+  },
+  animationHaloLarge: {
+    width: 'min(92vw, 920px)',
+    height: 'min(92vw, 920px)',
+    borderWidth: 3,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    boxShadow: '0 0 160px rgba(255,255,255,0.18)',
   },
   animationHaloConfetti: {
     borderStyle: 'dashed',
@@ -8981,11 +10225,21 @@ const styles = StyleSheet.create({
     minWidth: 'min(88vw, 390px)',
     maxWidth: 'min(88vw, 560px)',
     borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.94)',
+    backgroundColor: 'rgba(255,255,255,0.90)',
     paddingHorizontal: 'clamp(28px, 4vw, 48px)',
     paddingVertical: 'clamp(26px, 4svh, 42px)',
     alignItems: 'center',
     boxShadow: '0 34px 90px rgba(0,0,0,0.34)',
+  },
+  animationCardImmersive: {
+    minWidth: 'min(98vw, 1040px)',
+    maxWidth: 'min(98vw, 1120px)',
+    minHeight: 'min(78svh, 820px)',
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 'clamp(16px, 3vw, 48px)',
+    paddingVertical: 'clamp(14px, 3svh, 40px)',
+    boxShadow: 'none',
   },
   animationCardLight: {
     backgroundColor: 'rgba(255,253,248,0.95)',
@@ -9014,19 +10268,34 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   animationTitle: {
-    color: '#172554',
-    fontSize: 'clamp(44px, 5.2vw, 74px)',
-    lineHeight: 'clamp(48px, 5.8vw, 82px)',
-    fontFamily: '"Brush Script MT", "Segoe Script", "Comic Sans MS", cursive',
+    color: '#ffffff',
+    fontSize: 'clamp(44px, 7vw, 108px)',
+    lineHeight: 'clamp(48px, 7.6vw, 116px)',
+    fontWeight: '950',
     textAlign: 'center',
+    textTransform: 'uppercase',
+    textShadow: '0 18px 44px rgba(0,0,0,0.46)',
   },
   animationText: {
-    color: '#475569',
-    fontSize: 'clamp(16px, 1.8vw, 24px)',
-    lineHeight: 'clamp(21px, 2.3vw, 30px)',
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 'clamp(18px, 2.1vw, 30px)',
+    lineHeight: 'clamp(23px, 2.6vw, 36px)',
     fontWeight: '900',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 10,
+    textShadow: '0 10px 28px rgba(0,0,0,0.4)',
+  },
+  animationTextPill: {
+    marginTop: 12,
+    paddingHorizontal: 'clamp(18px, 3vw, 30px)',
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    color: colors.ink,
+    fontSize: 'clamp(15px, 1.7vw, 22px)',
+    lineHeight: 'clamp(20px, 2vw, 28px)',
+    textShadow: 'none',
+    boxShadow: '0 16px 38px rgba(0,0,0,0.26)',
   },
   animationDots: {
     flexDirection: 'row',
@@ -10246,6 +11515,11 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     paddingHorizontal: 10,
   },
+  printInputLocked: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#bfdbfe',
+    color: colors.roseDark,
+  },
   printOptionRow: {
     flexDirection: 'row',
     gap: 8,
@@ -10865,12 +12139,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   captureConfigPage: {
-    minHeight: 'calc(100vh - 36px)',
+    minHeight: 'auto',
     borderRadius: 8,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: colors.line,
-    overflow: 'hidden',
+    overflow: 'visible',
   },
   captureConfigContent: {
     maxWidth: 620,
@@ -10878,7 +12152,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: 16,
     paddingTop: 18,
-    paddingBottom: 34,
+    paddingBottom: 140,
     gap: 18,
   },
   customLayoutPage: {
@@ -10917,6 +12191,12 @@ const styles = StyleSheet.create({
     padding: 'clamp(14px, 1.5vw, 22px)',
     alignSelf: 'center',
   },
+  customLayoutSheetMirrorPaper: {
+    display: 'flex',
+    flexDirection: 'row',
+    gap: 8,
+    maxWidth: 'min(66vw, 720px)',
+  },
   customLayoutSheetMobile: {
     minWidth: 0,
     maxWidth: '100%',
@@ -10932,6 +12212,30 @@ const styles = StyleSheet.create({
   },
   customLayoutStripEditable: {
     boxShadow: '0 0 0 2px rgba(10,77,232,0.16)',
+  },
+  customLayoutStripHalf: {
+    flex: 1,
+    minWidth: 0,
+  },
+  customLayoutMirrorCopy: {
+    opacity: 0.92,
+    boxShadow: 'inset 0 0 0 1px rgba(10,77,232,0.18)',
+  },
+  customLayoutMirrorBadge: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    borderRadius: 999,
+    backgroundColor: colors.rose,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    zIndex: 30,
+  },
+  customLayoutMirrorBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '950',
   },
   customLayoutBackgroundImage: {
     position: 'absolute',
@@ -11009,6 +12313,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.34)',
     boxShadow: '0 0 0 2px rgba(10,77,232,0.9)',
   },
+  customMirrorPreviewLayer: {
+    pointerEvents: 'none',
+  },
   customTextLayerValue: {
     fontWeight: '900',
     textAlign: 'center',
@@ -11031,6 +12338,14 @@ const styles = StyleSheet.create({
     borderColor: colors.rose,
     backgroundColor: '#dbeafe',
     boxShadow: '0 0 0 3px rgba(10,77,232,0.22), 0 12px 26px rgba(15,23,42,0.18)',
+  },
+  customLayoutSlotMirror: {
+    opacity: 0.54,
+    borderStyle: 'dashed',
+    borderColor: colors.rose,
+    backgroundColor: 'rgba(238,245,255,0.52)',
+    cursor: 'default',
+    pointerEvents: 'none',
   },
   customLayoutSlotNumber: {
     color: colors.rose,
@@ -11278,11 +12593,19 @@ const styles = StyleSheet.create({
   customManualButtonDisabled: {
     opacity: 0.42,
   },
+  customManualButtonActive: {
+    backgroundColor: colors.roseSoft,
+    borderColor: colors.rose,
+    boxShadow: '0 0 0 3px rgba(10,77,232,0.14)',
+  },
   customManualButtonText: {
     color: colors.ink,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '900',
+  },
+  customManualButtonTextActive: {
+    color: colors.rose,
   },
   customManualGhostButton: {
     minHeight: 46,
@@ -11300,10 +12623,36 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '900',
   },
+  customManualMirrorButton: {
+    minHeight: 46,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  customManualMirrorButtonActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.rose,
+  },
+  customManualMirrorText: {
+    color: colors.ink,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  customManualMirrorTextActive: {
+    color: '#ffffff',
+  },
   customTextGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: 10,
+  },
+  customTextGridSingle: {
+    gridTemplateColumns: '1fr',
   },
   customTextInput: {
     minHeight: 44,
@@ -11316,6 +12665,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     paddingHorizontal: 12,
     outlineStyle: 'none',
+  },
+  customTextDateInput: {
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '800',
+    paddingHorizontal: 12,
+    outlineStyle: 'none',
+    cursor: 'pointer',
   },
   customTextLayerPicker: {
     flexDirection: 'row',
@@ -11379,6 +12741,145 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     borderWidth: 2,
     borderColor: '#ffffff',
+  },
+  customTextFontMenu: {
+    gridColumn: '1 / -1',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+  },
+  customTextFontChoice: {
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    cursor: 'pointer',
+  },
+  customTextFontChoiceActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+  },
+  customTextFontChoiceText: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  customTextFontChoiceTextActive: {
+    color: colors.rose,
+  },
+  customTextFontUpload: {
+    minHeight: 56,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    cursor: 'pointer',
+  },
+  customTextFontUploadTitle: {
+    color: colors.rose,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
+    textAlign: 'center',
+  },
+  customTextFontUploadText: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  customTextColorPalette: {
+    gridColumn: '1 / -1',
+    gap: 12,
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    boxShadow: '0 12px 28px rgba(15,23,42,0.08)',
+  },
+  customTextColorPaletteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  customTextColorPaletteTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '950',
+  },
+  customTextColorPickerLabel: {
+    minHeight: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 12,
+    paddingRight: 6,
+    cursor: 'pointer',
+  },
+  customTextColorPickerText: {
+    color: colors.rose,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
+  customTextColorPickerInput: {
+    width: 34,
+    height: 34,
+    border: 0,
+    padding: 0,
+    backgroundColor: 'transparent',
+    cursor: 'pointer',
+  },
+  customTextColorGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(46px, 1fr))',
+    gap: 10,
+  },
+  customTextColorChoice: {
+    height: 48,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.soft,
+    cursor: 'pointer',
+  },
+  customTextColorChoiceActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+    boxShadow: '0 0 0 3px rgba(10,77,232,0.16)',
+  },
+  customTextColorChoiceSwatch: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: 'rgba(17,24,39,0.18)',
   },
   customTypePills: {
     flexDirection: 'row',
@@ -11864,6 +13365,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     paddingHorizontal: 14,
     backgroundColor: '#ffffff',
+  },
+  scriptDateInput: {
+    minHeight: 52,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d4d4d8',
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '600',
+    paddingHorizontal: 14,
+    backgroundColor: '#ffffff',
+    outlineStyle: 'none',
+    cursor: 'pointer',
   },
   photoTextQuickPanel: {
     gap: 14,
