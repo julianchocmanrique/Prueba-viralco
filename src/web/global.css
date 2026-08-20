@@ -193,3 +193,203 @@ textarea {
     box-shadow: 0 0 22px rgba(255,255,255,0.9);
   }
 }
+
+.viralco-capture-effect {
+  position: relative;
+  width: min(72vw, 430px);
+  height: min(34svh, 320px);
+  margin: 0 auto 18px;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+}
+
+.viralco-capture-effect::before,
+.viralco-capture-effect::after {
+  content: "";
+  position: absolute;
+  inset: 11%;
+  border-radius: 999px;
+  border: 2px solid rgba(10, 77, 232, 0.34);
+  animation: viralco-effect-ring 1.55s ease-in-out infinite;
+}
+
+.viralco-capture-effect::after {
+  inset: 22%;
+  border-color: rgba(255, 255, 255, 0.72);
+  animation-delay: 0.24s;
+}
+
+.viralco-effect-burst {
+  position: absolute;
+  width: 82%;
+  height: 82%;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255,255,255,0.76), transparent 28%),
+    conic-gradient(from 0deg, rgba(10,77,232,0), rgba(10,77,232,.42), rgba(56,189,248,.16), rgba(10,77,232,0));
+  filter: blur(1px);
+  opacity: .82;
+  animation: viralco-effect-spin 4s linear infinite;
+}
+
+.viralco-effect-photo {
+  position: relative;
+  z-index: 2;
+  width: min(58vw, 260px);
+  min-height: min(27svh, 230px);
+  border-radius: 22px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow:
+    0 24px 60px rgba(15, 23, 42, 0.32),
+    inset 0 0 0 1px rgba(255,255,255,0.9);
+  animation: viralco-effect-pop 1.55s ease-in-out infinite;
+}
+
+.viralco-effect-photo-top {
+  height: min(12svh, 105px);
+  background:
+    linear-gradient(90deg, #3244a4 0 18%, transparent 18% 74%, #3244a4 74% 100%),
+    linear-gradient(135deg, #7a74bd, #4544a0);
+}
+
+.viralco-effect-photo-body {
+  min-height: min(15svh, 125px);
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 18px 14px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.94), rgba(240,247,255,.96));
+}
+
+.viralco-effect-check {
+  width: 62px;
+  height: 62px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  font-size: 42px;
+  font-weight: 950;
+  background: linear-gradient(135deg, #0a4de8, #38bdf8);
+  box-shadow: 0 12px 26px rgba(10, 77, 232, .34);
+}
+
+.viralco-effect-caption {
+  color: #172554;
+  font-size: clamp(17px, 2.3vw, 24px);
+  line-height: 1.1;
+  font-weight: 950;
+  text-transform: uppercase;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+.viralco-effect-spark {
+  position: absolute;
+  z-index: 3;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 24px rgba(255,255,255,.92);
+  animation: viralco-effect-spark 1.9s ease-in-out infinite;
+}
+
+.viralco-effect-spark-a {
+  left: 12%;
+  top: 24%;
+  background: #facc15;
+}
+
+.viralco-effect-spark-b {
+  right: 13%;
+  top: 17%;
+  background: #38bdf8;
+  animation-delay: .18s;
+}
+
+.viralco-effect-spark-c {
+  left: 18%;
+  bottom: 18%;
+  background: #fb7185;
+  animation-delay: .34s;
+}
+
+.viralco-effect-spark-d {
+  right: 20%;
+  bottom: 16%;
+  background: #a7f3d0;
+  animation-delay: .52s;
+}
+
+.viralco-effect-spark-e {
+  left: 48%;
+  top: 3%;
+  background: #ffffff;
+  animation-delay: .72s;
+}
+
+.viralco-capture-effect-confeti .viralco-effect-photo-top {
+  background:
+    radial-gradient(circle at 18% 35%, #facc15 0 6%, transparent 7%),
+    radial-gradient(circle at 72% 28%, #fb7185 0 6%, transparent 7%),
+    radial-gradient(circle at 52% 70%, #38bdf8 0 6%, transparent 7%),
+    linear-gradient(135deg, #0a4de8, #38bdf8);
+}
+
+.viralco-capture-effect-destello .viralco-effect-burst {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255,255,255,0.9), transparent 26%),
+    conic-gradient(from 0deg, rgba(250,204,21,0), rgba(250,204,21,.66), rgba(255,255,255,.42), rgba(250,204,21,0));
+}
+
+@keyframes viralco-effect-pop {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-7px) scale(1.045);
+  }
+}
+
+@keyframes viralco-effect-ring {
+  0%, 100% {
+    opacity: .55;
+    transform: scale(.86);
+  }
+  50% {
+    opacity: .95;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes viralco-effect-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes viralco-effect-spark {
+  0%, 100% {
+    opacity: .4;
+    transform: translateY(0) scale(.75);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-12px) scale(1.28);
+  }
+}
+
+@media (max-width: 540px) {
+  .viralco-capture-effect {
+    width: min(84vw, 330px);
+    height: min(31svh, 260px);
+  }
+
+  .viralco-effect-photo {
+    width: min(64vw, 220px);
+  }
+}
