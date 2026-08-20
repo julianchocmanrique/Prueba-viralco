@@ -493,6 +493,7 @@ const WebApp = () => {
   const isMobile = width < 760
   const isPhone = width <= 500
   const isShortScreen = height < 720
+  const isPortraitMirrorScreen = width >= 760 && width <= 1250 && height > width * 1.12
   const capturePulse = useRef(new Animated.Value(0)).current
   const captureFloat = useRef(new Animated.Value(0)).current
   const [showCreateEventModal, setShowCreateEventModal] = useState(false)
@@ -4436,8 +4437,8 @@ const WebApp = () => {
   })
 
   const renderCustomPhotoLayoutScreen = () => (
-    <View style={styles.customLayoutPage}>
-      <View style={[styles.startEditorHeader, isMobile && styles.startEditorHeaderMobile]}>
+    <View style={[styles.customLayoutPage, isPortraitMirrorScreen && styles.customLayoutPagePortrait]}>
+      <View style={[styles.startEditorHeader, isMobile && styles.startEditorHeaderMobile, isPortraitMirrorScreen && styles.startEditorHeaderPortrait]}>
         <View style={styles.startEditorHeading}>
           <Text style={styles.panelEyebrow}>Personalizar</Text>
           <Text style={[styles.startEditorTitle, isMobile && styles.startEditorTitleMobile]}>Layout manual</Text>
@@ -4447,9 +4448,17 @@ const WebApp = () => {
         </View>
       </View>
 
-      <View style={[styles.customLayoutContent, isMobile && styles.customLayoutContentMobile]}>
+      <View style={[styles.customLayoutContent, isMobile && styles.customLayoutContentMobile, isPortraitMirrorScreen && styles.customLayoutContentPortrait]}>
         <View style={styles.customLayoutPreviewPanel}>
-          <View style={[styles.customLayoutSheet, customMirrorMode && styles.customLayoutSheetMirrorPaper, isMobile && styles.customLayoutSheetMobile]}>
+          <View
+            style={[
+              styles.customLayoutSheet,
+              customMirrorMode && styles.customLayoutSheetMirrorPaper,
+              isMobile && styles.customLayoutSheetMobile,
+              isPortraitMirrorScreen && styles.customLayoutSheetPortrait,
+              isPortraitMirrorScreen && customMirrorMode && styles.customLayoutSheetMirrorPaperPortrait,
+            ]}
+          >
             <View
               ref={customEditorStripRef}
               style={[styles.customLayoutStrip, customMirrorMode && styles.customLayoutStripHalf, styles.customLayoutStripEditable]}
@@ -4498,7 +4507,7 @@ const WebApp = () => {
           </Text>
         </View>
 
-        <View style={styles.customLayoutControls}>
+        <View style={[styles.customLayoutControls, isPortraitMirrorScreen && styles.customLayoutControlsPortrait]}>
           <View style={styles.customMenuTabs}>
             {[
               { id: 'photos', label: 'Fotos' },
@@ -6998,7 +7007,14 @@ const WebApp = () => {
   if (showCustomPhotoLayoutScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView
+          style={isPortraitMirrorScreen ? styles.configScrollView : undefined}
+          contentContainerStyle={[
+            styles.pageContent,
+            isPhone && styles.pageContentPhone,
+            isPortraitMirrorScreen && styles.customLayoutScrollContentPortrait,
+          ]}
+        >
           {renderCustomPhotoLayoutScreen()}
         </ScrollView>
         {renderHiddenHomeButton()}
@@ -7010,7 +7026,14 @@ const WebApp = () => {
     if (showCustomPhotoLayoutScreen) {
       return (
         <View style={styles.page}>
-          <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+          <ScrollView
+            style={isPortraitMirrorScreen ? styles.configScrollView : undefined}
+            contentContainerStyle={[
+              styles.pageContent,
+              isPhone && styles.pageContentPhone,
+              isPortraitMirrorScreen && styles.customLayoutScrollContentPortrait,
+            ]}
+          >
             {renderCustomPhotoLayoutScreen()}
           </ScrollView>
           {renderHiddenHomeButton()}
@@ -7153,6 +7176,13 @@ const styles = StyleSheet.create({
   captureConfigScrollContentPhone: {
     padding: 8,
     paddingBottom: 170,
+  },
+  customLayoutScrollContentPortrait: {
+    height: 'auto',
+    minHeight: '100svh',
+    padding: 10,
+    paddingBottom: 190,
+    overflow: 'visible',
   },
   homePageContent: {
     height: 'auto',
@@ -11070,6 +11100,13 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     justifyContent: 'flex-start',
   },
+  startEditorHeaderPortrait: {
+    minHeight: 104,
+    paddingHorizontal: 'clamp(18px, 3vw, 34px)',
+    paddingVertical: 'clamp(16px, 2svh, 24px)',
+    paddingRight: 'clamp(80px, 8vw, 112px)',
+    justifyContent: 'flex-start',
+  },
   startEditorHeading: {
     flex: 1,
     minWidth: 0,
@@ -12163,6 +12200,10 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     overflow: 'hidden',
   },
+  customLayoutPagePortrait: {
+    minHeight: 'auto',
+    overflow: 'visible',
+  },
   customLayoutContent: {
     display: 'grid',
     gridTemplateColumns: 'minmax(520px, 1.45fr) minmax(360px, 0.85fr)',
@@ -12173,6 +12214,14 @@ const styles = StyleSheet.create({
   customLayoutContentMobile: {
     gridTemplateColumns: 'minmax(0, 1fr)',
     padding: 14,
+  },
+  customLayoutContentPortrait: {
+    gridTemplateColumns: 'minmax(0, 1fr)',
+    maxWidth: 780,
+    width: '100%',
+    alignSelf: 'center',
+    padding: 'clamp(12px, 1.6svh, 22px)',
+    gap: 16,
   },
   customLayoutPreviewPanel: {
     gap: 14,
@@ -12191,11 +12240,21 @@ const styles = StyleSheet.create({
     padding: 'clamp(14px, 1.5vw, 22px)',
     alignSelf: 'center',
   },
+  customLayoutSheetPortrait: {
+    minWidth: 0,
+    width: '100%',
+    maxWidth: 'min(86vw, 700px)',
+  },
   customLayoutSheetMirrorPaper: {
     display: 'flex',
     flexDirection: 'row',
     gap: 8,
     maxWidth: 'min(66vw, 720px)',
+  },
+  customLayoutSheetMirrorPaperPortrait: {
+    maxWidth: 'min(94vw, 760px)',
+    gap: 6,
+    padding: 'clamp(10px, 1.2vw, 16px)',
   },
   customLayoutSheetMobile: {
     minWidth: 0,
@@ -12471,6 +12530,11 @@ const styles = StyleSheet.create({
   customLayoutControls: {
     gap: 14,
     minWidth: 0,
+  },
+  customLayoutControlsPortrait: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
   },
   customMenuTabs: {
     flexDirection: 'row',
