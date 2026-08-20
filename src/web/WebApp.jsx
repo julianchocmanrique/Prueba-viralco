@@ -367,6 +367,8 @@ const printPaperPresets = [
   { id: '10x15', label: '10 x 15', sizeText: '10 x 15 cm', width: '10', height: '15', margin: '0', note: 'Hoja para dos tiras 5x15.' },
 ]
 const printDpiOptions = [203, 300, 600]
+const cp1500ShortEdgeCm = 10
+const cp1500LongEdgeCm = 14.8
 const defaultPrintSettings = {
   presetId: '10x15',
   widthCm: '10',
@@ -375,7 +377,7 @@ const defaultPrintSettings = {
   copies: '1',
   dpi: 300,
   orientation: 'Vertical',
-  fit: 'Ajustar',
+  fit: 'Rellenar',
   twoPerPage: false,
   secondaryPrinter: false,
 }
@@ -648,13 +650,13 @@ const WebApp = () => {
       const parsed = Number(String(value).replace(',', '.'))
       return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
     }
-    const widthCm = 10
-    const heightCm = 15
+    const widthCm = cp1500ShortEdgeCm
+    const heightCm = cp1500LongEdgeCm
     const marginCm = Math.min(parsePositive(printSettings.marginCm, 0), Math.min(widthCm, heightCm) / 3)
     const copies = Math.min(Math.max(Math.round(parsePositive(printSettings.copies, 1)), 1), 20)
     const dpi = printDpiOptions.includes(Number(printSettings.dpi)) ? Number(printSettings.dpi) : 300
-    const orientedWidthCm = widthCm
-    const orientedHeightCm = heightCm
+    const orientedWidthCm = printSettings.orientation === 'Horizontal' ? heightCm : widthCm
+    const orientedHeightCm = printSettings.orientation === 'Horizontal' ? widthCm : heightCm
     const printableWidthCm = Math.max(orientedWidthCm - marginCm * 2, 0.1)
     const printableHeightCm = Math.max(orientedHeightCm - marginCm * 2, 0.1)
     return {
@@ -680,8 +682,8 @@ const WebApp = () => {
     [visibleLaunchEvents, selectedRecentId],
   )
   const eventTemplateOptions = useMemo(() => getTemplatesForEventType(eventType), [eventType])
-  const printSizeLabel = `${normalizedPrintSettings.widthCm}x${normalizedPrintSettings.heightCm} cm`
-  const activePrintLabel = '10 x 15'
+  const printSizeLabel = '10x15 cm'
+  const activePrintLabel = 'Canon CP1500'
   const getAppRoutePath = (route = 'inicio') => {
     const base = import.meta.env.BASE_URL || '/'
     const normalizedBase = base.endsWith('/') ? base : `${base}/`
@@ -2943,22 +2945,43 @@ const WebApp = () => {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;')
 
-  const executePrint = () => {
+  const getImageSize = (src) => new Promise((resolve) => {
+    if (!src || typeof Image === 'undefined') {
+      resolve({ width: selectedType.width, height: selectedType.height })
+      return
+    }
+    const image = new Image()
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth || selectedType.width,
+        height: image.naturalHeight || selectedType.height,
+      })
+    }
+    image.onerror = () => resolve({ width: selectedType.width, height: selectedType.height })
+    image.src = src
+  })
+
+  const executePrint = async () => {
     if (!captureComplete || typeof window === 'undefined') return
 
-    const imageCopies = Array.from({ length: normalizedPrintSettings.copies }, (_, index) => (
-      `<img src="${finalPhotoUrl}" alt="Foto Viralco ${index + 1}" />`
-    )).join('')
-    const printFit = normalizedPrintSettings.fit === 'Rellenar' ? 'cover' : 'contain'
-    const printableWidth = `calc(${normalizedPrintSettings.widthCm}cm - ${normalizedPrintSettings.marginCm * 2}cm)`
-    const printableHeight = `calc(${normalizedPrintSettings.heightCm}cm - ${normalizedPrintSettings.marginCm * 2}cm)`
-    const printGridColumns = normalizedPrintSettings.twoPerPage ? '1fr 1fr' : '1fr'
-    const printImageWidth = normalizedPrintSettings.twoPerPage ? `calc((${printableWidth} - 0.2cm) / 2)` : printableWidth
     const printWindow = window.open('', '_blank')
     if (!printWindow) {
       setCaptureStatus('El navegador bloqueó la ventana de impresión.')
       return
     }
+    printWindow.document.open()
+    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>Preparando impresión</title></head><body style="margin:0;display:grid;place-items:center;min-height:100vh;font-family:Arial,sans-serif;color:#111827;">Preparando impresión Canon CP1500...</body></html>`)
+    printWindow.document.close()
+
+    const imageSize = await getImageSize(finalPhotoUrl)
+    const imageIsLandscape = imageSize.width > imageSize.height
+    const pageWidthCm = imageIsLandscape ? cp1500LongEdgeCm : cp1500ShortEdgeCm
+    const pageHeightCm = imageIsLandscape ? cp1500ShortEdgeCm : cp1500LongEdgeCm
+    const printableWidth = `${pageWidthCm}cm`
+    const printableHeight = `${pageHeightCm}cm`
+    const imageCopies = Array.from({ length: normalizedPrintSettings.copies }, (_, index) => (
+      `<img src="${finalPhotoUrl}" alt="Foto Viralco ${index + 1}" />`
+    )).join('')
     printWindow.document.open()
     printWindow.document.write(`<!doctype html>
 <html>
@@ -2969,12 +2992,13 @@ const WebApp = () => {
       body { margin: 0; background: #f3f4f6; font-family: Arial, sans-serif; }
       main { min-height: 100vh; display: grid; place-items: center; gap: 24px; padding: 24px; }
       img { max-width: min(92vw, 760px); max-height: 92vh; background: #111827; box-shadow: 0 20px 60px rgba(0,0,0,.18); }
-      @page { size: ${normalizedPrintSettings.widthCm}cm ${normalizedPrintSettings.heightCm}cm; margin: ${normalizedPrintSettings.marginCm}cm; }
+      @page { size: ${pageWidthCm}cm ${pageHeightCm}cm; margin: 0; }
       @media print {
-        body { background: #fff; }
-        main { width: ${printableWidth}; min-height: 0; padding: 0; display: grid; grid-template-columns: ${printGridColumns}; gap: 0.2cm; align-items: center; justify-items: center; }
-        img { width: ${printImageWidth}; height: ${printableHeight}; max-width: none; max-height: none; object-fit: ${printFit}; box-shadow: none; break-inside: avoid; display: block; }
-        ${normalizedPrintSettings.twoPerPage ? 'img:nth-child(2n) { page-break-after: always; break-after: page; } img:last-child { page-break-after: auto; break-after: auto; }' : 'img { page-break-after: always; break-after: page; } img:last-child { page-break-after: auto; break-after: auto; }'}
+        html, body { width: ${printableWidth}; margin: 0; background: #fff; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        main { width: ${printableWidth}; min-height: 0; padding: 0; margin: 0; display: block; }
+        img { width: ${printableWidth}; height: ${printableHeight}; max-width: none; max-height: none; object-fit: cover; object-position: center center; box-shadow: none; break-inside: avoid; display: block; page-break-after: always; break-after: page; }
+        img:last-child { page-break-after: auto; break-after: auto; }
       }
     </style>
   </head>
