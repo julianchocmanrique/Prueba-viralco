@@ -7032,9 +7032,9 @@ const WebApp = () => {
     return (
       <View style={styles.page}>
         <ScrollView
-          style={isPortraitMirrorScreen ? styles.configScrollView : undefined}
+          style={styles.configScrollView}
           contentContainerStyle={[
-            styles.pageContent,
+            styles.customLayoutScrollContent,
             isPhone && styles.pageContentPhone,
             isPortraitMirrorScreen && styles.customLayoutScrollContentPortrait,
           ]}
@@ -7051,9 +7051,9 @@ const WebApp = () => {
       return (
         <View style={styles.page}>
           <ScrollView
-            style={isPortraitMirrorScreen ? styles.configScrollView : undefined}
+            style={styles.configScrollView}
             contentContainerStyle={[
-              styles.pageContent,
+              styles.customLayoutScrollContent,
               isPhone && styles.pageContentPhone,
               isPortraitMirrorScreen && styles.customLayoutScrollContentPortrait,
             ]}
@@ -7200,6 +7200,13 @@ const styles = StyleSheet.create({
   captureConfigScrollContentPhone: {
     padding: 8,
     paddingBottom: 170,
+  },
+  customLayoutScrollContent: {
+    height: 'auto',
+    minHeight: '100svh',
+    padding: 'clamp(10px, 2svh, 18px)',
+    paddingBottom: 220,
+    overflow: 'visible',
   },
   customLayoutScrollContentPortrait: {
     height: 'auto',
@@ -12217,12 +12224,12 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   customLayoutPage: {
-    minHeight: 'calc(100vh - 36px)',
+    minHeight: 'auto',
     borderRadius: 8,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: colors.line,
-    overflow: 'hidden',
+    overflow: 'visible',
   },
   customLayoutPagePortrait: {
     minHeight: 'auto',
