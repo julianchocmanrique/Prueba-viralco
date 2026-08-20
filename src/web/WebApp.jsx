@@ -495,7 +495,7 @@ const WebApp = () => {
   const isMobile = width < 760
   const isPhone = width <= 500
   const isShortScreen = height < 720
-  const isPortraitMirrorScreen = width >= 760 && width <= 1250 && height > width * 1.12
+  const isPortraitMirrorScreen = width >= 760 && width < 880 && height > width * 1.35
   const capturePulse = useRef(new Animated.Value(0)).current
   const captureFloat = useRef(new Animated.Value(0)).current
   const [showCreateEventModal, setShowCreateEventModal] = useState(false)
@@ -6954,7 +6954,7 @@ const WebApp = () => {
   if (showStartEditor) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderStartEditor()}
         </ScrollView>
       </View>
@@ -6964,7 +6964,7 @@ const WebApp = () => {
   if (showPhotoDesignScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderPhotoDesignScreen()}
         </ScrollView>
       </View>
@@ -6974,7 +6974,7 @@ const WebApp = () => {
   if (showCaptureModeScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderCaptureModeScreen()}
         </ScrollView>
       </View>
@@ -6998,7 +6998,7 @@ const WebApp = () => {
   if (showPrintConfigScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderPrintConfigScreen()}
         </ScrollView>
       </View>
@@ -7008,7 +7008,7 @@ const WebApp = () => {
   if (showBackgroundRemovalScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderBackgroundRemovalScreen()}
         </ScrollView>
         {renderHiddenHomeButton()}
@@ -7019,7 +7019,7 @@ const WebApp = () => {
   if (showHomeLauncher) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
           {renderHomeLauncher()}
         </ScrollView>
         {showCreateEventModal && renderCreateEventModal()}
@@ -7067,7 +7067,7 @@ const WebApp = () => {
 
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderEventOptionsScreen()}
         </ScrollView>
         {showCreateEventModal && renderCreateEventModal()}
@@ -7079,7 +7079,7 @@ const WebApp = () => {
   if (showAnimationVideoScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderAnimationVideoScreen()}
         </ScrollView>
         {renderHiddenHomeButton()}
@@ -7099,7 +7099,7 @@ const WebApp = () => {
   if (showCapturePhotoScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.mirrorPageContent}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={styles.mirrorPageContent}>
           {renderCapturePhotoScreen()}
         </ScrollView>
         {renderHiddenHomeButton()}
@@ -7110,7 +7110,7 @@ const WebApp = () => {
   if (showPreviewScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderPreviewScreen()}
         </ScrollView>
         {showPrintOptions && renderPrintOptionsModal()}
@@ -7123,7 +7123,7 @@ const WebApp = () => {
   if (showShareScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderShareScreen()}
         </ScrollView>
         {showPrintOptions && renderPrintOptionsModal()}
@@ -7135,7 +7135,7 @@ const WebApp = () => {
 
   return (
     <View style={styles.page}>
-      <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
+      <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
         {renderHomeLauncher()}
       </ScrollView>
       {showCreateEventModal && renderCreateEventModal()}
@@ -7172,10 +7172,11 @@ const styles = StyleSheet.create({
     opacity: 0.12,
   },
   pageContent: {
-    height: '100svh',
+    height: 'auto',
+    minHeight: '100svh',
     padding: 'clamp(10px, 2svh, 18px)',
-    paddingBottom: 'clamp(10px, 2svh, 18px)',
-    overflow: 'hidden',
+    paddingBottom: 'clamp(90px, 12svh, 180px)',
+    overflow: 'visible',
   },
   pageContentPhone: {
     height: 'auto',
@@ -12237,9 +12238,9 @@ const styles = StyleSheet.create({
   },
   customLayoutContent: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(520px, 1.45fr) minmax(360px, 0.85fr)',
-    gap: 20,
-    padding: 'clamp(16px, 2vw, 28px)',
+    gridTemplateColumns: 'minmax(460px, 1.45fr) minmax(320px, 0.85fr)',
+    gap: 'clamp(12px, 1.6vw, 20px)',
+    padding: 'clamp(10px, 1.6vw, 28px)',
     alignItems: 'start',
   },
   customLayoutContentMobile: {
