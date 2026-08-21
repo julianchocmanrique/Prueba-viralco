@@ -596,7 +596,7 @@ const WebApp = () => {
   const [gifDelayMs, setGifDelayMs] = useState(300)
   const [qualityMode, setQualityMode] = useState('Alta')
   const [preCaptureText, setPreCaptureText] = useState('Prepárese')
-  const [photoScriptText, setPhotoScriptText] = useState(photoTextPresets[0])
+  const [photoScriptText, setPhotoScriptText] = useState('')
   const [photoNameText, setPhotoNameText] = useState('')
   const [photoDateText, setPhotoDateText] = useState('')
   const [photoEventText, setPhotoEventText] = useState('')
@@ -2524,8 +2524,8 @@ const WebApp = () => {
     setCaptureStatus(status)
   }
 
-  const getPhotoNameText = () => photoNameText.trim() || eventTitle
-  const getPhotoDateText = () => photoDateText.trim() || formatEventDate()
+  const getPhotoNameText = () => photoNameText.trim()
+  const getPhotoDateText = () => photoDateText.trim()
   const getPhotoEventText = () => photoEventText.trim()
 
   const wait = (milliseconds) => new Promise((resolve) => {
@@ -2533,7 +2533,8 @@ const WebApp = () => {
   })
 
   const getPhotoScriptLines = () => {
-    const text = photoScriptText.trim() || photoTextPresets[0]
+    const text = photoScriptText.trim()
+    if (!text) return []
     if (text.length <= 23) return [text]
     const words = text.split(/\s+/)
     const lines = ['']
@@ -2551,6 +2552,7 @@ const WebApp = () => {
 
   const getPhotoNameLines = () => {
     const text = getPhotoNameText()
+    if (!text) return []
     if (text.length <= 16) return [text]
     const words = text.split(/\s+/)
     const lines = ['']
@@ -2634,7 +2636,7 @@ const WebApp = () => {
       context.restore()
     }
 
-    drawCustomCanvasTextLayer('script', photoScriptText.trim() || photoTextPresets[0])
+    drawCustomCanvasTextLayer('script', photoScriptText.trim())
 
     photoSlots.forEach((slot, index) => {
       const image = frameImages[slot.photoNumber - 1] || orderedImages[index % orderedImages.length] || frameImages[index % frameImages.length]
@@ -5316,7 +5318,7 @@ const WebApp = () => {
   )
 
   const getCustomTextPreviewItems = () => [
-    { id: 'script', label: 'Frase', value: photoScriptText.trim() || photoTextPresets[0] },
+    { id: 'script', label: 'Frase', value: photoScriptText.trim() },
     { id: 'name', label: 'Nombre', value: getPhotoNameText() },
     { id: 'event', label: 'Evento', value: getPhotoEventText() },
     { id: 'date', label: 'Fecha', value: getPhotoDateText() },
