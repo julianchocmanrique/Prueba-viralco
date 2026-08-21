@@ -11,6 +11,8 @@ const stateRoot = process.env.VIRALCO_STATE_DIR || '/var/www/html/prueba-viralco
 const publicBaseUrl = process.env.VIRALCO_PHOTO_PUBLIC_BASE || 'https://www.viralcoproducciones.com/prueba-viralco/uploads/photos'
 const maxBodyBytes = Number(process.env.VIRALCO_PHOTO_MAX_BYTES || 60 * 1024 * 1024)
 const stateFilePath = path.join(stateRoot, 'app-state.json')
+const syncToken = process.env.VIRALCO_SYNC_TOKEN || 'viralco-reset-20260821-login'
+const resetStartedAt = new Date(process.env.VIRALCO_RESET_STARTED_AT || '2026-08-21T17:50:00.000Z').getTime()
 
 const json = (response, statusCode, payload) => {
   const body = JSON.stringify(payload)
@@ -25,8 +27,14 @@ const json = (response, statusCode, payload) => {
 }
 
 const defaultAppState = () => ({
-  version: 1,
+  version: 2,
   updatedAt: new Date(0).toISOString(),
+  users: [
+    { id: 'super-admin', name: 'Super Admin', username: 'superadmin', password: '1234', role: 'super_admin' },
+    { id: 'admin-viralco', name: 'Administrador', username: 'admin', password: '1234', role: 'admin' },
+    { id: 'operario-1', name: 'Operario 1', username: 'operario1', password: '1234', role: 'operator', adminId: 'admin-viralco' },
+    { id: 'operario-2', name: 'Operario 2', username: 'operario2', password: '1234', role: 'operator', adminId: 'admin-viralco' },
+  ],
   recentEvents: [],
   deletedEventIds: [],
   eventGalleries: {},
@@ -57,8 +65,13 @@ const mergeItemsByIdentity = (currentItems = [], incomingItems = [], limit = 300
     .slice(0, limit)
 }
 
+const isAfterReset = (item) => {
+  const stamp = Date.parse(item?.createdAt || item?.savedAt || item?.updatedAt || '')
+  return Number.isFinite(stamp) && stamp >= resetStartedAt
+}
+
 const sanitizeGalleryItems = (items) => (
-  sanitizeArray(items, 120).map((item) => ({
+  sanitizeArray(items, 120).filter(isAfterReset).map((item) => ({
     id: safeText(item?.id, 180),
     eventId: safeText(item?.eventId, 180),
     operatorId: safeText(item?.operatorId, 80),
@@ -73,30 +86,50 @@ const sanitizeGalleryItems = (items) => (
   })).filter((item) => item.src || item.publicUrl)
 )
 
+const sanitizeUsers = (users) => (
+  sanitizeArray(users, 100).map((user) => ({
+    id: safeText(user?.id, 80),
+    name: safeText(user?.name, 120),
+    username: safeText(user?.username, 80),
+    password: safeText(user?.password, 120),
+    role: ['super_admin', 'admin', 'operator'].includes(user?.role) ? user.role : 'operator',
+    adminId: safeText(user?.adminId, 80),
+  })).filter((user) => user.id && user.username && user.role)
+)
+
 const sanitizeAppState = (payload, current = defaultAppState()) => {
+  const acceptsSharedData = Number(payload?.schemaVersion) >= 2 && payload?.syncToken === syncToken
   const eventGalleries = { ...(current.eventGalleries || {}) }
-  if (payload?.eventGalleries && typeof payload.eventGalleries === 'object') {
+  if (acceptsSharedData && payload?.eventGalleries && typeof payload.eventGalleries === 'object') {
     Object.entries(payload.eventGalleries).slice(0, 300).forEach(([key, gallery]) => {
       const galleryId = safeText(gallery?.id || key, 180)
       if (!galleryId) return
       const currentGallery = eventGalleries[galleryId] || {}
+      const items = sanitizeGalleryItems(mergeItemsByIdentity(currentGallery.items, gallery?.items, 120))
+      if (!items.length) {
+        delete eventGalleries[galleryId]
+        return
+      }
       eventGalleries[galleryId] = {
         id: galleryId,
         eventName: safeText(gallery?.eventName || currentGallery.eventName, 160),
         operatorId: safeText(gallery?.operatorId || currentGallery.operatorId, 80),
         updatedAt: safeText(gallery?.updatedAt || currentGallery.updatedAt, 80),
-        items: sanitizeGalleryItems(mergeItemsByIdentity(currentGallery.items, gallery?.items, 120)),
+        items,
       }
     })
   }
 
   return {
-    version: 1,
+    version: 2,
     updatedAt: new Date().toISOString(),
-    recentEvents: mergeItemsByIdentity(current.recentEvents, payload?.recentEvents, 300),
+    users: sanitizeUsers(payload?.users).length ? sanitizeUsers(payload.users) : sanitizeUsers(current.users || defaultAppState().users),
+    recentEvents: acceptsSharedData
+      ? mergeItemsByIdentity(current.recentEvents, sanitizeArray(payload?.recentEvents, 300).filter(isAfterReset), 300)
+      : sanitizeArray(current.recentEvents, 300),
     deletedEventIds: [...new Set([
       ...sanitizeArray(current.deletedEventIds, 300),
-      ...sanitizeArray(payload?.deletedEventIds, 300),
+      ...(acceptsSharedData ? sanitizeArray(payload?.deletedEventIds, 300) : []),
     ].map((id) => safeText(id, 180)).filter(Boolean))],
     eventGalleries,
   }
@@ -109,6 +142,7 @@ const readAppState = async () => {
     return {
       ...defaultAppState(),
       ...state,
+      users: sanitizeUsers(state.users).length ? sanitizeUsers(state.users) : defaultAppState().users,
       recentEvents: sanitizeArray(state.recentEvents, 300),
       deletedEventIds: sanitizeArray(state.deletedEventIds, 300),
       eventGalleries: state.eventGalleries && typeof state.eventGalleries === 'object' ? state.eventGalleries : {},
@@ -201,6 +235,10 @@ const readSavedPhotos = async () => {
 const handlePhotoUpload = async (request, response) => {
   const rawBody = await readBody(request)
   const payload = JSON.parse(rawBody || '{}')
+  if (payload?.syncToken !== syncToken) {
+    json(response, 409, { ok: false, error: 'Actualiza la página para sincronizar fotos.' })
+    return
+  }
   const finalImage = parseImage(payload.finalPhoto)
 
   if (!finalImage?.buffer?.length) {

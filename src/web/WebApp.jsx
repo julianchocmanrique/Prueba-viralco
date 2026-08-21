@@ -36,9 +36,11 @@ const recentEventsStorageKey = 'viralco-mirror-recent-events'
 const deletedEventsStorageKey = 'viralco-mirror-deleted-events'
 const eventGalleryStorageKey = 'viralco-mirror-event-galleries'
 const activeProfileStorageKey = 'viralco-mirror-active-profile'
+const activeUserStorageKey = 'viralco-mirror-active-user'
 const cloudApiBase = 'https://beijing-recommend-marilyn-por.trycloudflare.com'
 const photoUploadEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/`
 const cloudStateEndpoint = `${cloudApiBase}/prueba-viralco/api/state/`
+const cloudSyncToken = 'viralco-reset-20260821-login'
 const persistentPhotoDbName = 'viralco-mirror-photo-images'
 const persistentPhotoStoreName = 'images'
 const persistentFinalPhotoKey = 'final'
@@ -314,56 +316,16 @@ const animationVideoStages = [
   { id: 'afterProcessing', title: 'Después de procesar', defaultFile: 'Deseleccionado', compact: true },
   { id: 'sessionEnd', title: 'Fin de la sesión', defaultFile: 'Deseleccionado', compact: true },
 ]
-const defaultOperatorEvents = [
-  {
-    id: 'op1-cumple-color',
-    operatorId: 'operario-1',
-    name: 'Cumple Laura',
-    eventName: 'Cumple Laura',
-    eventType: 'Cumpleaños',
-    photoTypeId: 'doble',
-    templateId: 'cumple-color',
-    filter: 'Original',
-    updatedAt: 'Asignado',
-  },
-  {
-    id: 'op2-corporativo-gala',
-    operatorId: 'operario-2',
-    name: 'Gala Empresa',
-    eventName: 'Gala Empresa',
-    eventType: 'Corporativo',
-    photoTypeId: 'postal',
-    templateId: 'corp-gala',
-    filter: 'Glam',
-    updatedAt: 'Asignado',
-  },
+const defaultAppUsers = [
+  { id: 'super-admin', name: 'Super Admin', shortName: 'Super', username: 'superadmin', password: '1234', role: 'super_admin' },
+  { id: 'admin-viralco', name: 'Administrador', shortName: 'Admin', username: 'admin', password: '1234', role: 'admin' },
+  { id: 'operario-1', name: 'Operario 1', shortName: 'Op. 1', username: 'operario1', password: '1234', role: 'operator', adminId: 'admin-viralco' },
+  { id: 'operario-2', name: 'Operario 2', shortName: 'Op. 2', username: 'operario2', password: '1234', role: 'operator', adminId: 'admin-viralco' },
 ]
-const defaultRecentEvents = [
-  {
-    id: 'boda-valentina',
-    name: 'Boda Valentina',
-    eventName: 'Boda Valentina',
-    eventType: 'Boda',
-    photoTypeId: 'postal',
-    templateId: 'boda-clasica',
-    filter: 'Glam',
-    updatedAt: 'Reciente',
-  },
-  ...defaultOperatorEvents,
-]
+const defaultRecentEvents = []
 const mergeEventsWithDefaults = (events = [], deletedIds = []) => {
-  const savedIds = new Set(events.map(getEventIdentity))
-  const missingDefaults = defaultRecentEvents.filter((event) => {
-    const eventId = getEventIdentity(event)
-    return !savedIds.has(eventId) && !deletedIds.includes(eventId)
-  })
-  return [...events, ...missingDefaults].filter((event) => !deletedIds.includes(getEventIdentity(event)))
+  return events.filter((event) => !deletedIds.includes(getEventIdentity(event)))
 }
-const profileOptions = [
-  { id: 'admin', name: 'Administrador', shortName: 'Admin', role: 'admin' },
-  { id: 'operario-1', name: 'Operario 1', shortName: 'Op. 1', role: 'operator' },
-  { id: 'operario-2', name: 'Operario 2', shortName: 'Op. 2', role: 'operator' },
-]
 const editorTools = [
   { id: 'imagen', label: 'Imagen', icon: '▧' },
   { id: 'texto', label: 'Texto', icon: 'T' },
@@ -546,11 +508,17 @@ const WebApp = () => {
   const [eventName, setEventName] = useState('')
   const [eventNameError, setEventNameError] = useState('')
   const [eventType, setEventType] = useState('')
+  const [assignedOperatorId, setAssignedOperatorId] = useState('')
   const [selectedType, setSelectedType] = useState(photoTypes[0])
   const previewOutputWidth = Math.min(width * 0.92, Math.max(280, (height - (isMobile ? 250 : 280)) * (selectedType.width / selectedType.height)), 860)
   const [selectedTemplate, setSelectedTemplate] = useState(getTemplatesForEventType(defaultEventType)[0])
   const [selectedFilter, setSelectedFilter] = useState(filters[0])
-  const [activeProfileId, setActiveProfileId] = useState('admin')
+  const [users, setUsers] = useState(defaultAppUsers)
+  const [activeUserId, setActiveUserId] = useState('')
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [activeProfileId, setActiveProfileId] = useState('admin-viralco')
   const [recentEvents, setRecentEvents] = useState(defaultRecentEvents)
   const [deletedEventIds, setDeletedEventIds] = useState([])
   const [eventGalleries, setEventGalleries] = useState({})
@@ -647,13 +615,18 @@ const WebApp = () => {
     index === all.findIndex((item) => (item.id || item.src) === (photo.id || photo.src))
   ))
   const latestEventGalleryPhoto = currentEventGallery[0]
-  const activeProfile = profileOptions.find((profile) => profile.id === activeProfileId) || profileOptions[0]
-  const isAdminProfile = activeProfile.role === 'admin'
+  const activeUser = users.find((user) => user.id === activeUserId) || null
+  const activeProfile = activeUser || users.find((user) => user.id === activeProfileId) || defaultAppUsers[1]
+  const isSuperAdminProfile = activeProfile.role === 'super_admin'
+  const isAdminProfile = activeProfile.role === 'super_admin' || activeProfile.role === 'admin'
   const visibleLaunchEvents = useMemo(() => {
     const activeEvents = recentEvents.filter((item) => !deletedEventIds.includes(getEventIdentity(item)))
-    if (isAdminProfile) return activeEvents
+    if (activeProfile.role === 'super_admin') return activeEvents
+    if (activeProfile.role === 'admin') {
+      return activeEvents.filter((item) => (item.ownerAdminId || item.adminId || 'admin-viralco') === activeProfile.id)
+    }
     return activeEvents.filter((item) => item.operatorId === activeProfile.id)
-  }, [activeProfile.id, deletedEventIds, isAdminProfile, recentEvents])
+  }, [activeProfile.id, activeProfile.role, deletedEventIds, recentEvents])
   const eventReady = Boolean(eventName.trim())
   const framesReady = photoFrames.length
   const captureComplete = Boolean(finalPhotoUrl)
@@ -728,7 +701,7 @@ const WebApp = () => {
     }
   }
   const visibleGalleryFolders = useMemo(() => {
-    const sourceEvents = isAdminProfile
+    const sourceEvents = isSuperAdminProfile
       ? recentEvents.filter((item) => !deletedEventIds.includes(getEventIdentity(item)))
       : visibleLaunchEvents
     const folders = sourceEvents.map(getEventGalleryFolder)
@@ -750,7 +723,7 @@ const WebApp = () => {
       })
 
     return [...folders, ...remoteOnlyFolders]
-  }, [deletedEventIds, eventGalleries, isAdminProfile, recentEvents, visibleLaunchEvents])
+  }, [deletedEventIds, eventGalleries, isAdminProfile, isSuperAdminProfile, recentEvents, visibleLaunchEvents])
   const getGalleryPhotoKey = (photo, index = 0) =>
     String(photo?.id || photo?.publicUrl || photo?.src || `gallery-photo-${index}`)
   const getGalleryPhotoSource = (photo) => photo?.localUrl || photo?.publicUrl || photo?.src || ''
@@ -852,6 +825,36 @@ const WebApp = () => {
 
   const closePreviewShareMenu = () => setShowPreviewShareMenu(false)
 
+  const adminUsers = users.filter((user) => user.role === 'admin')
+  const operatorUsers = users.filter((user) => user.role === 'operator')
+  const assignableOperators = activeProfile.role === 'admin'
+    ? operatorUsers.filter((user) => !user.adminId || user.adminId === activeProfile.id)
+    : operatorUsers
+
+  const handleLogin = () => {
+    const username = loginUsername.trim().toLowerCase()
+    const password = loginPassword.trim()
+    const user = users.find((item) => item.username.toLowerCase() === username && item.password === password)
+    if (!user) {
+      setLoginError('Usuario o clave incorrectos.')
+      return
+    }
+    setActiveUserId(user.id)
+    setActiveProfileId(user.id)
+    setLoginError('')
+    setLoginPassword('')
+    setCaptureStatus(`Acceso como ${user.name}`)
+  }
+
+  const handleLogout = () => {
+    setActiveUserId('')
+    setActiveProfileId('admin-viralco')
+    setLoginUsername('')
+    setLoginPassword('')
+    setShowHomeLauncher(true)
+    setCaptureStatus('Sesión cerrada.')
+  }
+
   useEffect(() => {
     if (typeof window === 'undefined') return
     const base = import.meta.env.BASE_URL || '/'
@@ -871,6 +874,8 @@ const WebApp = () => {
     name: eventName.trim() || 'Evento Viralco',
     eventName: eventName.trim() || 'Evento Viralco',
     eventType: eventType || defaultEventType,
+    ownerAdminId: activeProfile.role === 'admin' ? activeProfile.id : 'admin-viralco',
+    operatorId: assignedOperatorId,
     photoTypeId: selectedType.id,
     customLayoutMode: 'manual-free',
     customPhotoCount,
@@ -881,6 +886,7 @@ const WebApp = () => {
     uploadedCustomFonts,
     templateId: selectedTemplate.id,
     filter: selectedFilter,
+    createdAt: selectedRecentEvent?.createdAt || new Date().toISOString(),
     captureOriginal,
     photoCountdownFirst,
     photoCountdownNext,
@@ -910,6 +916,7 @@ const WebApp = () => {
 
     setEventName(nextName)
     setEventType(nextEventType)
+    setAssignedOperatorId(setup.operatorId || '')
     setSelectedType(nextType)
     if (nextType.id === 'personalizar-5x15') {
       const savedManualLayout = setup.customLayoutMode === 'manual-free'
@@ -991,7 +998,9 @@ const WebApp = () => {
       ...existingSetup,
       ...currentSetup,
       id: existingSetup?.id || selectedRecentId || currentSetup.id,
-      operatorId: existingSetup?.operatorId || currentSetup.operatorId,
+      ownerAdminId: existingSetup?.ownerAdminId || currentSetup.ownerAdminId,
+      operatorId: currentSetup.operatorId,
+      createdAt: existingSetup?.createdAt || currentSetup.createdAt || new Date().toISOString(),
       updatedAt: 'Ahora',
     }
 
@@ -1063,11 +1072,14 @@ const WebApp = () => {
   }
 
   const switchProfile = (profileId) => {
-    setActiveProfileId(profileId)
+    const nextUser = users.find((user) => user.id === profileId)
+    if (!nextUser) return
+    setActiveUserId(nextUser.id)
+    setActiveProfileId(nextUser.id)
     setShowCreateEventModal(false)
     setShowOperatorMenu(false)
     setOperatorQuickPanel(null)
-    setCaptureStatus(`Perfil ${profileOptions.find((profile) => profile.id === profileId)?.name || 'Viralco'} activo.`)
+    setCaptureStatus(`Perfil ${nextUser.name || 'Viralco'} activo.`)
   }
 
   const returnToHomeScreen = () => {
@@ -1182,6 +1194,7 @@ const WebApp = () => {
       const result = await response.json().catch(() => ({}))
       if (!response.ok || !result?.ok || !result.state) return null
       return {
+        users: Array.isArray(result.state.users) ? result.state.users : defaultAppUsers,
         recentEvents: Array.isArray(result.state.recentEvents) ? result.state.recentEvents : [],
         deletedEventIds: Array.isArray(result.state.deletedEventIds) ? result.state.deletedEventIds : [],
         eventGalleries: result.state.eventGalleries && typeof result.state.eventGalleries === 'object' ? result.state.eventGalleries : {},
@@ -1198,6 +1211,9 @@ const WebApp = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          schemaVersion: 2,
+          syncToken: cloudSyncToken,
+          users,
           recentEvents: state.recentEvents,
           deletedEventIds: state.deletedEventIds,
           eventGalleries: compactCloudGalleries(state.eventGalleries),
@@ -1271,23 +1287,33 @@ const WebApp = () => {
       const savedDeletedEvents = window.localStorage.getItem(deletedEventsStorageKey)
       const savedGalleries = window.localStorage.getItem(eventGalleryStorageKey)
       const savedProfile = window.localStorage.getItem(activeProfileStorageKey)
+      const savedUser = window.localStorage.getItem(activeUserStorageKey)
 
       try {
-        if (profileOptions.some((profile) => profile.id === savedProfile)) {
+        const cloudState = await fetchServerAppState()
+        const nextUsers = Array.isArray(cloudState?.users) && cloudState.users.length ? cloudState.users : defaultAppUsers
+        setUsers(nextUsers)
+        const validSavedUser = nextUsers.find((user) => user.id === savedUser)
+        if (validSavedUser) {
+          setActiveUserId(validSavedUser.id)
+          setActiveProfileId(validSavedUser.id)
+        } else if (nextUsers.some((user) => user.id === savedProfile)) {
           setActiveProfileId(savedProfile)
         }
-        const cloudState = await fetchServerAppState()
         const parsedDeletedEvents = savedDeletedEvents ? JSON.parse(savedDeletedEvents) : []
         const nextDeletedEventIds = (cloudState?.deletedEventIds?.length ? cloudState.deletedEventIds : (Array.isArray(parsedDeletedEvents) ? parsedDeletedEvents : [])).filter(Boolean)
         setDeletedEventIds(nextDeletedEventIds)
         const parsedRecent = savedRecent ? JSON.parse(savedRecent) : null
         const cloudEvents = Array.isArray(cloudState?.recentEvents) ? cloudState.recentEvents : []
         const localEvents = Array.isArray(parsedRecent) ? parsedRecent : []
-        const preferredEvents = cloudEvents.length ? cloudEvents : localEvents
+        const preferredEvents = cloudState ? cloudEvents : localEvents
         if (preferredEvents.length) {
           const nextRecentEvents = mergeEventsWithDefaults(preferredEvents, nextDeletedEventIds).slice(0, 200)
           setRecentEvents(nextRecentEvents)
           setSelectedRecentId(nextRecentEvents[0]?.id || nextRecentEvents[0]?.name || '')
+        } else if (cloudState) {
+          setRecentEvents([])
+          setSelectedRecentId('')
         }
         if (saved) {
           const setup = JSON.parse(saved)
@@ -1330,11 +1356,15 @@ const WebApp = () => {
         }
         const serverGalleries = await fetchServerEventGalleries()
         if (!cancelled) {
-          setEventGalleries({
-            ...localGalleries,
-            ...(cloudState?.eventGalleries || {}),
-            ...(serverGalleries || {}),
-          })
+          setEventGalleries(cloudState
+            ? {
+              ...(cloudState?.eventGalleries || {}),
+              ...(serverGalleries || {}),
+            }
+            : {
+              ...localGalleries,
+              ...(serverGalleries || {}),
+            })
         }
       } catch {
         window.localStorage.removeItem(appSetupStorageKey)
@@ -1343,6 +1373,7 @@ const WebApp = () => {
         window.localStorage.removeItem(deletedEventsStorageKey)
         window.localStorage.removeItem(eventGalleryStorageKey)
         window.localStorage.removeItem(activeProfileStorageKey)
+        window.localStorage.removeItem(activeUserStorageKey)
       } finally {
         storageHydratedRef.current = true
       }
@@ -1363,7 +1394,8 @@ const WebApp = () => {
         fetchServerEventGalleries(),
       ])
       if (cancelled) return
-      if (cloudState?.recentEvents?.length || cloudState?.deletedEventIds?.length) {
+      if (cloudState?.users?.length) setUsers(cloudState.users)
+      if (cloudState) {
         const nextDeletedIds = cloudState.deletedEventIds || []
         setDeletedEventIds(nextDeletedIds)
         setRecentEvents(mergeEventsWithDefaults(cloudState.recentEvents || [], nextDeletedIds).slice(0, 200))
@@ -1488,6 +1520,15 @@ const WebApp = () => {
   }, [activeProfileId])
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    if (activeUserId) {
+      window.localStorage.setItem(activeUserStorageKey, activeUserId)
+    } else {
+      window.localStorage.removeItem(activeUserStorageKey)
+    }
+  }, [activeUserId])
+
+  useEffect(() => {
     const firstLaunchEvent = visibleLaunchEvents[0]
     if (!firstLaunchEvent) {
       setSelectedRecentId('')
@@ -1535,7 +1576,7 @@ const WebApp = () => {
     return () => {
       if (cloudStateSaveTimerRef.current) window.clearTimeout(cloudStateSaveTimerRef.current)
     }
-  }, [recentEvents, deletedEventIds, eventGalleries])
+  }, [users, recentEvents, deletedEventIds, eventGalleries])
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -2513,6 +2554,7 @@ const WebApp = () => {
         signal: controller?.signal,
         body: JSON.stringify({
           eventId: eventGalleryId,
+          syncToken: cloudSyncToken,
           operatorId: selectedRecentEvent?.operatorId || activeProfile.id,
           eventName: eventTitle,
           eventType,
@@ -4324,6 +4366,29 @@ const WebApp = () => {
             </Pressable>
           ))}
         </View>
+        {isAdminProfile ? (
+          <View style={[styles.modalTypeWrap, isMobile && styles.modalTypeWrapMobile]}>
+            <Pressable
+              onPress={() => setAssignedOperatorId('')}
+              style={[styles.typeChip, isMobile && styles.typeChipMobile, !assignedOperatorId && styles.typeChipActive]}
+              accessibilityRole="button"
+              accessibilityLabel="Dejar evento para administrador"
+            >
+              <Text style={[styles.typeChipText, isMobile && styles.typeChipTextMobile, !assignedOperatorId && styles.typeChipTextActive]}>Admin</Text>
+            </Pressable>
+            {assignableOperators.map((operator) => (
+              <Pressable
+                key={`assign-${operator.id}`}
+                onPress={() => setAssignedOperatorId(operator.id)}
+                style={[styles.typeChip, isMobile && styles.typeChipMobile, assignedOperatorId === operator.id && styles.typeChipActive]}
+                accessibilityRole="button"
+                accessibilityLabel={`Asignar a ${operator.name}`}
+              >
+                <Text style={[styles.typeChipText, isMobile && styles.typeChipTextMobile, assignedOperatorId === operator.id && styles.typeChipTextActive]}>{operator.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         <Pressable
           onPress={() => launchNewEventFromModal('options')}
           style={[styles.primaryButton, isMobile && styles.modalActionButtonMobile]}
@@ -4348,24 +4413,64 @@ const WebApp = () => {
   const renderProfileSwitcher = () => (
     <View style={[styles.profileSwitcher, isPhone && styles.profileSwitcherPhone]}>
       <View style={styles.profileSwitcherHeader}>
-        <Text style={styles.profileSwitcherEyebrow}>Acceso rápido</Text>
+        <Text style={styles.profileSwitcherEyebrow}>Sesión activa</Text>
         <Text style={styles.profileSwitcherActive}>{activeProfile.name}</Text>
       </View>
       <View style={[styles.profileSwitcherOptions, isPhone && styles.profileSwitcherOptionsPhone]}>
-        {profileOptions.map((profile) => {
-          const active = profile.id === activeProfile.id
-          return (
-            <Pressable
-              key={profile.id}
-              onPress={() => switchProfile(profile.id)}
-              style={[styles.profileChip, isPhone && styles.profileChipPhone, active && styles.profileChipActive]}
-              accessibilityRole="button"
-              accessibilityLabel={`Cambiar a ${profile.name}`}
-            >
-              <Text style={[styles.profileChipText, active && styles.profileChipTextActive]}>{isPhone ? profile.shortName : profile.name}</Text>
-            </Pressable>
-          )
-        })}
+        <Text style={styles.profileChipText}>
+          {activeProfile.role === 'super_admin' ? 'Super admin' : activeProfile.role === 'admin' ? 'Admin' : 'Operario'}
+        </Text>
+        <Pressable
+          onPress={handleLogout}
+          style={[styles.profileChip, isPhone && styles.profileChipPhone]}
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar sesión"
+        >
+          <Text style={styles.profileChipText}>Salir</Text>
+        </Pressable>
+      </View>
+    </View>
+  )
+
+  const renderLoginScreen = () => (
+    <View style={styles.loginPage}>
+      <View style={[styles.loginCard, isPhone && styles.loginCardPhone]}>
+        <Text style={styles.panelEyebrow}>Viralco</Text>
+        <Text style={styles.loginTitle}>Acceso espejo mágico</Text>
+        <Text style={styles.loginIntro}>Ingresa según tu rol para ver solo los eventos que corresponden.</Text>
+        <TextInput
+          value={loginUsername}
+          onChangeText={(value) => {
+            setLoginUsername(value)
+            if (loginError) setLoginError('')
+          }}
+          placeholder="Usuario"
+          placeholderTextColor="#9ca3af"
+          autoCapitalize="none"
+          style={styles.loginInput}
+          accessibilityLabel="Usuario"
+        />
+        <TextInput
+          value={loginPassword}
+          onChangeText={(value) => {
+            setLoginPassword(value)
+            if (loginError) setLoginError('')
+          }}
+          placeholder="Clave"
+          placeholderTextColor="#9ca3af"
+          secureTextEntry
+          style={styles.loginInput}
+          accessibilityLabel="Clave"
+          onSubmitEditing={handleLogin}
+        />
+        {loginError ? <Text style={styles.loginError}>{loginError}</Text> : null}
+        <Pressable onPress={handleLogin} style={styles.loginButton} accessibilityRole="button" accessibilityLabel="Entrar">
+          <Text style={styles.loginButtonText}>Entrar</Text>
+        </Pressable>
+        <View style={styles.loginHelpBox}>
+          <Text style={styles.loginHelpText}>Usuarios iniciales: superadmin, admin, operario1 y operario2.</Text>
+          <Text style={styles.loginHelpText}>Clave temporal: 1234.</Text>
+        </View>
       </View>
     </View>
   )
@@ -4489,7 +4594,9 @@ const WebApp = () => {
 
   const renderAdminEventsSummary = () => {
     if (!isAdminProfile) return null
-    const orderedEvents = recentEvents.filter((item) => !deletedEventIds.includes(getEventIdentity(item))).slice()
+    const orderedEvents = (isSuperAdminProfile ? recentEvents : visibleLaunchEvents)
+      .filter((item) => !deletedEventIds.includes(getEventIdentity(item)))
+      .slice()
 
     return (
       <View style={[styles.adminEventsSummary, isPhone && styles.adminEventsSummaryPhone]}>
@@ -4509,7 +4616,7 @@ const WebApp = () => {
               templates.find((templateItem) => templateItem.id === item.templateId) ||
               templateOptions[0] ||
               templates[0]
-            const assignedProfile = profileOptions.find((profile) => profile.id === item.operatorId)
+            const assignedProfile = users.find((profile) => profile.id === item.operatorId)
             const active = (item.id || item.name) === (selectedRecentEvent?.id || selectedRecentEvent?.name)
             const shotCount = item.photoTypeId === 'personalizar-5x15'
               ? Math.max(Number(item.customPhotoCount) || type.shots || 0, 0)
@@ -4582,7 +4689,7 @@ const WebApp = () => {
         </View>
         <View style={[styles.eventFoldersGrid, isPhone && styles.eventFoldersGridPhone]}>
           {visibleGalleryFolders.map((folder, index) => {
-            const assignedProfile = profileOptions.find((profile) => profile.id === folder.operatorId)
+            const assignedProfile = users.find((profile) => profile.id === folder.operatorId)
             return (
               <Pressable
                 key={`gallery-folder-${folder.id}-${index}`}
@@ -7591,6 +7698,14 @@ const WebApp = () => {
           {renderBackgroundRemovalScreen()}
         </ScrollView>
         {renderHiddenHomeButton()}
+      </View>
+    )
+  }
+
+  if (!activeUser) {
+    return (
+      <View style={styles.page}>
+        {renderLoginScreen()}
       </View>
     )
   }
@@ -15004,6 +15119,83 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 30,
     gap: 14,
+  },
+  loginPage: {
+    minHeight: '100svh',
+    width: '100%',
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  loginCard: {
+    width: 'min(92vw, 460px)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    padding: 28,
+    gap: 14,
+    boxShadow: '0 20px 60px rgba(15,23,42,0.16)',
+  },
+  loginCardPhone: {
+    width: '100%',
+    padding: 20,
+  },
+  loginTitle: {
+    color: colors.ink,
+    fontSize: 34,
+    lineHeight: 39,
+    fontWeight: '900',
+  },
+  loginIntro: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '700',
+  },
+  loginInput: {
+    minHeight: 52,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#f8fafc',
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: '800',
+    paddingHorizontal: 16,
+    outlineStyle: 'none',
+  },
+  loginError: {
+    color: '#dc2626',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  loginButton: {
+    minHeight: 58,
+    borderRadius: 29,
+    backgroundColor: colors.rose,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 12px 24px rgba(10,77,232,0.25)',
+  },
+  loginButtonText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  loginHelpBox: {
+    borderRadius: 8,
+    backgroundColor: colors.roseSoft,
+    padding: 14,
+    gap: 4,
+  },
+  loginHelpText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   closeButton: {
     position: 'absolute',
