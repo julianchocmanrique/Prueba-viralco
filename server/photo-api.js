@@ -64,6 +64,34 @@ const createPhotoId = () => {
   return `${stamp}-${crypto.randomBytes(4).toString('hex')}`
 }
 
+const readSavedPhotos = async () => {
+  await fs.promises.mkdir(uploadRoot, { recursive: true })
+  const entries = await fs.promises.readdir(uploadRoot, { withFileTypes: true })
+  const photos = []
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const photoDir = path.join(uploadRoot, entry.name)
+    try {
+      const metadata = JSON.parse(await fs.promises.readFile(path.join(photoDir, 'metadata.json'), 'utf8'))
+      const finalFileName = metadata.finalFileName || 'final.jpg'
+      photos.push({
+        ...metadata,
+        id: metadata.id || entry.name,
+        url: `/prueba-viralco/uploads/photos/${entry.name}/${finalFileName}`,
+        absoluteUrl: `${publicBaseUrl}/${entry.name}/${finalFileName}`,
+        frameCount: Array.isArray(metadata.frames) ? metadata.frames.length : 0,
+      })
+    } catch {
+      // Ignore incomplete upload folders.
+    }
+  }
+
+  return photos.sort((a, b) => (
+    new Date(b.createdAt || b.savedAt || 0).getTime() - new Date(a.createdAt || a.savedAt || 0).getTime()
+  ))
+}
+
 const handlePhotoUpload = async (request, response) => {
   const rawBody = await readBody(request)
   const payload = JSON.parse(rawBody || '{}')
@@ -96,6 +124,8 @@ const handlePhotoUpload = async (request, response) => {
 
   const metadata = {
     id,
+    eventId: safeText(payload.eventId),
+    operatorId: safeText(payload.operatorId),
     eventName: safeText(payload.eventName),
     eventType: safeText(payload.eventType),
     photoType: safeText(payload.photoType),
@@ -131,6 +161,12 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === 'GET' && (url.pathname === '/health' || url.pathname === '/prueba-viralco/api/photos/health')) {
       json(response, 200, { ok: true })
+      return
+    }
+
+    if (request.method === 'GET' && (url.pathname === '/photos' || url.pathname === '/prueba-viralco/api/photos')) {
+      const photos = await readSavedPhotos()
+      json(response, 200, { ok: true, photos })
       return
     }
 

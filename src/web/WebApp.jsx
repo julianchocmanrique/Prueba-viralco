@@ -44,6 +44,13 @@ const cp1500ShortEdgeCm = 10
 const cp1500LongEdgeCm = 14.8
 const cp1500CanvasWidth = 2000
 const cp1500CanvasHeight = Math.round(cp1500CanvasWidth * (cp1500LongEdgeCm / cp1500ShortEdgeCm))
+const createEventSlug = (value) =>
+  String(value || 'evento-viralco')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase() || 'evento-viralco'
 
 const openPersistentPhotoDb = () =>
   new Promise((resolve, reject) => {
@@ -512,6 +519,7 @@ const WebApp = () => {
   const [qrPhotoUrl, setQrPhotoUrl] = useState('')
   const [showPreviewShareMenu, setShowPreviewShareMenu] = useState(false)
   const [showEventGallery, setShowEventGallery] = useState(false)
+  const [selectedGalleryId, setSelectedGalleryId] = useState('')
   const [showBackgroundRemovalScreen, setShowBackgroundRemovalScreen] = useState(false)
   const [showEventOptionsScreen, setShowEventOptionsScreen] = useState(false)
   const [showAnimationVideoScreen, setShowAnimationVideoScreen] = useState(false)
@@ -616,13 +624,15 @@ const WebApp = () => {
   const storageHydratedRef = useRef(false)
 
   const eventTitle = eventName.trim() || 'Evento Viralco'
-  const eventGalleryId = eventTitle
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .toLowerCase() || 'evento-viralco'
-  const currentEventGallery = eventGalleries[eventGalleryId]?.items || []
+  const eventGalleryId = selectedRecentId || createEventSlug(eventTitle)
+  const fallbackEventGalleryId = createEventSlug(eventTitle)
+  const currentEventGalleryItems = [
+    ...(eventGalleries[eventGalleryId]?.items || []),
+    ...(eventGalleryId !== fallbackEventGalleryId ? (eventGalleries[fallbackEventGalleryId]?.items || []) : []),
+  ]
+  const currentEventGallery = currentEventGalleryItems.filter((photo, index, all) => (
+    index === all.findIndex((item) => (item.id || item.src) === (photo.id || photo.src))
+  ))
   const latestEventGalleryPhoto = currentEventGallery[0]
   const activeProfile = profileOptions.find((profile) => profile.id === activeProfileId) || profileOptions[0]
   const isAdminProfile = activeProfile.role === 'admin'
@@ -683,6 +693,51 @@ const WebApp = () => {
     () => visibleLaunchEvents.find((item) => (item.id || item.name) === selectedRecentId) || visibleLaunchEvents[0],
     [visibleLaunchEvents, selectedRecentId],
   )
+  const getEventGalleryIds = (event) => [
+    event?.id,
+    createEventSlug(event?.eventName || event?.name),
+  ].filter(Boolean).filter((id, index, all) => all.indexOf(id) === index)
+  const normalizeGalleryItems = (items = []) => items
+    .filter((photo, photoIndex, all) => (
+      photoIndex === all.findIndex((item) => (item.id || item.src) === (photo.id || photo.src))
+    ))
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+  const getEventGalleryFolder = (event, index = 0) => {
+    const ids = getEventGalleryIds(event)
+    const items = normalizeGalleryItems(ids.flatMap((id) => eventGalleries[id]?.items || []))
+    return {
+      id: ids[0] || `evento-${index + 1}`,
+      event,
+      eventName: event?.eventName || event?.name || `Evento ${index + 1}`,
+      items,
+      latest: items[0],
+      operatorId: event?.operatorId || 'admin',
+    }
+  }
+  const visibleGalleryFolders = useMemo(() => {
+    const sourceEvents = isAdminProfile
+      ? (recentEvents.length ? recentEvents : defaultRecentEvents)
+      : visibleLaunchEvents
+    const folders = sourceEvents.map(getEventGalleryFolder)
+    if (!isAdminProfile) return folders
+
+    const knownIds = new Set(folders.flatMap((folder) => [folder.id, ...getEventGalleryIds(folder.event)]))
+    const remoteOnlyFolders = Object.values(eventGalleries)
+      .filter((gallery) => gallery?.id && !knownIds.has(gallery.id))
+      .map((gallery, index) => {
+        const items = normalizeGalleryItems(gallery.items || [])
+        return {
+          id: gallery.id || `galeria-${index + 1}`,
+          event: { id: gallery.id, name: gallery.eventName, eventName: gallery.eventName, operatorId: gallery.operatorId },
+          eventName: gallery.eventName || `Evento ${index + 1}`,
+          items,
+          latest: items[0],
+          operatorId: gallery.operatorId || 'admin',
+        }
+      })
+
+    return [...folders, ...remoteOnlyFolders]
+  }, [eventGalleries, isAdminProfile, recentEvents, visibleLaunchEvents])
   const eventTemplateOptions = useMemo(() => getTemplatesForEventType(eventType), [eventType])
   const printSizeLabel = '10x15 cm'
   const activePrintLabel = 'Canon CP1500'
@@ -848,7 +903,7 @@ const WebApp = () => {
       const next = [
         { ...setup, id: setup.id || `evento-${Date.now()}`, updatedAt: 'Ahora' },
         ...current.filter((item) => (item.id || item.name) !== (setup.id || setup.name)),
-      ].slice(0, 30)
+      ].slice(0, 200)
       return next
     })
   }
@@ -874,6 +929,7 @@ const WebApp = () => {
 
   const launchEvent = (setup = getCurrentSetup(), destination = 'capture') => {
     const shouldShowLaunchIntro = destination === 'capture'
+    setSelectedRecentId(setup.id || setup.name || createEventSlug(setup.eventName || setup.name))
     applyEventSetup(setup)
     rememberRecentEvent(setup)
     setShowHomeLauncher(false)
@@ -970,6 +1026,51 @@ const WebApp = () => {
     void ensureCameraReady('Verificando cámara antes de iniciar el evento...')
   }
 
+  const fetchServerEventGalleries = async () => {
+    if (typeof fetch === 'undefined') return null
+    try {
+      const response = await fetch(photoUploadEndpoint, { method: 'GET', cache: 'no-store' })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result?.ok || !Array.isArray(result.photos)) return null
+
+      return result.photos.reduce((folders, photo) => {
+        const galleryId = photo.eventId || createEventSlug(photo.eventName)
+        const item = {
+          id: photo.id,
+          eventId: galleryId,
+          operatorId: photo.operatorId || 'admin',
+          eventName: photo.eventName || 'Evento Viralco',
+          photoType: photo.photoType || 'Foto',
+          templateName: photo.templateName || 'Plantilla',
+          createdAt: photo.createdAt || photo.savedAt || new Date().toISOString(),
+          src: photo.absoluteUrl || photo.url,
+          publicUrl: photo.absoluteUrl || photo.url,
+          localUrl: '',
+          frames: photo.frameCount || 0,
+        }
+        if (!item.src) return folders
+        const gallery = folders[galleryId] || {
+          id: galleryId,
+          eventName: item.eventName,
+          operatorId: item.operatorId,
+          items: [],
+        }
+        return {
+          ...folders,
+          [galleryId]: {
+            ...gallery,
+            eventName: gallery.eventName || item.eventName,
+            operatorId: gallery.operatorId || item.operatorId,
+            updatedAt: item.createdAt,
+            items: [item, ...gallery.items].slice(0, 60),
+          },
+        }
+      }, {})
+    } catch {
+      return null
+    }
+  }
+
   const nextShotLabel = useMemo(() => {
     if (captureComplete) return 'Foto final lista'
     if (!framesReady) return `Necesitas ${selectedShotCount} foto${selectedShotCount === 1 ? '' : 's'}`
@@ -1037,7 +1138,7 @@ const WebApp = () => {
         }
         const parsedRecent = savedRecent ? JSON.parse(savedRecent) : []
         if (Array.isArray(parsedRecent) && parsedRecent.length) {
-          setRecentEvents(parsedRecent.slice(0, 30))
+          setRecentEvents(parsedRecent.slice(0, 200))
           setSelectedRecentId(parsedRecent[0].id || parsedRecent[0].name || '')
         }
         if (saved) {
@@ -1072,11 +1173,19 @@ const WebApp = () => {
             }
           }
         }
+        let localGalleries = {}
         if (savedGalleries) {
           const galleries = JSON.parse(savedGalleries)
           if (galleries && typeof galleries === 'object') {
-            setEventGalleries(galleries)
+            localGalleries = galleries
           }
+        }
+        const serverGalleries = await fetchServerEventGalleries()
+        if (!cancelled) {
+          setEventGalleries({
+            ...localGalleries,
+            ...(serverGalleries || {}),
+          })
         }
       } catch {
         window.localStorage.removeItem(appSetupStorageKey)
@@ -1092,6 +1201,31 @@ const WebApp = () => {
     hydrateStorage()
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    let cancelled = false
+    const refreshServerGalleries = async () => {
+      const serverGalleries = await fetchServerEventGalleries()
+      if (!serverGalleries || cancelled) return
+      setEventGalleries((current) => ({
+        ...current,
+        ...serverGalleries,
+      }))
+    }
+
+    const handleFocus = () => {
+      void refreshServerGalleries()
+    }
+    window.addEventListener('focus', handleFocus)
+    const intervalId = window.setInterval(refreshServerGalleries, 45000)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', handleFocus)
+      window.clearInterval(intervalId)
     }
   }, [])
 
@@ -2188,6 +2322,8 @@ const WebApp = () => {
         headers: { 'Content-Type': 'application/json' },
         signal: controller?.signal,
         body: JSON.stringify({
+          eventId: eventGalleryId,
+          operatorId: selectedRecentEvent?.operatorId || activeProfile.id,
           eventName: eventTitle,
           eventType,
           photoType: selectedType.name,
@@ -2276,6 +2412,8 @@ const WebApp = () => {
     const publicUrl = serverResult?.absoluteUrl || serverResult?.url || ''
     const item = {
       id: serverResult?.id || `foto-${Date.now()}`,
+      eventId: eventGalleryId,
+      operatorId: selectedRecentEvent?.operatorId || activeProfile.id,
       eventName: eventTitle,
       photoType: selectedType.name,
       templateName: selectedTemplate.name,
@@ -2287,15 +2425,16 @@ const WebApp = () => {
     }
 
     setEventGalleries((current) => {
-      const gallery = current[eventGalleryId] || { id: eventGalleryId, eventName: eventTitle, items: [] }
+      const gallery = current[eventGalleryId] || { id: eventGalleryId, eventName: eventTitle, operatorId: item.operatorId, items: [] }
       const withoutDuplicate = (gallery.items || []).filter((photo) => photo.id !== item.id && photo.src !== item.src)
       return {
         ...current,
         [eventGalleryId]: {
           ...gallery,
           eventName: eventTitle,
+          operatorId: item.operatorId,
           updatedAt: item.createdAt,
-          items: [item, ...withoutDuplicate].slice(0, 18),
+          items: [item, ...withoutDuplicate].slice(0, 60),
         },
       }
     })
@@ -4155,6 +4294,57 @@ const WebApp = () => {
     )
   }
 
+  const renderEventGalleryFolders = () => {
+    if (!visibleGalleryFolders.length) return null
+    return (
+      <View style={[styles.eventFoldersPanel, isPhone && styles.eventFoldersPanelPhone]}>
+        <View style={styles.adminEventsSummaryHeader}>
+          <View>
+            <Text style={styles.panelEyebrow}>{isAdminProfile ? 'Administrador' : activeProfile.name}</Text>
+            <Text style={styles.adminEventsSummaryTitle}>{isAdminProfile ? 'Galerías por evento' : 'Galería asignada'}</Text>
+          </View>
+          <Text style={styles.adminEventsSummaryCount}>{visibleGalleryFolders.length}</Text>
+        </View>
+        <View style={[styles.eventFoldersGrid, isPhone && styles.eventFoldersGridPhone]}>
+          {visibleGalleryFolders.map((folder, index) => {
+            const assignedProfile = profileOptions.find((profile) => profile.id === folder.operatorId)
+            return (
+              <Pressable
+                key={`gallery-folder-${folder.id}-${index}`}
+                onPress={() => {
+                  setSelectedGalleryId(folder.id)
+                  setShowEventGallery(true)
+                }}
+                style={styles.eventFolderCard}
+                accessibilityRole="button"
+                accessibilityLabel={`Abrir galería de ${folder.eventName}`}
+              >
+                <View style={styles.eventFolderPreview}>
+                  {folder.latest?.src ? (
+                    <Image source={{ uri: folder.latest.src }} style={styles.eventFolderPreviewImage} accessibilityLabel={`Última foto de ${folder.eventName}`} />
+                  ) : (
+                    <View style={styles.eventFolderEmptyPreview}>
+                      <Text style={styles.eventFolderEmptyIcon}>+</Text>
+                    </View>
+                  )}
+                  <View style={styles.eventFolderCount}>
+                    <Text style={styles.eventFolderCountText}>{folder.items.length}</Text>
+                  </View>
+                </View>
+                <View style={styles.eventFolderInfo}>
+                  <Text style={styles.eventFolderName}>{folder.eventName}</Text>
+                  <Text style={styles.eventFolderMeta}>
+                    {folder.items.length ? `${folder.items.length} foto${folder.items.length === 1 ? '' : 's'}` : 'Sin fotos todavía'} · {assignedProfile?.shortName || 'Admin'}
+                  </Text>
+                </View>
+              </Pressable>
+            )
+          })}
+        </View>
+      </View>
+    )
+  }
+
   const renderHomeLauncher = () => (
     <View style={[styles.homeLauncherPage, isPhone && styles.homeLauncherPagePhone]}>
       {renderProfileSwitcher()}
@@ -4179,6 +4369,7 @@ const WebApp = () => {
       {renderRecentEventsLauncher()}
       {renderHomeActionCard()}
       {renderAdminEventsSummary()}
+      {renderEventGalleryFolders()}
     </View>
   )
 
@@ -5872,7 +6063,10 @@ const WebApp = () => {
   const renderEventGalleryThumb = () =>
     latestEventGalleryPhoto ? (
       <Pressable
-        onPress={() => setShowEventGallery(true)}
+        onPress={() => {
+          setSelectedGalleryId(eventGalleryId)
+          setShowEventGallery(true)
+        }}
         style={[styles.eventGalleryThumbButton, isMobile && styles.eventGalleryThumbButtonMobile, isPhone && styles.eventGalleryThumbButtonPhone]}
         accessibilityRole="button"
         accessibilityLabel="Abrir galería del evento"
@@ -5885,23 +6079,29 @@ const WebApp = () => {
       </Pressable>
     ) : null
 
-  const renderEventGalleryModal = () =>
-    showEventGallery ? (
+  const renderEventGalleryModal = () => {
+    const selectedFolder = selectedGalleryId
+      ? visibleGalleryFolders.find((folder) => folder.id === selectedGalleryId)
+      : null
+    const modalGalleryItems = selectedFolder?.items || (selectedGalleryId ? (eventGalleries[selectedGalleryId]?.items || []) : currentEventGallery)
+    const modalGalleryTitle = selectedFolder?.eventName || eventGalleries[selectedGalleryId]?.eventName || eventTitle
+
+    return showEventGallery ? (
       <View style={styles.eventGalleryOverlay}>
         <Pressable onPress={() => setShowEventGallery(false)} style={styles.eventGalleryBackdrop} />
         <View style={[styles.eventGalleryPanel, isMobile && styles.eventGalleryPanelMobile]}>
           <View style={[styles.eventGalleryHeader, isMobile && styles.eventGalleryHeaderMobile]}>
             <View>
               <Text style={styles.eventGalleryEyebrow}>Galería del evento</Text>
-              <Text style={[styles.eventGalleryTitle, isMobile && styles.eventGalleryTitleMobile]}>{eventTitle}</Text>
-              <Text style={styles.eventGalleryMeta}>{currentEventGallery.length} foto{currentEventGallery.length === 1 ? '' : 's'} guardada{currentEventGallery.length === 1 ? '' : 's'}</Text>
+              <Text style={[styles.eventGalleryTitle, isMobile && styles.eventGalleryTitleMobile]}>{modalGalleryTitle}</Text>
+              <Text style={styles.eventGalleryMeta}>{modalGalleryItems.length} foto{modalGalleryItems.length === 1 ? '' : 's'} guardada{modalGalleryItems.length === 1 ? '' : 's'}</Text>
             </View>
             <Pressable onPress={() => setShowEventGallery(false)} style={[styles.eventGalleryClose, isMobile && styles.eventGalleryCloseMobile]}>
               <Text style={[styles.eventGalleryCloseText, isMobile && styles.eventGalleryCloseTextMobile]}>×</Text>
             </Pressable>
           </View>
           <ScrollView contentContainerStyle={[styles.eventGalleryGrid, isMobile && styles.eventGalleryGridMobile, isPhone && styles.eventGalleryGridPhone]}>
-            {currentEventGallery.map((photo, index) => (
+            {modalGalleryItems.map((photo, index) => (
               <Pressable
                 key={photo.id || `${photo.src}-${index}`}
                 onPress={() => {
@@ -5918,15 +6118,22 @@ const WebApp = () => {
               >
                 <Image source={{ uri: photo.src }} style={[styles.eventGalleryImage, isMobile && styles.eventGalleryImageMobile]} accessibilityLabel={`Foto guardada ${index + 1}`} />
                 <View style={styles.eventGalleryCardFooter}>
-                  <Text style={styles.eventGalleryCardTitle}>Foto {currentEventGallery.length - index}</Text>
+                  <Text style={styles.eventGalleryCardTitle}>Foto {modalGalleryItems.length - index}</Text>
                   <Text style={styles.eventGalleryCardText}>{photo.photoType}</Text>
                 </View>
               </Pressable>
             ))}
+            {!modalGalleryItems.length ? (
+              <View style={styles.eventGalleryEmptyState}>
+                <Text style={styles.eventGalleryCardTitle}>Sin fotos guardadas</Text>
+                <Text style={styles.eventGalleryCardText}>Cuando este evento tome fotos, aparecerán aquí.</Text>
+              </View>
+            ) : null}
           </ScrollView>
         </View>
       </View>
     ) : null
+  }
 
   const renderMirrorPreviewScreen = () => (
     <View style={styles.mirrorPreviewPage}>
@@ -7961,6 +8168,93 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: '950',
   },
+  eventFoldersPanel: {
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 'clamp(14px, 1.7svh, 22px)',
+    gap: 14,
+    boxShadow: '0 10px 18px rgba(15,23,42,0.06)',
+  },
+  eventFoldersPanelPhone: {
+    padding: 10,
+  },
+  eventFoldersGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: 12,
+  },
+  eventFoldersGridPhone: {
+    display: 'flex',
+  },
+  eventFolderCard: {
+    minHeight: 210,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    overflow: 'hidden',
+    cursor: 'pointer',
+  },
+  eventFolderPreview: {
+    position: 'relative',
+    height: 132,
+    backgroundColor: colors.dark,
+  },
+  eventFolderPreviewImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  eventFolderEmptyPreview: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.roseSoft,
+  },
+  eventFolderEmptyIcon: {
+    color: colors.rose,
+    fontSize: 42,
+    lineHeight: 48,
+    fontWeight: '950',
+  },
+  eventFolderCount: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    minWidth: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  eventFolderCountText: {
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
+  },
+  eventFolderInfo: {
+    padding: 12,
+    gap: 3,
+  },
+  eventFolderName: {
+    color: colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '950',
+  },
+  eventFolderMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+  },
   mainGrid: {
     display: 'grid',
     gridTemplateColumns: 'minmax(320px, 0.92fr) minmax(360px, 1.08fr)',
@@ -9600,6 +9894,17 @@ const styles = StyleSheet.create({
   eventGalleryCardFooter: {
     padding: 10,
     gap: 2,
+  },
+  eventGalleryEmptyState: {
+    minHeight: 180,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
   },
   eventGalleryCardTitle: {
     color: colors.ink,
