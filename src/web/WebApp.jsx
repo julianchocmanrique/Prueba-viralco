@@ -1536,11 +1536,21 @@ const WebApp = () => {
       setCustomPhotoLayout((current) =>
         normalizeCustomPhotoLayout(current, customPhotoCount).map((slot) => {
           if (active.mode === 'resize') {
-            if (slot.photoNumber !== active.photoNumber) return slot
-            const nextWidth = clampNumber(active.slot.width + deltaX, 18, 100 - active.slot.x)
-            const nextHeight = clampNumber(active.slot.height + deltaY, 7, 100 - active.slot.y)
+            const groupSlots = active.slots?.length ? active.slots : [active.slot]
+            const minDeltaWidth = Math.max(...groupSlots.map((item) => 18 - item.width))
+            const maxDeltaWidth = Math.min(...groupSlots.map((item) => 100 - item.x - item.width))
+            const minDeltaHeight = Math.max(...groupSlots.map((item) => 7 - item.height))
+            const maxDeltaHeight = Math.min(...groupSlots.map((item) => 100 - item.y - item.height))
+            const nextDeltaWidth = clampNumber(deltaX, minDeltaWidth, maxDeltaWidth)
+            const nextDeltaHeight = clampNumber(deltaY, minDeltaHeight, maxDeltaHeight)
             setCustomAlignmentGuides({ x: [], y: [] })
-            return { ...slot, width: nextWidth, height: nextHeight }
+            if (!active.photoNumbers?.includes(slot.photoNumber)) return slot
+            const startSlot = groupSlots.find((item) => item.photoNumber === slot.photoNumber) || slot
+            return {
+              ...slot,
+              width: clampNumber(startSlot.width + nextDeltaWidth, 18, 100 - startSlot.x),
+              height: clampNumber(startSlot.height + nextDeltaHeight, 7, 100 - startSlot.y),
+            }
           }
 
           const groupSlots = active.slots?.length ? active.slots : [active.slot]
@@ -2859,7 +2869,7 @@ const WebApp = () => {
     const rect = customEditorStripRef.current?.getBoundingClientRect?.()
     const slot = customLayoutSlots.find((item) => item.photoNumber === photoNumber)
     if (!rect || !slot || !Number.isFinite(startX) || !Number.isFinite(startY)) return
-    const activePhotoNumbers = mode === 'move' && selectedCustomLayoutPhotos.includes(photoNumber)
+    const activePhotoNumbers = selectedCustomLayoutPhotos.includes(photoNumber)
       ? selectedCustomLayoutPhotos.filter((item) => customLayoutSlots.some((slotItem) => slotItem.photoNumber === item))
       : [photoNumber]
     const activeSlots = customLayoutSlots.filter((slotItem) => activePhotoNumbers.includes(slotItem.photoNumber))
@@ -3014,9 +3024,9 @@ const WebApp = () => {
       normalizeCustomPhotoLayout(current, customPhotoCount).map((slot) => {
         if (axis === 'x' && selectedNumbers.includes(slot.photoNumber)) return { ...slot, x: clampNumber(slot.x + nextAmount, 0, 100 - slot.width) }
         if (axis === 'y' && selectedNumbers.includes(slot.photoNumber)) return { ...slot, y: clampNumber(slot.y + nextAmount, 0, 100 - slot.height) }
-        if (slot.photoNumber !== photoNumber) return slot
-        if (axis === 'width') return { ...slot, width: clampNumber(slot.width + amount, 18, 100 - slot.x) }
-        return { ...slot, height: clampNumber(slot.height + amount, 7, 100 - slot.y) }
+        if (axis === 'width' && selectedNumbers.includes(slot.photoNumber)) return { ...slot, width: clampNumber(slot.width + amount, 18, 100 - slot.x) }
+        if (axis === 'height' && selectedNumbers.includes(slot.photoNumber)) return { ...slot, height: clampNumber(slot.height + amount, 7, 100 - slot.y) }
+        return slot
       }),
     )
     setPhotoFrames([])
