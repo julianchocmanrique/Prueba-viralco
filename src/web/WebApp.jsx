@@ -809,7 +809,8 @@ const WebApp = () => {
       'preview',
       'compartir',
     ])
-    const nextRoute = validRoutes.has(route) ? route : 'inicio'
+    const cleanRoute = ['diseno-foto', 'modo-captura', 'fondo'].includes(route) ? 'configuracion-captura' : route
+    const nextRoute = validRoutes.has(cleanRoute) ? cleanRoute : 'inicio'
     setShowHomeLauncher(nextRoute === 'inicio' || nextRoute === 'nuevo-evento')
     setShowCreateEventModal(nextRoute === 'nuevo-evento')
     setShowStartEditor(nextRoute === 'editor-inicio')
@@ -3486,39 +3487,12 @@ const WebApp = () => {
   }
 
   const openPhotoDesignScreen = () => {
-    setShowHomeLauncher(false)
-    setShowCreateEventModal(false)
-    setShowEventOptionsScreen(false)
-    setShowAnimationVideoScreen(false)
-    setShowLaunchIntroScreen(false)
-    setShowCapturePhotoScreen(false)
-    setShowPreviewScreen(false)
-    setShowShareScreen(false)
-    setShowStartEditor(false)
-    setShowCaptureModeScreen(false)
-    setShowCaptureConfigScreen(false)
-    setShowPrintConfigScreen(false)
-    setShowBackgroundRemovalScreen(false)
-    setShowPhotoDesignScreen(true)
-    updateAppRoute('diseno-foto')
-    setCaptureStatus('Ajusta el diseño de foto antes de capturar')
+    openCaptureConfigScreen(false)
+    setCaptureStatus('Configuración de captura lista para fotos')
   }
 
   const openCaptureModeScreen = () => {
-    setShowHomeLauncher(false)
-    setShowEventOptionsScreen(false)
-    setShowAnimationVideoScreen(false)
-    setShowLaunchIntroScreen(false)
-    setShowCapturePhotoScreen(false)
-    setShowPreviewScreen(false)
-    setShowShareScreen(false)
-    setShowStartEditor(false)
-    setShowPhotoDesignScreen(false)
-    setShowCaptureConfigScreen(false)
-    setShowPrintConfigScreen(false)
-    setShowBackgroundRemovalScreen(false)
-    setShowCaptureModeScreen(true)
-    updateAppRoute('modo-captura')
+    openCaptureConfigScreen(false)
     setCaptureStatus('Modo Foto habilitado para el espejo mágico')
   }
 
@@ -3568,21 +3542,8 @@ const WebApp = () => {
   }
 
   const openBackgroundRemovalScreen = () => {
-    setShowHomeLauncher(false)
-    setShowEventOptionsScreen(false)
-    setShowAnimationVideoScreen(false)
-    setShowLaunchIntroScreen(false)
-    setShowCapturePhotoScreen(false)
-    setShowPreviewScreen(false)
-    setShowShareScreen(false)
-    setShowStartEditor(false)
-    setShowPhotoDesignScreen(false)
-    setShowCaptureModeScreen(false)
-    setShowCaptureConfigScreen(false)
-    setShowPrintConfigScreen(false)
-    setShowBackgroundRemovalScreen(true)
-    updateAppRoute('fondo')
-    setCaptureStatus('Eliminación de fondo lista para fotos')
+    openCaptureConfigScreen(operatorSettingsActive)
+    setCaptureStatus('Configuración de captura lista para fotos')
   }
 
   const openEventOptionsScreen = (fromOperator = false) => {
@@ -6668,8 +6629,8 @@ const WebApp = () => {
               <Text style={styles.editorSummaryLabel}>Marco base</Text>
             </View>
           </View>
-          <Pressable onPress={openPhotoDesignScreen} style={styles.editorNextButton}>
-            <Text style={styles.editorNextButtonText}>Diseño de foto →</Text>
+          <Pressable onPress={() => openCaptureConfigScreen(false)} style={styles.editorNextButton}>
+            <Text style={styles.editorNextButtonText}>Configuración de captura →</Text>
           </Pressable>
         </View>
       </View>
@@ -6986,6 +6947,63 @@ const WebApp = () => {
     </View>
   )
 
+  const renderCaptureConfigPreview = () => {
+    const slots = getSelectedTypeLayoutSlots()
+    const frameSource = overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image
+    const usesManualText = selectedType.id.startsWith('personalizar')
+
+    return (
+      <View style={[styles.photoConfigCard, styles.capturePreviewConfigCard]}>
+        <View style={styles.capturePreviewConfigHeader}>
+          <View>
+            <Text style={styles.photoConfigTitle}>Vista previa de foto</Text>
+            <Text style={styles.capturePreviewConfigMeta}>
+              {selectedType.name} / {selectedTemplate.name} / {slots.length || selectedShotCount} foto{(slots.length || selectedShotCount) === 1 ? '' : 's'}
+            </Text>
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.capturePreviewConfigCanvas,
+            { aspectRatio: selectedType.width / selectedType.height },
+            isPhone && styles.capturePreviewConfigCanvasPhone,
+          ]}
+        >
+          <Image source={frameSource} style={styles.capturePreviewConfigFrame} accessibilityLabel={`Vista previa de ${selectedTemplate.name}`} />
+          <View style={styles.capturePreviewConfigSoftWash} />
+          {usesManualText ? renderCustomTextPreviewLayers(false) : (
+            <View style={styles.capturePreviewConfigEventText}>
+              <Text style={styles.capturePreviewConfigEventName}>{eventTitle}</Text>
+              <Text style={styles.capturePreviewConfigEventMeta}>{selectedType.name}</Text>
+            </View>
+          )}
+          {slots.length ? slots.map((slot) => (
+            <View
+              key={`capture-config-preview-${slot.photoNumber}`}
+              style={[
+                styles.capturePreviewConfigSlot,
+                {
+                  left: `${slot.x}%`,
+                  top: `${slot.y}%`,
+                  width: `${slot.width}%`,
+                  height: `${slot.height}%`,
+                },
+              ]}
+            >
+              <Text style={styles.capturePreviewConfigSlotNumber}>{slot.photoNumber}</Text>
+              <Text style={styles.capturePreviewConfigSlotLabel}>Foto</Text>
+            </View>
+          )) : (
+            <View style={styles.capturePreviewConfigEmpty}>
+              <Text style={styles.capturePreviewConfigEmptyText}>Agrega recuadros para ver el diseño.</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    )
+  }
+
   const renderCaptureConfigScreen = () => (
     <View style={styles.captureConfigPage}>
       <View style={[styles.captureModeHeader, isMobile && styles.captureModeHeaderMobile]}>
@@ -7076,14 +7094,6 @@ const WebApp = () => {
             </View>
           </Pressable>
 
-          <Pressable
-            onPress={() => {
-              setRoamingMode((value) => !value)
-              setCaptureStatus(`Modo fotógrafo itinerante ${roamingMode ? 'desactivado' : 'activado'}.`)
-            }}
-          >
-            <Text style={styles.previewConfigLink}>Modo fotógrafo itinerante {roamingMode ? 'activo' : '›'}</Text>
-          </Pressable>
         </View>
 
         <View style={styles.photoConfigCard}>
@@ -7131,86 +7141,17 @@ const WebApp = () => {
             </View>
           </Pressable>
 
-          <View style={styles.configBlock}>
-            <Text style={styles.configTitle}>Preset</Text>
-            <View style={styles.presetGrid}>
-              {['Suave', 'Rápido', 'Fiesta', 'Evento'].map((preset) => (
-                <Pressable
-                  key={preset}
-                  onPress={() => applyCapturePreset(preset)}
-                  style={[styles.presetPill, activePreset === preset && styles.presetPillActive]}
-                >
-                  <Text style={[styles.presetPillText, activePreset === preset && styles.presetPillTextActive]}>{preset}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
         </View>
 
-        <View style={styles.photoConfigCard}>
-          <Text style={styles.photoConfigTitle}>Vista previa de foto</Text>
-          <View style={styles.previewConfigRow}>
-            <Image source={selectedTemplate.image} style={styles.previewConfigImage} accessibilityLabel={`Plantilla seleccionada ${selectedTemplate.name}`} />
-            <View style={styles.previewConfigCopy}>
-              <Pressable
-                onPress={async () => {
-                  if (!photoFrames.length) {
-                    setCaptureStatus('Toma una foto para generar una previsualización real.')
-                    return
-                  }
-                  const output = await composeFinalPhoto(photoFrames)
-                  setFinalPhotoUrl(output)
-                  await saveFinalPhotoToServer(output, photoFrames)
-                  setCaptureStatus('Previsualización real actualizada con la configuración activa.')
-                }}
-                style={styles.previewConfigButton}
-              >
-                <Text style={styles.previewConfigButtonText}>Previsualizar</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  const nextTemplate = cycleTemplateForCurrentEvent()
-                  setCaptureStatus(`Foto de prueba cambiada a ${nextTemplate.name}.`)
-                }}
-              >
-                <Text style={styles.previewConfigLink}>Seleccionar foto de prueba ›</Text>
-              </Pressable>
-              <Text style={styles.previewConfigMeta}>
-                JPG/PNG recomendado. La app usará {selectedShotCount} foto{selectedShotCount === 1 ? '' : 's'} en el layout activo.
-              </Text>
-            </View>
-          </View>
-        </View>
+        {renderCaptureConfigPreview()}
       </View>
 
-      <View style={[styles.captureModeFooter, isMobile && styles.captureModeFooterMobile]}>
-        <Pressable
-          onPress={operatorSettingsActive ? () => openEventOptionsScreen(true) : () => {
-            setShowCaptureConfigScreen(false)
-            setShowPrintConfigScreen(false)
-            setShowCaptureModeScreen(true)
-          }}
-          style={styles.captureModeFooterButton}
-        >
-          <Text style={[styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>
-            {operatorSettingsActive ? 'Evento y marco' : '← Modo de captura'}
-          </Text>
-        </Pressable>
-        <Pressable onPress={saveCaptureConfigAndReturn} style={[styles.captureModeFooterPrimaryButton, isMobile && styles.captureModeFooterPrimaryButtonMobile]}>
+      <View style={[styles.captureModeFooter, styles.captureConfigSimpleFooter, isMobile && styles.captureModeFooterMobile]}>
+        <Pressable onPress={saveCaptureConfigAndReturn} style={[styles.captureModeFooterPrimaryButton, styles.captureConfigSaveButton, isMobile && styles.captureModeFooterPrimaryButtonMobile]}>
           <Text style={[styles.captureModeFooterPrimaryText, isMobile && styles.captureModeFooterTextMobile]}>
             Guardar y volver
           </Text>
         </Pressable>
-        <Pressable onPress={operatorSettingsActive ? closeOperatorSettingsToCapture : openBackgroundRemovalScreen} style={operatorSettingsActive ? styles.eventOptionsPrimaryButton : styles.captureModeFooterButton}>
-          <Text style={operatorSettingsActive ? styles.eventOptionsPrimaryText : [styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>
-            {operatorSettingsActive ? 'Listo' : 'Eliminación de fondo →'}
-          </Text>
-        </Pressable>
-        {operatorSettingsActive ? (
-          <Pressable onPress={() => openPrintConfigScreen(true)} style={styles.captureModeFooterButton}>
-            <Text style={[styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>Impresión</Text>
-          </Pressable>
-        ) : null}
       </View>
     </View>
   )
@@ -12975,6 +12916,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
   },
+  captureConfigSimpleFooter: {
+    justifyContent: 'center',
+  },
+  captureConfigSaveButton: {
+    flex: 0,
+    minWidth: 320,
+    maxWidth: 520,
+    width: '100%',
+  },
   captureConfigPage: {
     minHeight: 'auto',
     borderRadius: 8,
@@ -12984,7 +12934,7 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   captureConfigContent: {
-    maxWidth: 620,
+    maxWidth: 920,
     width: '100%',
     alignSelf: 'center',
     paddingHorizontal: 16,
@@ -13958,6 +13908,122 @@ const styles = StyleSheet.create({
     paddingVertical: 22,
     gap: 24,
     boxShadow: '0 12px 34px rgba(15,23,42,0.07)',
+  },
+  capturePreviewConfigCard: {
+    gap: 16,
+  },
+  capturePreviewConfigHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 14,
+    flexWrap: 'wrap',
+  },
+  capturePreviewConfigMeta: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  capturePreviewConfigCanvas: {
+    position: 'relative',
+    width: 'min(100%, 560px)',
+    maxHeight: 640,
+    borderRadius: 8,
+    overflow: 'hidden',
+    alignSelf: 'center',
+    backgroundColor: colors.dark,
+    borderWidth: 2,
+    borderColor: colors.rose,
+    boxShadow: '0 18px 44px rgba(15,23,42,0.16)',
+  },
+  capturePreviewConfigCanvasPhone: {
+    width: '100%',
+    maxHeight: 520,
+  },
+  capturePreviewConfigFrame: {
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  capturePreviewConfigSoftWash: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  capturePreviewConfigEventText: {
+    position: 'absolute',
+    left: '7%',
+    top: '6%',
+    right: '7%',
+    zIndex: 2,
+  },
+  capturePreviewConfigEventName: {
+    color: '#ffffff',
+    fontSize: 'clamp(22px, 4vw, 34px)',
+    lineHeight: 'clamp(27px, 4.6vw, 40px)',
+    fontWeight: '950',
+    textShadowColor: 'rgba(0,0,0,0.34)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+  capturePreviewConfigEventMeta: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.28)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  capturePreviewConfigSlot: {
+    position: 'absolute',
+    zIndex: 3,
+    borderRadius: 8,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(224,242,254,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 12px 26px rgba(15,23,42,0.18)',
+  },
+  capturePreviewConfigSlotNumber: {
+    color: colors.rose,
+    fontSize: 25,
+    lineHeight: 31,
+    fontWeight: '950',
+  },
+  capturePreviewConfigSlotLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  capturePreviewConfigEmpty: {
+    position: 'absolute',
+    left: '10%',
+    right: '10%',
+    top: '42%',
+    minHeight: 78,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.rose,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    zIndex: 4,
+  },
+  capturePreviewConfigEmptyText: {
+    color: colors.rose,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   photoConfigTitle: {
     color: '#52525b',
