@@ -856,6 +856,14 @@ const WebApp = () => {
     uploadedCustomFonts,
     templateId: selectedTemplate.id,
     filter: selectedFilter,
+    captureOriginal,
+    photoCountdownFirst,
+    photoCountdownNext,
+    photoReviewSeconds,
+    flashBeforePhoto,
+    roamingMode,
+    qualityMode,
+    activePreset,
     updatedAt: 'Ahora',
   })
 
@@ -870,6 +878,10 @@ const WebApp = () => {
       selectedTemplate
     const nextFilter = filters.includes(setup.filter) ? setup.filter : selectedFilter
     const nextName = setup.eventName || setup.name || 'Evento Viralco'
+    const nextNumber = (value, fallback) => {
+      const parsed = Number(value)
+      return Number.isFinite(parsed) ? parsed : fallback
+    }
 
     setEventName(nextName)
     setEventType(nextEventType)
@@ -897,6 +909,14 @@ const WebApp = () => {
     }
     setSelectedTemplate(nextTemplate)
     setSelectedFilter(nextFilter)
+    setCaptureOriginal(setup.captureOriginal !== undefined ? Boolean(setup.captureOriginal) : captureOriginal)
+    setPhotoCountdownFirst(Math.min(Math.max(Math.round(nextNumber(setup.photoCountdownFirst, photoCountdownFirst)), 1), 10))
+    setPhotoCountdownNext(Math.min(Math.max(Math.round(nextNumber(setup.photoCountdownNext, photoCountdownNext)), 1), 10))
+    setPhotoReviewSeconds(Math.min(Math.max(Math.round(nextNumber(setup.photoReviewSeconds, photoReviewSeconds)), 1), 8))
+    setFlashBeforePhoto(setup.flashBeforePhoto !== undefined ? Boolean(setup.flashBeforePhoto) : flashBeforePhoto)
+    setRoamingMode(setup.roamingMode !== undefined ? Boolean(setup.roamingMode) : roamingMode)
+    if (qualityOptions.includes(setup.qualityMode)) setQualityMode(setup.qualityMode)
+    if (['Suave', 'Rápido', 'Fiesta', 'Evento'].includes(setup.activePreset)) setActivePreset(setup.activePreset)
     setPhotoFrames([])
     setFinalPhotoUrl('')
     clearSavedPhoto()
@@ -3398,6 +3418,11 @@ const WebApp = () => {
     setShowCaptureConfigScreen(true)
     updateAppRoute('configuracion-captura')
     setCaptureStatus('Configuración de captura lista para fotos')
+  }
+
+  const saveCaptureConfigAndReturn = () => {
+    saveCurrentSetupToRecentEvents('Configuración de captura guardada.')
+    openEventOptionsScreen(operatorSettingsActive)
   }
 
   const openPrintConfigScreen = (fromOperator = false) => {
@@ -6990,6 +7015,11 @@ const WebApp = () => {
         >
           <Text style={[styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>
             {operatorSettingsActive ? 'Evento y marco' : '← Modo de captura'}
+          </Text>
+        </Pressable>
+        <Pressable onPress={saveCaptureConfigAndReturn} style={[styles.captureModeFooterPrimaryButton, isMobile && styles.captureModeFooterPrimaryButtonMobile]}>
+          <Text style={[styles.captureModeFooterPrimaryText, isMobile && styles.captureModeFooterTextMobile]}>
+            Guardar y volver
           </Text>
         </Pressable>
         <Pressable onPress={operatorSettingsActive ? closeOperatorSettingsToCapture : openBackgroundRemovalScreen} style={operatorSettingsActive ? styles.eventOptionsPrimaryButton : styles.captureModeFooterButton}>
@@ -12601,6 +12631,27 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 44,
     justifyContent: 'center',
+  },
+  captureModeFooterPrimaryButton: {
+    flex: 1.15,
+    minHeight: 52,
+    borderRadius: 28,
+    backgroundColor: colors.rose,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    boxShadow: '0 12px 26px rgba(10,77,232,0.18)',
+  },
+  captureModeFooterPrimaryButtonMobile: {
+    flex: 1.25,
+    minHeight: 48,
+  },
+  captureModeFooterPrimaryText: {
+    color: '#ffffff',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '950',
+    textAlign: 'center',
   },
   captureModeFooterText: {
     color: colors.rose,
