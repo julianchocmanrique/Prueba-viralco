@@ -10610,11 +10610,12 @@ const styles = StyleSheet.create({
     fontWeight: '950',
   },
   eventGalleryOverlay: {
-    position: 'absolute',
+    position: 'fixed',
     inset: 0,
-    zIndex: 12,
+    zIndex: 200,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 16,
   },
   eventGalleryBackdrop: {
     position: 'absolute',
@@ -10638,9 +10639,11 @@ const styles = StyleSheet.create({
     borderRadius: 7,
   },
   eventGalleryViewer: {
-    position: 'absolute',
-    inset: 0,
-    zIndex: 4,
+    position: 'relative',
+    width: '100%',
+    height: 'min(80svh, 780px)',
+    minHeight: 360,
+    zIndex: 1,
     backgroundColor: 'rgba(3,7,18,0.96)',
   },
   eventGalleryViewerHeader: {
