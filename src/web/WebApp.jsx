@@ -34,11 +34,13 @@ const appSetupStorageKey = 'viralco-mirror-photo-app'
 const appSessionStorageKey = 'viralco-mirror-photo-session'
 const recentEventsStorageKey = 'viralco-mirror-recent-events'
 const deletedEventsStorageKey = 'viralco-mirror-deleted-events'
+const deletedGalleryPhotosStorageKey = 'viralco-mirror-deleted-gallery-photos'
 const eventGalleryStorageKey = 'viralco-mirror-event-galleries'
 const activeProfileStorageKey = 'viralco-mirror-active-profile'
 const activeUserStorageKey = 'viralco-mirror-active-user'
 const cloudApiBase = 'https://beijing-recommend-marilyn-por.trycloudflare.com'
 const photoUploadEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/`
+const photoDeleteEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/delete/`
 const cloudStateEndpoint = `${cloudApiBase}/prueba-viralco/api/state/`
 const cloudSyncToken = 'viralco-reset-20260821-login'
 const persistentPhotoDbName = 'viralco-mirror-photo-images'
@@ -521,6 +523,7 @@ const WebApp = () => {
   const [activeProfileId, setActiveProfileId] = useState('admin-viralco')
   const [recentEvents, setRecentEvents] = useState(defaultRecentEvents)
   const [deletedEventIds, setDeletedEventIds] = useState([])
+  const [deletedGalleryPhotoIds, setDeletedGalleryPhotoIds] = useState([])
   const [eventGalleries, setEventGalleries] = useState({})
   const [selectedRecentId, setSelectedRecentId] = useState(defaultRecentEvents[0]?.id || '')
   const [cameraStream, setCameraStream] = useState(null)
@@ -743,6 +746,72 @@ const WebApp = () => {
         ? current.filter((item) => item !== photoKey)
         : [...current, photoKey]
     ))
+  }
+  const getServerPhotoId = (photo) => {
+    if (photo?.id) return String(photo.id)
+    const source = String(photo?.publicUrl || photo?.src || '')
+    const match = source.match(/\/uploads\/photos\/([^/]+)/)
+    return match?.[1] || ''
+  }
+  const deletePhotoFromServer = async (photo) => {
+    const photoId = getServerPhotoId(photo)
+    if (!photoId || typeof fetch === 'undefined') return false
+    try {
+      const response = await fetch(photoDeleteEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          syncToken: cloudSyncToken,
+          id: photoId,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      return Boolean(response.ok && result?.ok)
+    } catch {
+      return false
+    }
+  }
+  const pruneDeletedGalleryPhotos = (galleries = {}, deletedIds = deletedGalleryPhotoIds) => {
+    const deletedSet = new Set((deletedIds || []).filter(Boolean))
+    if (!deletedSet.size) return galleries || {}
+    return Object.fromEntries(
+      Object.entries(galleries || {}).map(([galleryId, gallery]) => [
+        galleryId,
+        {
+          ...gallery,
+          items: (gallery?.items || []).filter((photo, index) => !deletedSet.has(getServerPhotoId(photo) || getGalleryPhotoKey(photo, index))),
+        },
+      ]).filter(([, gallery]) => (gallery?.items || []).length),
+    )
+  }
+  const deleteGalleryPhoto = (galleryId, photoToDelete, index = 0) => {
+    const photoKey = getGalleryPhotoKey(photoToDelete, index)
+    const photoId = getServerPhotoId(photoToDelete) || photoKey
+    const confirmed = typeof window === 'undefined'
+      ? true
+      : window.confirm('¿Eliminar esta foto de la galería?')
+    if (!confirmed) return
+
+    setEventGalleries((current) => {
+      const gallery = current[galleryId]
+      if (!gallery) return current
+      const nextItems = (gallery.items || []).filter((photo, itemIndex) => getGalleryPhotoKey(photo, itemIndex) !== photoKey)
+      const next = { ...current }
+      if (nextItems.length) {
+        next[galleryId] = {
+          ...gallery,
+          updatedAt: new Date().toISOString(),
+          items: nextItems,
+        }
+      } else {
+        delete next[galleryId]
+      }
+      return next
+    })
+    setSelectedGalleryPrintIds((current) => current.filter((item) => item !== photoKey))
+    setDeletedGalleryPhotoIds((current) => (current.includes(photoId) ? current : [...current, photoId].slice(-400)))
+    void deletePhotoFromServer(photoToDelete)
+    setCaptureStatus('Foto eliminada de la galería.')
   }
   const eventTemplateOptions = useMemo(() => getTemplatesForEventType(eventType), [eventType])
   const printSizeLabel = '10x15 cm'
@@ -1197,6 +1266,7 @@ const WebApp = () => {
         users: Array.isArray(result.state.users) ? result.state.users : defaultAppUsers,
         recentEvents: Array.isArray(result.state.recentEvents) ? result.state.recentEvents : [],
         deletedEventIds: Array.isArray(result.state.deletedEventIds) ? result.state.deletedEventIds : [],
+        deletedGalleryPhotoIds: Array.isArray(result.state.deletedGalleryPhotoIds) ? result.state.deletedGalleryPhotoIds : [],
         eventGalleries: result.state.eventGalleries && typeof result.state.eventGalleries === 'object' ? result.state.eventGalleries : {},
       }
     } catch {
@@ -1216,7 +1286,8 @@ const WebApp = () => {
           users,
           recentEvents: state.recentEvents,
           deletedEventIds: state.deletedEventIds,
-          eventGalleries: compactCloudGalleries(state.eventGalleries),
+          deletedGalleryPhotoIds: state.deletedGalleryPhotoIds,
+          eventGalleries: compactCloudGalleries(pruneDeletedGalleryPhotos(state.eventGalleries, state.deletedGalleryPhotoIds)),
         }),
       })
       const result = await response.json().catch(() => ({}))
@@ -1285,6 +1356,7 @@ const WebApp = () => {
       const savedSession = window.localStorage.getItem(appSessionStorageKey)
       const savedRecent = window.localStorage.getItem(recentEventsStorageKey)
       const savedDeletedEvents = window.localStorage.getItem(deletedEventsStorageKey)
+      const savedDeletedGalleryPhotos = window.localStorage.getItem(deletedGalleryPhotosStorageKey)
       const savedGalleries = window.localStorage.getItem(eventGalleryStorageKey)
       const savedProfile = window.localStorage.getItem(activeProfileStorageKey)
       const savedUser = window.localStorage.getItem(activeUserStorageKey)
@@ -1303,6 +1375,14 @@ const WebApp = () => {
         const parsedDeletedEvents = savedDeletedEvents ? JSON.parse(savedDeletedEvents) : []
         const nextDeletedEventIds = (cloudState?.deletedEventIds?.length ? cloudState.deletedEventIds : (Array.isArray(parsedDeletedEvents) ? parsedDeletedEvents : [])).filter(Boolean)
         setDeletedEventIds(nextDeletedEventIds)
+        const parsedDeletedGalleryPhotos = savedDeletedGalleryPhotos ? JSON.parse(savedDeletedGalleryPhotos) : []
+        const nextDeletedGalleryPhotoIds = [
+          ...new Set([
+            ...(Array.isArray(parsedDeletedGalleryPhotos) ? parsedDeletedGalleryPhotos : []),
+            ...(Array.isArray(cloudState?.deletedGalleryPhotoIds) ? cloudState.deletedGalleryPhotoIds : []),
+          ].filter(Boolean)),
+        ].slice(-400)
+        setDeletedGalleryPhotoIds(nextDeletedGalleryPhotoIds)
         const parsedRecent = savedRecent ? JSON.parse(savedRecent) : null
         const cloudEvents = Array.isArray(cloudState?.recentEvents) ? cloudState.recentEvents : []
         const localEvents = Array.isArray(parsedRecent) ? parsedRecent : []
@@ -1357,20 +1437,21 @@ const WebApp = () => {
         const serverGalleries = await fetchServerEventGalleries()
         if (!cancelled) {
           setEventGalleries(cloudState
-            ? {
+            ? pruneDeletedGalleryPhotos({
               ...(cloudState?.eventGalleries || {}),
               ...(serverGalleries || {}),
-            }
-            : {
+            }, nextDeletedGalleryPhotoIds)
+            : pruneDeletedGalleryPhotos({
               ...localGalleries,
               ...(serverGalleries || {}),
-            })
+            }, nextDeletedGalleryPhotoIds))
         }
       } catch {
         window.localStorage.removeItem(appSetupStorageKey)
         window.localStorage.removeItem(appSessionStorageKey)
         window.localStorage.removeItem(recentEventsStorageKey)
         window.localStorage.removeItem(deletedEventsStorageKey)
+        window.localStorage.removeItem(deletedGalleryPhotosStorageKey)
         window.localStorage.removeItem(eventGalleryStorageKey)
         window.localStorage.removeItem(activeProfileStorageKey)
         window.localStorage.removeItem(activeUserStorageKey)
@@ -1398,14 +1479,19 @@ const WebApp = () => {
       if (cloudState) {
         const nextDeletedIds = cloudState.deletedEventIds || []
         setDeletedEventIds(nextDeletedIds)
+        if (Array.isArray(cloudState.deletedGalleryPhotoIds)) {
+          setDeletedGalleryPhotoIds((current) => [
+            ...new Set([...current, ...cloudState.deletedGalleryPhotoIds].filter(Boolean)),
+          ].slice(-400))
+        }
         setRecentEvents(mergeEventsWithDefaults(cloudState.recentEvents || [], nextDeletedIds).slice(0, 200))
       }
       if (!serverGalleries && !cloudState?.eventGalleries) return
-      setEventGalleries((current) => ({
+      setEventGalleries((current) => pruneDeletedGalleryPhotos({
         ...current,
         ...(cloudState?.eventGalleries || {}),
-        ...serverGalleries,
-      }))
+        ...(serverGalleries || {}),
+      }, cloudState?.deletedGalleryPhotoIds || deletedGalleryPhotoIds))
     }
 
     const handleFocus = () => {
@@ -1516,6 +1602,11 @@ const WebApp = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    window.localStorage.setItem(deletedGalleryPhotosStorageKey, JSON.stringify(deletedGalleryPhotoIds))
+  }, [deletedGalleryPhotoIds])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
     window.localStorage.setItem(activeProfileStorageKey, activeProfileId)
   }, [activeProfileId])
 
@@ -1542,12 +1633,13 @@ const WebApp = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    const visibleGalleries = pruneDeletedGalleryPhotos(eventGalleries, deletedGalleryPhotoIds)
     try {
-      window.localStorage.setItem(eventGalleryStorageKey, JSON.stringify(eventGalleries))
+      window.localStorage.setItem(eventGalleryStorageKey, JSON.stringify(visibleGalleries))
     } catch {
       try {
         const compactGalleries = Object.fromEntries(
-          Object.entries(eventGalleries).map(([key, gallery]) => [
+          Object.entries(visibleGalleries).map(([key, gallery]) => [
             key,
             {
               ...gallery,
@@ -1561,7 +1653,7 @@ const WebApp = () => {
         // Ignore gallery persistence failures when storage is full.
       }
     }
-  }, [eventGalleries])
+  }, [deletedGalleryPhotoIds, eventGalleries])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageHydratedRef.current) return undefined
@@ -1570,13 +1662,14 @@ const WebApp = () => {
       void saveServerAppState({
         recentEvents,
         deletedEventIds,
-        eventGalleries,
+        deletedGalleryPhotoIds,
+        eventGalleries: pruneDeletedGalleryPhotos(eventGalleries, deletedGalleryPhotoIds),
       })
     }, 900)
     return () => {
       if (cloudStateSaveTimerRef.current) window.clearTimeout(cloudStateSaveTimerRef.current)
     }
-  }, [users, recentEvents, deletedEventIds, eventGalleries])
+  }, [users, recentEvents, deletedEventIds, deletedGalleryPhotoIds, eventGalleries])
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -6505,6 +6598,7 @@ const WebApp = () => {
     const selectedFolder = selectedGalleryId
       ? visibleGalleryFolders.find((folder) => folder.id === selectedGalleryId)
       : null
+    const modalGalleryId = selectedFolder?.id || selectedGalleryId || eventGalleryId
     const modalGalleryItems = selectedFolder?.items || (selectedGalleryId ? (eventGalleries[selectedGalleryId]?.items || []) : currentEventGallery)
     const modalGalleryTitle = selectedFolder?.eventName || eventGalleries[selectedGalleryId]?.eventName || eventTitle
     const selectedPrintIdSet = new Set(selectedGalleryPrintIds)
@@ -6598,6 +6692,17 @@ const WebApp = () => {
                         accessibilityRole="button"
                       >
                         <Text style={[styles.eventGalleryMiniButtonText, styles.eventGalleryMiniButtonPrimaryText]}>Imprimir</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={(event) => {
+                          event?.stopPropagation?.()
+                          deleteGalleryPhoto(modalGalleryId, photo, index)
+                        }}
+                        style={[styles.eventGalleryMiniButton, styles.eventGalleryMiniButtonDanger]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Eliminar foto ${index + 1} de la galería`}
+                      >
+                        <Text style={[styles.eventGalleryMiniButtonText, styles.eventGalleryMiniButtonDangerText]}>Eliminar</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -10507,6 +10612,7 @@ const styles = StyleSheet.create({
   },
   eventGalleryCardActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   eventGalleryMiniButton: {
@@ -10525,6 +10631,10 @@ const styles = StyleSheet.create({
     borderColor: colors.blue,
     backgroundColor: colors.blue,
   },
+  eventGalleryMiniButtonDanger: {
+    borderColor: 'rgba(220,38,38,0.28)',
+    backgroundColor: '#fef2f2',
+  },
   eventGalleryMiniButtonText: {
     color: colors.ink,
     fontSize: 11,
@@ -10533,6 +10643,9 @@ const styles = StyleSheet.create({
   },
   eventGalleryMiniButtonPrimaryText: {
     color: '#ffffff',
+  },
+  eventGalleryMiniButtonDangerText: {
+    color: '#b91c1c',
   },
   eventGalleryEmptyState: {
     minHeight: 180,

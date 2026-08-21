@@ -37,6 +37,7 @@ const defaultAppState = () => ({
   ],
   recentEvents: [],
   deletedEventIds: [],
+  deletedGalleryPhotoIds: [],
   eventGalleries: {},
 })
 
@@ -86,6 +87,8 @@ const sanitizeGalleryItems = (items) => (
   })).filter((item) => item.src || item.publicUrl)
 )
 
+const galleryPhotoIdentity = (item) => safeText(item?.id || item?.publicUrl || item?.src, 600)
+
 const sanitizeUsers = (users) => (
   sanitizeArray(users, 100).map((user) => ({
     id: safeText(user?.id, 80),
@@ -99,6 +102,11 @@ const sanitizeUsers = (users) => (
 
 const sanitizeAppState = (payload, current = defaultAppState()) => {
   const acceptsSharedData = Number(payload?.schemaVersion) >= 2 && payload?.syncToken === syncToken
+  const deletedGalleryPhotoIds = [...new Set([
+    ...sanitizeArray(current.deletedGalleryPhotoIds, 500),
+    ...(acceptsSharedData ? sanitizeArray(payload?.deletedGalleryPhotoIds, 500) : []),
+  ].map((id) => safeText(id, 600)).filter(Boolean))].slice(-500)
+  const deletedGalleryPhotoSet = new Set(deletedGalleryPhotoIds)
   const eventGalleries = { ...(current.eventGalleries || {}) }
   if (acceptsSharedData && payload?.eventGalleries && typeof payload.eventGalleries === 'object') {
     Object.entries(payload.eventGalleries).slice(0, 300).forEach(([key, gallery]) => {
@@ -106,6 +114,7 @@ const sanitizeAppState = (payload, current = defaultAppState()) => {
       if (!galleryId) return
       const currentGallery = eventGalleries[galleryId] || {}
       const items = sanitizeGalleryItems(mergeItemsByIdentity(currentGallery.items, gallery?.items, 120))
+        .filter((item) => !deletedGalleryPhotoSet.has(galleryPhotoIdentity(item)))
       if (!items.length) {
         delete eventGalleries[galleryId]
         return
@@ -131,6 +140,7 @@ const sanitizeAppState = (payload, current = defaultAppState()) => {
       ...sanitizeArray(current.deletedEventIds, 300),
       ...(acceptsSharedData ? sanitizeArray(payload?.deletedEventIds, 300) : []),
     ].map((id) => safeText(id, 180)).filter(Boolean))],
+    deletedGalleryPhotoIds,
     eventGalleries,
   }
 }
@@ -145,6 +155,7 @@ const readAppState = async () => {
       users: sanitizeUsers(state.users).length ? sanitizeUsers(state.users) : defaultAppState().users,
       recentEvents: sanitizeArray(state.recentEvents, 300),
       deletedEventIds: sanitizeArray(state.deletedEventIds, 300),
+      deletedGalleryPhotoIds: sanitizeArray(state.deletedGalleryPhotoIds, 500),
       eventGalleries: state.eventGalleries && typeof state.eventGalleries === 'object' ? state.eventGalleries : {},
     }
   } catch {
@@ -203,6 +214,11 @@ const createPhotoId = () => {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-')
   return `${stamp}-${crypto.randomBytes(4).toString('hex')}`
 }
+
+const safePhotoId = (value) =>
+  String(value || '')
+    .replace(/[^A-Za-z0-9_-]/g, '')
+    .slice(0, 180)
 
 const readSavedPhotos = async () => {
   await fs.promises.mkdir(uploadRoot, { recursive: true })
@@ -294,6 +310,31 @@ const handlePhotoUpload = async (request, response) => {
   })
 }
 
+const handlePhotoDelete = async (request, response) => {
+  const rawBody = await readBody(request)
+  const payload = JSON.parse(rawBody || '{}')
+  if (payload?.syncToken !== syncToken) {
+    json(response, 409, { ok: false, error: 'Actualiza la página para sincronizar fotos.' })
+    return
+  }
+
+  const id = safePhotoId(payload.id)
+  if (!id) {
+    json(response, 400, { ok: false, error: 'No llegó el id de la foto.' })
+    return
+  }
+
+  const rootPath = path.resolve(uploadRoot)
+  const photoDir = path.resolve(uploadRoot, id)
+  if (!photoDir.startsWith(`${rootPath}${path.sep}`)) {
+    json(response, 400, { ok: false, error: 'Id de foto no válido.' })
+    return
+  }
+
+  await fs.promises.rm(photoDir, { recursive: true, force: true })
+  json(response, 200, { ok: true, id })
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, 'http://localhost')
@@ -331,6 +372,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === 'POST' && (pathname === '/photos' || pathname === '/prueba-viralco/api/photos')) {
       await handlePhotoUpload(request, response)
+      return
+    }
+
+    if (request.method === 'POST' && (pathname === '/photos/delete' || pathname === '/prueba-viralco/api/photos/delete')) {
+      await handlePhotoDelete(request, response)
       return
     }
 
