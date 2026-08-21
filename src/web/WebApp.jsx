@@ -33,6 +33,7 @@ const colors = {
 const appSetupStorageKey = 'viralco-mirror-photo-app'
 const appSessionStorageKey = 'viralco-mirror-photo-session'
 const recentEventsStorageKey = 'viralco-mirror-recent-events'
+const deletedEventsStorageKey = 'viralco-mirror-deleted-events'
 const eventGalleryStorageKey = 'viralco-mirror-event-galleries'
 const activeProfileStorageKey = 'viralco-mirror-active-profile'
 const photoUploadEndpoint = '/prueba-viralco/api/photos'
@@ -51,6 +52,7 @@ const createEventSlug = (value) =>
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .toLowerCase() || 'evento-viralco'
+const getEventIdentity = (event) => event?.id || event?.name || createEventSlug(event?.eventName || event?.name)
 
 const openPersistentPhotoDb = () =>
   new Promise((resolve, reject) => {
@@ -310,50 +312,56 @@ const animationVideoStages = [
   { id: 'afterProcessing', title: 'Después de procesar', defaultFile: 'Deseleccionado', compact: true },
   { id: 'sessionEnd', title: 'Fin de la sesión', defaultFile: 'Deseleccionado', compact: true },
 ]
+const defaultOperatorEvents = [
+  {
+    id: 'op1-cumple-color',
+    operatorId: 'operario-1',
+    name: 'Cumple Laura',
+    eventName: 'Cumple Laura',
+    eventType: 'Cumpleaños',
+    photoTypeId: 'doble',
+    templateId: 'cumple-color',
+    filter: 'Original',
+    updatedAt: 'Asignado',
+  },
+  {
+    id: 'op2-corporativo-gala',
+    operatorId: 'operario-2',
+    name: 'Gala Empresa',
+    eventName: 'Gala Empresa',
+    eventType: 'Corporativo',
+    photoTypeId: 'postal',
+    templateId: 'corp-gala',
+    filter: 'Glam',
+    updatedAt: 'Asignado',
+  },
+]
 const defaultRecentEvents = [
   {
     id: 'boda-valentina',
     name: 'Boda Valentina',
+    eventName: 'Boda Valentina',
     eventType: 'Boda',
     photoTypeId: 'postal',
     templateId: 'boda-clasica',
     filter: 'Glam',
     updatedAt: 'Reciente',
   },
+  ...defaultOperatorEvents,
 ]
+const mergeEventsWithDefaults = (events = [], deletedIds = []) => {
+  const savedIds = new Set(events.map(getEventIdentity))
+  const missingDefaults = defaultRecentEvents.filter((event) => {
+    const eventId = getEventIdentity(event)
+    return !savedIds.has(eventId) && !deletedIds.includes(eventId)
+  })
+  return [...events, ...missingDefaults].filter((event) => !deletedIds.includes(getEventIdentity(event)))
+}
 const profileOptions = [
   { id: 'admin', name: 'Administrador', shortName: 'Admin', role: 'admin' },
   { id: 'operario-1', name: 'Operario 1', shortName: 'Op. 1', role: 'operator' },
   { id: 'operario-2', name: 'Operario 2', shortName: 'Op. 2', role: 'operator' },
 ]
-const operatorAssignedEvents = {
-  'operario-1': [
-    {
-      id: 'op1-cumple-color',
-      operatorId: 'operario-1',
-      name: 'Cumple Laura',
-      eventName: 'Cumple Laura',
-      eventType: 'Cumpleaños',
-      photoTypeId: 'doble',
-      templateId: 'cumple-color',
-      filter: 'Original',
-      updatedAt: 'Asignado',
-    },
-  ],
-  'operario-2': [
-    {
-      id: 'op2-corporativo-gala',
-      operatorId: 'operario-2',
-      name: 'Gala Empresa',
-      eventName: 'Gala Empresa',
-      eventType: 'Corporativo',
-      photoTypeId: 'postal',
-      templateId: 'corp-gala',
-      filter: 'Glam',
-      updatedAt: 'Asignado',
-    },
-  ],
-}
 const editorTools = [
   { id: 'imagen', label: 'Imagen', icon: '▧' },
   { id: 'texto', label: 'Texto', icon: 'T' },
@@ -541,6 +549,7 @@ const WebApp = () => {
   const [selectedFilter, setSelectedFilter] = useState(filters[0])
   const [activeProfileId, setActiveProfileId] = useState('admin')
   const [recentEvents, setRecentEvents] = useState(defaultRecentEvents)
+  const [deletedEventIds, setDeletedEventIds] = useState([])
   const [eventGalleries, setEventGalleries] = useState({})
   const [selectedRecentId, setSelectedRecentId] = useState(defaultRecentEvents[0]?.id || '')
   const [cameraStream, setCameraStream] = useState(null)
@@ -637,10 +646,10 @@ const WebApp = () => {
   const activeProfile = profileOptions.find((profile) => profile.id === activeProfileId) || profileOptions[0]
   const isAdminProfile = activeProfile.role === 'admin'
   const visibleLaunchEvents = useMemo(() => {
-    if (isAdminProfile) return recentEvents.length ? recentEvents : defaultRecentEvents
-    const operatorRecentEvents = recentEvents.filter((item) => item.operatorId === activeProfile.id)
-    return operatorRecentEvents.length ? operatorRecentEvents : (operatorAssignedEvents[activeProfile.id] || [])
-  }, [activeProfile.id, isAdminProfile, recentEvents])
+    const activeEvents = recentEvents.filter((item) => !deletedEventIds.includes(getEventIdentity(item)))
+    if (isAdminProfile) return activeEvents
+    return activeEvents.filter((item) => item.operatorId === activeProfile.id)
+  }, [activeProfile.id, deletedEventIds, isAdminProfile, recentEvents])
   const eventReady = Boolean(eventName.trim())
   const framesReady = photoFrames.length
   const captureComplete = Boolean(finalPhotoUrl)
@@ -716,7 +725,7 @@ const WebApp = () => {
   }
   const visibleGalleryFolders = useMemo(() => {
     const sourceEvents = isAdminProfile
-      ? (recentEvents.length ? recentEvents : defaultRecentEvents)
+      ? recentEvents.filter((item) => !deletedEventIds.includes(getEventIdentity(item)))
       : visibleLaunchEvents
     const folders = sourceEvents.map(getEventGalleryFolder)
     if (!isAdminProfile) return folders
@@ -737,7 +746,7 @@ const WebApp = () => {
       })
 
     return [...folders, ...remoteOnlyFolders]
-  }, [eventGalleries, isAdminProfile, recentEvents, visibleLaunchEvents])
+  }, [deletedEventIds, eventGalleries, isAdminProfile, recentEvents, visibleLaunchEvents])
   const eventTemplateOptions = useMemo(() => getTemplatesForEventType(eventType), [eventType])
   const printSizeLabel = '10x15 cm'
   const activePrintLabel = 'Canon CP1500'
@@ -899,13 +908,33 @@ const WebApp = () => {
   }
 
   const rememberRecentEvent = (setup) => {
+    const setupId = getEventIdentity(setup)
+    setDeletedEventIds((current) => current.filter((id) => id !== setupId))
     setRecentEvents((current) => {
       const next = [
         { ...setup, id: setup.id || `evento-${Date.now()}`, updatedAt: 'Ahora' },
-        ...current.filter((item) => (item.id || item.name) !== (setup.id || setup.name)),
+        ...current.filter((item) => getEventIdentity(item) !== setupId),
       ].slice(0, 200)
       return next
     })
+  }
+
+  const deleteRecentEvent = (eventToDelete) => {
+    const eventId = getEventIdentity(eventToDelete)
+    const galleryIds = getEventGalleryIds(eventToDelete)
+    setRecentEvents((current) => current.filter((item) => getEventIdentity(item) !== eventId))
+    setDeletedEventIds((current) => (current.includes(eventId) ? current : [...current, eventId]))
+    setEventGalleries((current) => {
+      const next = { ...current }
+      galleryIds.forEach((galleryId) => {
+        delete next[galleryId]
+      })
+      return next
+    })
+    if ((selectedRecentId || '') === eventId || selectedRecentId === eventToDelete?.name) {
+      setSelectedRecentId('')
+    }
+    setCaptureStatus(`${eventToDelete?.name || eventToDelete?.eventName || 'Evento'} eliminado.`)
   }
 
   const saveCurrentSetupToRecentEvents = (status = 'Evento guardado.') => {
@@ -1129,6 +1158,7 @@ const WebApp = () => {
       const saved = window.localStorage.getItem(appSetupStorageKey)
       const savedSession = window.localStorage.getItem(appSessionStorageKey)
       const savedRecent = window.localStorage.getItem(recentEventsStorageKey)
+      const savedDeletedEvents = window.localStorage.getItem(deletedEventsStorageKey)
       const savedGalleries = window.localStorage.getItem(eventGalleryStorageKey)
       const savedProfile = window.localStorage.getItem(activeProfileStorageKey)
 
@@ -1136,10 +1166,14 @@ const WebApp = () => {
         if (profileOptions.some((profile) => profile.id === savedProfile)) {
           setActiveProfileId(savedProfile)
         }
-        const parsedRecent = savedRecent ? JSON.parse(savedRecent) : []
-        if (Array.isArray(parsedRecent) && parsedRecent.length) {
-          setRecentEvents(parsedRecent.slice(0, 200))
-          setSelectedRecentId(parsedRecent[0].id || parsedRecent[0].name || '')
+        const parsedDeletedEvents = savedDeletedEvents ? JSON.parse(savedDeletedEvents) : []
+        const nextDeletedEventIds = Array.isArray(parsedDeletedEvents) ? parsedDeletedEvents.filter(Boolean) : []
+        setDeletedEventIds(nextDeletedEventIds)
+        const parsedRecent = savedRecent ? JSON.parse(savedRecent) : null
+        if (Array.isArray(parsedRecent)) {
+          const nextRecentEvents = mergeEventsWithDefaults(parsedRecent, nextDeletedEventIds).slice(0, 200)
+          setRecentEvents(nextRecentEvents)
+          setSelectedRecentId(nextRecentEvents[0]?.id || nextRecentEvents[0]?.name || '')
         }
         if (saved) {
           const setup = JSON.parse(saved)
@@ -1191,6 +1225,7 @@ const WebApp = () => {
         window.localStorage.removeItem(appSetupStorageKey)
         window.localStorage.removeItem(appSessionStorageKey)
         window.localStorage.removeItem(recentEventsStorageKey)
+        window.localStorage.removeItem(deletedEventsStorageKey)
         window.localStorage.removeItem(eventGalleryStorageKey)
         window.localStorage.removeItem(activeProfileStorageKey)
       } finally {
@@ -1319,6 +1354,11 @@ const WebApp = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    window.localStorage.setItem(deletedEventsStorageKey, JSON.stringify(deletedEventIds))
+  }, [deletedEventIds])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
     window.localStorage.setItem(activeProfileStorageKey, activeProfileId)
   }, [activeProfileId])
 
@@ -1328,7 +1368,7 @@ const WebApp = () => {
       setSelectedRecentId('')
       return
     }
-    const hasSelectedEvent = visibleLaunchEvents.some((item) => (item.id || item.name) === selectedRecentId)
+    const hasSelectedEvent = visibleLaunchEvents.some((item) => getEventIdentity(item) === selectedRecentId || item.name === selectedRecentId)
     if (!hasSelectedEvent) {
       setSelectedRecentId(firstLaunchEvent.id || firstLaunchEvent.name)
     }
@@ -4228,7 +4268,7 @@ const WebApp = () => {
 
   const renderAdminEventsSummary = () => {
     if (!isAdminProfile) return null
-    const orderedEvents = (recentEvents.length ? recentEvents : defaultRecentEvents).slice()
+    const orderedEvents = recentEvents.filter((item) => !deletedEventIds.includes(getEventIdentity(item))).slice()
 
     return (
       <View style={[styles.adminEventsSummary, isPhone && styles.adminEventsSummaryPhone]}>
@@ -4275,17 +4315,31 @@ const WebApp = () => {
                   <Text style={styles.adminEventTag}>{shotCount} foto{shotCount === 1 ? '' : 's'}</Text>
                   <Text style={styles.adminEventTag}>{assignedProfile?.shortName || 'Admin'}</Text>
                 </View>
-                <Pressable
-                  onPress={() => {
-                    setSelectedRecentId(item.id || item.name)
-                    launchEvent(item, 'options')
-                  }}
-                  style={styles.adminEventEditButton}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Editar evento ${item.name || 'sin nombre'}`}
-                >
-                  <Text style={styles.adminEventEditText}>Editar</Text>
-                </Pressable>
+                <View style={styles.adminEventActions}>
+                  <Pressable
+                    onPress={(event) => {
+                      event?.stopPropagation?.()
+                      setSelectedRecentId(item.id || item.name)
+                      launchEvent(item, 'options')
+                    }}
+                    style={styles.adminEventEditButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Editar evento ${item.name || 'sin nombre'}`}
+                  >
+                    <Text style={styles.adminEventEditText}>Editar</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={(event) => {
+                      event?.stopPropagation?.()
+                      deleteRecentEvent(item)
+                    }}
+                    style={styles.adminEventDeleteButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Eliminar evento ${item.name || 'sin nombre'}`}
+                  >
+                    <Text style={styles.adminEventDeleteText}>Eliminar</Text>
+                  </Pressable>
+                </View>
               </Pressable>
             )
           })}
@@ -8151,6 +8205,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     paddingHorizontal: 9,
   },
+  adminEventActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
   adminEventEditButton: {
     minHeight: 36,
     borderRadius: 18,
@@ -8164,6 +8224,23 @@ const styles = StyleSheet.create({
   },
   adminEventEditText: {
     color: colors.rose,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
+  adminEventDeleteButton: {
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fff7f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    flexShrink: 0,
+  },
+  adminEventDeleteText: {
+    color: '#b91c1c',
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '950',
