@@ -354,10 +354,19 @@ const animationVideoStages = [
 const defaultAppUsers = [
   { id: 'super-admin', name: 'Super Admin', shortName: 'Super', username: 'superadmin', password: '1234', role: 'super_admin' },
   { id: 'admin-viralco', name: 'Administrador', shortName: 'Admin', username: 'admin', password: '1234', role: 'admin' },
+  { id: 'admin-isaju', name: 'Isaju', shortName: 'Isaju', username: 'isaju', password: 'Isaju1234', role: 'admin' },
   { id: 'operario-1', name: 'Operario 1', shortName: 'Op. 1', username: 'operario1', password: '1234', role: 'operator', adminId: 'admin-viralco' },
   { id: 'operario-2', name: 'Operario 2', shortName: 'Op. 2', username: 'operario2', password: '1234', role: 'operator', adminId: 'admin-viralco' },
+  { id: 'operario-isaju-1', name: 'Operario Isaju', shortName: 'Op. Isaju', username: 'operarioisaju', password: 'Isaju1234', role: 'operator', adminId: 'admin-isaju' },
 ]
 const defaultRecentEvents = []
+const mergeUsersWithDefaults = (users = []) => {
+  const merged = Array.isArray(users) ? [...users] : []
+  defaultAppUsers.forEach((defaultUser) => {
+    if (!merged.some((user) => user?.id === defaultUser.id)) merged.push(defaultUser)
+  })
+  return merged
+}
 const mergeEventsWithDefaults = (events = [], deletedIds = []) => {
   return events.filter((event) => !deletedIds.includes(getEventIdentity(event)))
 }
@@ -1339,7 +1348,7 @@ const WebApp = () => {
       const result = await response.json().catch(() => ({}))
       if (!response.ok || !result?.ok || !result.state) return null
       return {
-        users: Array.isArray(result.state.users) ? result.state.users : defaultAppUsers,
+        users: mergeUsersWithDefaults(result.state.users),
         recentEvents: Array.isArray(result.state.recentEvents) ? result.state.recentEvents : [],
         deletedEventIds: Array.isArray(result.state.deletedEventIds) ? result.state.deletedEventIds : [],
         deletedGalleryPhotoIds: Array.isArray(result.state.deletedGalleryPhotoIds) ? result.state.deletedGalleryPhotoIds : [],
@@ -1439,7 +1448,7 @@ const WebApp = () => {
 
       try {
         const cloudState = await fetchServerAppState()
-        const nextUsers = Array.isArray(cloudState?.users) && cloudState.users.length ? cloudState.users : defaultAppUsers
+        const nextUsers = mergeUsersWithDefaults(cloudState?.users)
         setUsers(nextUsers)
         const validSavedUser = nextUsers.find((user) => user.id === savedUser)
         if (validSavedUser) {
@@ -1551,7 +1560,7 @@ const WebApp = () => {
         fetchServerEventGalleries(),
       ])
       if (cancelled) return
-      if (cloudState?.users?.length) setUsers(cloudState.users)
+      if (cloudState?.users?.length) setUsers(mergeUsersWithDefaults(cloudState.users))
       if (cloudState) {
         const nextDeletedIds = cloudState.deletedEventIds || []
         setDeletedEventIds(nextDeletedIds)
