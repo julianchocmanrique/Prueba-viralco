@@ -3521,6 +3521,11 @@ const WebApp = () => {
     openEventOptionsScreen(operatorSettingsActive)
   }
 
+  const savePrintConfigAndReturn = () => {
+    saveCurrentSetupToRecentEvents('Configuración de impresión guardada.')
+    openEventOptionsScreen(operatorSettingsActive)
+  }
+
   const openPrintConfigScreen = (fromOperator = false) => {
     const keepOperatorMode = fromOperator || operatorSettingsActive
     setOperatorSettingsActive(keepOperatorMode)
@@ -7190,23 +7195,12 @@ const WebApp = () => {
         {renderPrintSettingsMenu()}
       </View>
 
-      <View style={[styles.captureModeFooter, isMobile && styles.captureModeFooterMobile]}>
-        <Pressable onPress={() => openEventOptionsScreen(operatorSettingsActive)} style={styles.captureModeFooterButton}>
-          <Text style={[styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>← Configurar fotos</Text>
-        </Pressable>
-        <Pressable
-          onPress={operatorSettingsActive ? closeOperatorSettingsToCapture : () => openCaptureConfigScreen(false)}
-          style={operatorSettingsActive ? styles.eventOptionsPrimaryButton : styles.captureModeFooterButton}
-        >
-          <Text style={operatorSettingsActive ? styles.eventOptionsPrimaryText : [styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>
-            {operatorSettingsActive ? 'Listo' : 'Configuración de captura →'}
+      <View style={[styles.captureModeFooter, styles.captureConfigSimpleFooter, isMobile && styles.captureModeFooterMobile]}>
+        <Pressable onPress={savePrintConfigAndReturn} style={[styles.captureModeFooterPrimaryButton, styles.captureConfigSaveButton, isMobile && styles.captureModeFooterPrimaryButtonMobile]}>
+          <Text style={[styles.captureModeFooterPrimaryText, isMobile && styles.captureModeFooterTextMobile]}>
+            Guardar y volver
           </Text>
         </Pressable>
-        {operatorSettingsActive ? (
-          <Pressable onPress={() => openCaptureConfigScreen(true)} style={styles.captureModeFooterButton}>
-            <Text style={[styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>Captura</Text>
-          </Pressable>
-        ) : null}
       </View>
     </View>
   )
