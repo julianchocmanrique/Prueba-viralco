@@ -36,7 +36,8 @@ const recentEventsStorageKey = 'viralco-mirror-recent-events'
 const deletedEventsStorageKey = 'viralco-mirror-deleted-events'
 const eventGalleryStorageKey = 'viralco-mirror-event-galleries'
 const activeProfileStorageKey = 'viralco-mirror-active-profile'
-const photoUploadEndpoint = '/prueba-viralco/api/photos'
+const photoUploadEndpoint = '/prueba-viralco/api/photos/'
+const cloudStateEndpoint = '/prueba-viralco/api/state/'
 const persistentPhotoDbName = 'viralco-mirror-photo-images'
 const persistentPhotoStoreName = 'images'
 const persistentFinalPhotoKey = 'final'
@@ -632,6 +633,7 @@ const WebApp = () => {
   const customEditorStripRef = useRef(null)
   const customLayoutPointerRef = useRef(null)
   const storageHydratedRef = useRef(false)
+  const cloudStateSaveTimerRef = useRef(null)
 
   const eventTitle = eventName.trim() || 'Evento Viralco'
   const eventGalleryId = selectedRecentId || createEventSlug(eventTitle)
@@ -1142,6 +1144,71 @@ const WebApp = () => {
     }
   }
 
+  const compactCloudGalleries = (galleries = {}) => (
+    Object.fromEntries(
+      Object.entries(galleries || {}).map(([key, gallery]) => [
+        key,
+        {
+          id: gallery?.id || key,
+          eventName: gallery?.eventName || 'Evento Viralco',
+          operatorId: gallery?.operatorId || 'admin',
+          updatedAt: gallery?.updatedAt || '',
+          items: (gallery?.items || []).slice(0, 80).map((photo) => {
+            const publicUrl = photo.publicUrl || (typeof photo.src === 'string' && !photo.src.startsWith('data:') ? photo.src : '')
+            return {
+              id: photo.id,
+              eventId: photo.eventId || key,
+              operatorId: photo.operatorId || gallery?.operatorId || 'admin',
+              eventName: photo.eventName || gallery?.eventName || 'Evento Viralco',
+              photoType: photo.photoType || 'Foto',
+              templateName: photo.templateName || 'Plantilla',
+              createdAt: photo.createdAt || '',
+              src: publicUrl,
+              publicUrl,
+              localUrl: '',
+              frames: photo.frames || 0,
+            }
+          }).filter((photo) => photo.src || photo.publicUrl),
+        },
+      ]),
+    )
+  )
+
+  const fetchServerAppState = async () => {
+    if (typeof fetch === 'undefined') return null
+    try {
+      const response = await fetch(cloudStateEndpoint, { method: 'GET', cache: 'no-store' })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result?.ok || !result.state) return null
+      return {
+        recentEvents: Array.isArray(result.state.recentEvents) ? result.state.recentEvents : [],
+        deletedEventIds: Array.isArray(result.state.deletedEventIds) ? result.state.deletedEventIds : [],
+        eventGalleries: result.state.eventGalleries && typeof result.state.eventGalleries === 'object' ? result.state.eventGalleries : {},
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const saveServerAppState = async (state) => {
+    if (typeof fetch === 'undefined') return false
+    try {
+      const response = await fetch(cloudStateEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recentEvents: state.recentEvents,
+          deletedEventIds: state.deletedEventIds,
+          eventGalleries: compactCloudGalleries(state.eventGalleries),
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      return Boolean(response.ok && result?.ok)
+    } catch {
+      return false
+    }
+  }
+
   const nextShotLabel = useMemo(() => {
     if (captureComplete) return 'Foto final lista'
     if (!framesReady) return `Necesitas ${selectedShotCount} foto${selectedShotCount === 1 ? '' : 's'}`
@@ -1208,12 +1275,16 @@ const WebApp = () => {
         if (profileOptions.some((profile) => profile.id === savedProfile)) {
           setActiveProfileId(savedProfile)
         }
+        const cloudState = await fetchServerAppState()
         const parsedDeletedEvents = savedDeletedEvents ? JSON.parse(savedDeletedEvents) : []
-        const nextDeletedEventIds = Array.isArray(parsedDeletedEvents) ? parsedDeletedEvents.filter(Boolean) : []
+        const nextDeletedEventIds = (cloudState?.deletedEventIds?.length ? cloudState.deletedEventIds : (Array.isArray(parsedDeletedEvents) ? parsedDeletedEvents : [])).filter(Boolean)
         setDeletedEventIds(nextDeletedEventIds)
         const parsedRecent = savedRecent ? JSON.parse(savedRecent) : null
-        if (Array.isArray(parsedRecent)) {
-          const nextRecentEvents = mergeEventsWithDefaults(parsedRecent, nextDeletedEventIds).slice(0, 200)
+        const cloudEvents = Array.isArray(cloudState?.recentEvents) ? cloudState.recentEvents : []
+        const localEvents = Array.isArray(parsedRecent) ? parsedRecent : []
+        const preferredEvents = cloudEvents.length ? cloudEvents : localEvents
+        if (preferredEvents.length) {
+          const nextRecentEvents = mergeEventsWithDefaults(preferredEvents, nextDeletedEventIds).slice(0, 200)
           setRecentEvents(nextRecentEvents)
           setSelectedRecentId(nextRecentEvents[0]?.id || nextRecentEvents[0]?.name || '')
         }
@@ -1260,6 +1331,7 @@ const WebApp = () => {
         if (!cancelled) {
           setEventGalleries({
             ...localGalleries,
+            ...(cloudState?.eventGalleries || {}),
             ...(serverGalleries || {}),
           })
         }
@@ -1284,20 +1356,30 @@ const WebApp = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
     let cancelled = false
-    const refreshServerGalleries = async () => {
-      const serverGalleries = await fetchServerEventGalleries()
-      if (!serverGalleries || cancelled) return
+    const refreshServerData = async () => {
+      const [cloudState, serverGalleries] = await Promise.all([
+        fetchServerAppState(),
+        fetchServerEventGalleries(),
+      ])
+      if (cancelled) return
+      if (cloudState?.recentEvents?.length || cloudState?.deletedEventIds?.length) {
+        const nextDeletedIds = cloudState.deletedEventIds || []
+        setDeletedEventIds(nextDeletedIds)
+        setRecentEvents(mergeEventsWithDefaults(cloudState.recentEvents || [], nextDeletedIds).slice(0, 200))
+      }
+      if (!serverGalleries && !cloudState?.eventGalleries) return
       setEventGalleries((current) => ({
         ...current,
+        ...(cloudState?.eventGalleries || {}),
         ...serverGalleries,
       }))
     }
 
     const handleFocus = () => {
-      void refreshServerGalleries()
+      void refreshServerData()
     }
     window.addEventListener('focus', handleFocus)
-    const intervalId = window.setInterval(refreshServerGalleries, 45000)
+    const intervalId = window.setInterval(refreshServerData, 12000)
 
     return () => {
       cancelled = true
@@ -1438,6 +1520,21 @@ const WebApp = () => {
       }
     }
   }, [eventGalleries])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return undefined
+    if (cloudStateSaveTimerRef.current) window.clearTimeout(cloudStateSaveTimerRef.current)
+    cloudStateSaveTimerRef.current = window.setTimeout(() => {
+      void saveServerAppState({
+        recentEvents,
+        deletedEventIds,
+        eventGalleries,
+      })
+    }, 900)
+    return () => {
+      if (cloudStateSaveTimerRef.current) window.clearTimeout(cloudStateSaveTimerRef.current)
+    }
+  }, [recentEvents, deletedEventIds, eventGalleries])
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -2406,7 +2503,7 @@ const WebApp = () => {
     setSavedPhotoId('')
 
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 5500) : null
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null
 
     try {
       const response = await fetch(photoUploadEndpoint, {

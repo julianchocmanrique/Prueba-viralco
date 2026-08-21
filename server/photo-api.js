@@ -7,8 +7,10 @@ const crypto = require('crypto')
 
 const port = Number(process.env.VIRALCO_PHOTO_API_PORT || 4174)
 const uploadRoot = process.env.VIRALCO_PHOTO_UPLOAD_DIR || '/var/www/html/prueba-viralco/uploads/photos'
+const stateRoot = process.env.VIRALCO_STATE_DIR || '/var/www/html/prueba-viralco/uploads/state'
 const publicBaseUrl = process.env.VIRALCO_PHOTO_PUBLIC_BASE || 'https://www.viralcoproducciones.com/prueba-viralco/uploads/photos'
 const maxBodyBytes = Number(process.env.VIRALCO_PHOTO_MAX_BYTES || 60 * 1024 * 1024)
+const stateFilePath = path.join(stateRoot, 'app-state.json')
 
 const json = (response, statusCode, payload) => {
   const body = JSON.stringify(payload)
@@ -20,6 +22,92 @@ const json = (response, statusCode, payload) => {
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
   })
   response.end(body)
+}
+
+const defaultAppState = () => ({
+  version: 1,
+  updatedAt: new Date(0).toISOString(),
+  recentEvents: [],
+  deletedEventIds: [],
+  eventGalleries: {},
+})
+
+const sanitizeArray = (value, limit = 300) => (
+  Array.isArray(value) ? value.filter(Boolean).slice(0, limit) : []
+)
+
+const sanitizeGalleryItems = (items) => (
+  sanitizeArray(items, 120).map((item) => ({
+    id: safeText(item?.id, 180),
+    eventId: safeText(item?.eventId, 180),
+    operatorId: safeText(item?.operatorId, 80),
+    eventName: safeText(item?.eventName, 160),
+    photoType: safeText(item?.photoType, 120),
+    templateName: safeText(item?.templateName, 120),
+    createdAt: safeText(item?.createdAt, 80),
+    src: safeText(item?.src || item?.publicUrl, 600),
+    publicUrl: safeText(item?.publicUrl || item?.src, 600),
+    localUrl: '',
+    frames: Number.isFinite(Number(item?.frames)) ? Number(item.frames) : 0,
+  })).filter((item) => item.src || item.publicUrl)
+)
+
+const sanitizeAppState = (payload) => {
+  const eventGalleries = {}
+  if (payload?.eventGalleries && typeof payload.eventGalleries === 'object') {
+    Object.entries(payload.eventGalleries).slice(0, 300).forEach(([key, gallery]) => {
+      const galleryId = safeText(gallery?.id || key, 180)
+      if (!galleryId) return
+      eventGalleries[galleryId] = {
+        id: galleryId,
+        eventName: safeText(gallery?.eventName, 160),
+        operatorId: safeText(gallery?.operatorId, 80),
+        updatedAt: safeText(gallery?.updatedAt, 80),
+        items: sanitizeGalleryItems(gallery?.items),
+      }
+    })
+  }
+
+  return {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    recentEvents: sanitizeArray(payload?.recentEvents, 300),
+    deletedEventIds: sanitizeArray(payload?.deletedEventIds, 300).map((id) => safeText(id, 180)).filter(Boolean),
+    eventGalleries,
+  }
+}
+
+const readAppState = async () => {
+  await fs.promises.mkdir(stateRoot, { recursive: true })
+  try {
+    const state = JSON.parse(await fs.promises.readFile(stateFilePath, 'utf8'))
+    return {
+      ...defaultAppState(),
+      ...state,
+      recentEvents: sanitizeArray(state.recentEvents, 300),
+      deletedEventIds: sanitizeArray(state.deletedEventIds, 300),
+      eventGalleries: state.eventGalleries && typeof state.eventGalleries === 'object' ? state.eventGalleries : {},
+    }
+  } catch {
+    return defaultAppState()
+  }
+}
+
+const writeAppState = async (payload) => {
+  await fs.promises.mkdir(stateRoot, { recursive: true })
+  const current = await readAppState()
+  const next = sanitizeAppState({
+    ...current,
+    ...payload,
+    eventGalleries: {
+      ...(current.eventGalleries || {}),
+      ...(payload?.eventGalleries || {}),
+    },
+  })
+  const tmpPath = `${stateFilePath}.${process.pid}.${Date.now()}.tmp`
+  await fs.promises.writeFile(tmpPath, JSON.stringify(next, null, 2))
+  await fs.promises.rename(tmpPath, stateFilePath)
+  return next
 }
 
 const readBody = (request) =>
@@ -167,6 +255,20 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && (url.pathname === '/photos' || url.pathname === '/prueba-viralco/api/photos')) {
       const photos = await readSavedPhotos()
       json(response, 200, { ok: true, photos })
+      return
+    }
+
+    if (request.method === 'GET' && (url.pathname === '/state' || url.pathname === '/prueba-viralco/api/state')) {
+      const state = await readAppState()
+      json(response, 200, { ok: true, state })
+      return
+    }
+
+    if (request.method === 'POST' && (url.pathname === '/state' || url.pathname === '/prueba-viralco/api/state')) {
+      const rawBody = await readBody(request)
+      const payload = JSON.parse(rawBody || '{}')
+      const state = await writeAppState(payload)
+      json(response, 200, { ok: true, state })
       return
     }
 
