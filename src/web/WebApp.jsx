@@ -6725,12 +6725,10 @@ const WebApp = () => {
 
   const renderMirrorShareMenu = () => {
     const actions = [
-      { key: 'Email', icon: '✉️', label: 'Email' },
-      { key: 'SMS', icon: '💬', label: 'SMS' },
       { key: 'WhatsApp', icon: '🟢', label: 'WhatsApp' },
-      { key: 'Compartir', icon: '📤', label: 'Share' },
-      { key: 'QR', icon: '▣', label: 'Scan QR' },
-      { key: 'Imprimir', icon: '🖨️', label: 'Print' },
+      { key: 'Compartir', icon: '📤', label: 'Compartir' },
+      { key: 'QR', icon: '▣', label: 'QR' },
+      { key: 'Imprimir', icon: '🖨️', label: 'Imprimir' },
     ]
 
     return (
