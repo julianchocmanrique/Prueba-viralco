@@ -42,6 +42,7 @@ const activeUserStorageKey = 'viralco-mirror-active-user'
 const cloudApiBase = 'https://beijing-recommend-marilyn-por.trycloudflare.com'
 const photoUploadEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/`
 const photoDeleteEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/delete/`
+const eventGalleryDeleteEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/delete-event/`
 const cloudStateEndpoint = `${cloudApiBase}/prueba-viralco/api/state/`
 const cloudSyncToken = 'viralco-reset-20260821-login'
 const persistentPhotoDbName = 'viralco-mirror-photo-images'
@@ -803,8 +804,9 @@ const WebApp = () => {
   const getServerPhotoId = (photo) => {
     if (photo?.id) return String(photo.id)
     const source = String(photo?.publicUrl || photo?.src || '')
-    const match = source.match(/\/uploads\/photos\/([^/]+)/)
-    return match?.[1] || ''
+    const path = source.split('/uploads/photos/')[1] || ''
+    const parts = path.split('/').filter(Boolean)
+    return parts.length >= 3 ? parts[1] : (parts[0] || '')
   }
   const deletePhotoFromServer = async (photo) => {
     const photoId = getServerPhotoId(photo)
@@ -816,7 +818,22 @@ const WebApp = () => {
         body: JSON.stringify({
           syncToken: cloudSyncToken,
           id: photoId,
+          eventId: photo?.eventId,
         }),
+      })
+      const result = await response.json().catch(() => ({}))
+      return Boolean(response.ok && result?.ok)
+    } catch {
+      return false
+    }
+  }
+  const deleteEventGalleryFromServer = async (eventId) => {
+    if (!eventId || typeof fetch === 'undefined') return false
+    try {
+      const response = await fetch(eventGalleryDeleteEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ syncToken: cloudSyncToken, eventId }),
       })
       const result = await response.json().catch(() => ({}))
       return Boolean(response.ok && result?.ok)
@@ -1098,6 +1115,11 @@ const WebApp = () => {
   const deleteRecentEvent = (eventToDelete) => {
     const eventId = getEventIdentity(eventToDelete)
     const galleryIds = getEventGalleryIds(eventToDelete)
+    // A gallery only leaves the server when its event is explicitly deleted here.
+    // Removing a photo, changing a template, or reloading never clears stored files.
+    galleryIds.forEach((galleryId) => {
+      deleteEventGalleryFromServer(galleryId)
+    })
     setRecentEvents((current) => current.filter((item) => getEventIdentity(item) !== eventId))
     setDeletedEventIds((current) => (current.includes(eventId) ? current : [...current, eventId]))
     setEventGalleries((current) => {

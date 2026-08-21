@@ -220,6 +220,20 @@ const safePhotoId = (value) =>
     .replace(/[^A-Za-z0-9_-]/g, '')
     .slice(0, 180)
 
+const safeEventFolderId = (value) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 120) || 'sin-evento'
+
+const photoUrl = (eventFolderId, photoId, fileName) => {
+  const folder = eventFolderId ? `${eventFolderId}/` : ''
+  return `${publicBaseUrl}/${folder}${photoId}/${fileName}`
+}
+
 const readSavedPhotos = async () => {
   await fs.promises.mkdir(uploadRoot, { recursive: true })
   const entries = await fs.promises.readdir(uploadRoot, { withFileTypes: true })
@@ -227,19 +241,38 @@ const readSavedPhotos = async () => {
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
-    const photoDir = path.join(uploadRoot, entry.name)
-    try {
-      const metadata = JSON.parse(await fs.promises.readFile(path.join(photoDir, 'metadata.json'), 'utf8'))
-      const finalFileName = metadata.finalFileName || 'final.jpg'
-      photos.push({
-        ...metadata,
-        id: metadata.id || entry.name,
-        url: `/prueba-viralco/uploads/photos/${entry.name}/${finalFileName}`,
-        absoluteUrl: `${publicBaseUrl}/${entry.name}/${finalFileName}`,
-        frameCount: Array.isArray(metadata.frames) ? metadata.frames.length : 0,
+    const rootEntryPath = path.join(uploadRoot, entry.name)
+    const candidates = []
+
+    // Keeps photos uploaded before event folders were introduced available.
+    if (fs.existsSync(path.join(rootEntryPath, 'metadata.json'))) {
+      candidates.push({ photoDir: rootEntryPath, photoId: entry.name, eventFolderId: '' })
+    } else {
+      const children = await fs.promises.readdir(rootEntryPath, { withFileTypes: true }).catch(() => [])
+      children.filter((child) => child.isDirectory()).forEach((child) => {
+        candidates.push({
+          photoDir: path.join(rootEntryPath, child.name),
+          photoId: child.name,
+          eventFolderId: entry.name,
+        })
       })
-    } catch {
-      // Ignore incomplete upload folders.
+    }
+
+    for (const candidate of candidates) {
+      try {
+        const metadata = JSON.parse(await fs.promises.readFile(path.join(candidate.photoDir, 'metadata.json'), 'utf8'))
+        const finalFileName = metadata.finalFileName || 'final.jpg'
+        photos.push({
+          ...metadata,
+          id: metadata.id || candidate.photoId,
+          eventFolderId: metadata.eventFolderId || candidate.eventFolderId,
+          url: `/prueba-viralco/uploads/photos/${candidate.eventFolderId ? `${candidate.eventFolderId}/` : ''}${candidate.photoId}/${finalFileName}`,
+          absoluteUrl: photoUrl(candidate.eventFolderId, candidate.photoId, finalFileName),
+          frameCount: Array.isArray(metadata.frames) ? metadata.frames.length : 0,
+        })
+      } catch {
+        // Ignore incomplete upload folders.
+      }
     }
   }
 
@@ -265,7 +298,8 @@ const handlePhotoUpload = async (request, response) => {
   await fs.promises.mkdir(uploadRoot, { recursive: true })
 
   const id = createPhotoId()
-  const photoDir = path.join(uploadRoot, id)
+  const eventFolderId = safeEventFolderId(payload.eventId || payload.eventName)
+  const photoDir = path.join(uploadRoot, eventFolderId, id)
   await fs.promises.mkdir(photoDir, { recursive: true })
 
   const finalFileName = `final.${finalImage.extension}`
@@ -285,6 +319,7 @@ const handlePhotoUpload = async (request, response) => {
   const metadata = {
     id,
     eventId: safeText(payload.eventId),
+    eventFolderId,
     operatorId: safeText(payload.operatorId),
     eventName: safeText(payload.eventName),
     eventType: safeText(payload.eventType),
@@ -304,9 +339,9 @@ const handlePhotoUpload = async (request, response) => {
   json(response, 200, {
     ok: true,
     id,
-    url: `/prueba-viralco/uploads/photos/${id}/${finalFileName}`,
-    absoluteUrl: `${publicBaseUrl}/${id}/${finalFileName}`,
-    frames: savedFrames.map((fileName) => `${publicBaseUrl}/${id}/${fileName}`),
+    url: `/prueba-viralco/uploads/photos/${eventFolderId}/${id}/${finalFileName}`,
+    absoluteUrl: photoUrl(eventFolderId, id, finalFileName),
+    frames: savedFrames.map((fileName) => photoUrl(eventFolderId, id, fileName)),
   })
 }
 
@@ -325,7 +360,26 @@ const handlePhotoDelete = async (request, response) => {
   }
 
   const rootPath = path.resolve(uploadRoot)
-  const photoDir = path.resolve(uploadRoot, id)
+  const eventFolderId = safeEventFolderId(payload.eventId)
+  let photoDir = path.resolve(uploadRoot, eventFolderId, id)
+
+  // Fall back to the previous flat layout and to a scan for old gallery records.
+  if (!fs.existsSync(photoDir)) {
+    const flatDir = path.resolve(uploadRoot, id)
+    if (fs.existsSync(flatDir)) {
+      photoDir = flatDir
+    } else {
+      const folders = await fs.promises.readdir(uploadRoot, { withFileTypes: true }).catch(() => [])
+      for (const folder of folders) {
+        if (!folder.isDirectory()) continue
+        const candidate = path.resolve(uploadRoot, folder.name, id)
+        if (fs.existsSync(candidate)) {
+          photoDir = candidate
+          break
+        }
+      }
+    }
+  }
   if (!photoDir.startsWith(`${rootPath}${path.sep}`)) {
     json(response, 400, { ok: false, error: 'Id de foto no válido.' })
     return
@@ -333,6 +387,29 @@ const handlePhotoDelete = async (request, response) => {
 
   await fs.promises.rm(photoDir, { recursive: true, force: true })
   json(response, 200, { ok: true, id })
+}
+
+const handleEventGalleryDelete = async (request, response) => {
+  const rawBody = await readBody(request)
+  const payload = JSON.parse(rawBody || '{}')
+  if (payload?.syncToken !== syncToken) {
+    json(response, 409, { ok: false, error: 'Actualiza la página para sincronizar fotos.' })
+    return
+  }
+
+  const eventFolderId = safeEventFolderId(payload.eventId || payload.eventName)
+  if (eventFolderId === 'sin-evento') {
+    json(response, 400, { ok: false, error: 'No llegó el evento a eliminar.' })
+    return
+  }
+  const rootPath = path.resolve(uploadRoot)
+  const eventDir = path.resolve(uploadRoot, eventFolderId)
+  if (!eventDir.startsWith(`${rootPath}${path.sep}`)) {
+    json(response, 400, { ok: false, error: 'Evento no válido.' })
+    return
+  }
+  await fs.promises.rm(eventDir, { recursive: true, force: true })
+  json(response, 200, { ok: true, eventFolderId })
 }
 
 const server = http.createServer(async (request, response) => {
@@ -377,6 +454,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === 'POST' && (pathname === '/photos/delete' || pathname === '/prueba-viralco/api/photos/delete')) {
       await handlePhotoDelete(request, response)
+      return
+    }
+
+    if (request.method === 'POST' && (pathname === '/photos/delete-event' || pathname === '/prueba-viralco/api/photos/delete-event')) {
+      await handleEventGalleryDelete(request, response)
       return
     }
 
