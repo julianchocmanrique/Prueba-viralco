@@ -241,7 +241,6 @@ const templates = Object.values(templatesByEventType).flat()
 const getTemplatesForEventType = (type) => templatesByEventType[type] || templatesByEventType[defaultEventType]
 const filters = ['Original', 'Glam', 'Blanco y negro', 'Cálido', 'Marca']
 const shareTools = ['WhatsApp', 'QR', 'Imprimir']
-const photoTextPresets = ['El tiempo de Dios es perfecto', 'Gracias por acompañarnos', 'Un recuerdo especial']
 const customPhotoMaxSlots = 8
 const customTextFonts = ['Arial', 'Georgia', 'Impact', 'Verdana', 'Courier New']
 const customTextColors = [
