@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import JSZip from 'jszip'
 import {
   Animated,
   Image,
@@ -2810,6 +2811,97 @@ const WebApp = () => {
       }
     }
     return false
+  }
+
+  const getGalleryShareFiles = async (photoItems = [], galleryTitle = eventTitle) => {
+    if (typeof fetch === 'undefined' || typeof File === 'undefined') return []
+
+    const cleanGalleryName = String(galleryTitle || 'galeria-viralco')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase() || 'galeria-viralco'
+
+    const files = await Promise.all(photoItems.map(async (photo, index) => {
+      const source = getGalleryPhotoSource(photo)
+      if (!source) return null
+
+      try {
+        const response = await fetch(source)
+        if (!response.ok) return null
+        const blob = await response.blob()
+        const extension = blob.type === 'image/png' ? 'png' : 'jpg'
+        return new File(
+          [blob],
+          `${cleanGalleryName}-foto-${String(index + 1).padStart(2, '0')}.${extension}`,
+          { type: blob.type || 'image/jpeg' },
+        )
+      } catch (error) {
+        return null
+      }
+    }))
+
+    return files.filter(Boolean)
+  }
+
+  const shareWholeGallery = async (photoItems = [], galleryTitle = eventTitle) => {
+    if (!photoItems.length) {
+      setCaptureStatus('Esta galería todavía no tiene fotos para compartir.')
+      return
+    }
+
+    const files = await getGalleryShareFiles(photoItems, galleryTitle)
+    if (!files.length) {
+      setCaptureStatus('No se pudieron preparar las fotos de esta galería para compartir.')
+      return
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.share && (!navigator.canShare || navigator.canShare({ files }))) {
+      try {
+        await navigator.share({
+          title: `${galleryTitle} - Galería Viralco`,
+          text: `Galería completa del evento ${galleryTitle}.`,
+          files,
+        })
+        setCaptureStatus('Galería lista para enviar por WhatsApp, Drive u otra app disponible.')
+      } catch (error) {
+        if (error?.name !== 'AbortError') setCaptureStatus('No fue posible abrir el menú para compartir la galería.')
+      }
+      return
+    }
+
+    setCaptureStatus('Este dispositivo no permite compartir varias fotos juntas. Usa “Descargar ZIP para Drive”.')
+  }
+
+  const downloadGalleryZip = async (photoItems = [], galleryTitle = eventTitle) => {
+    if (typeof document === 'undefined' || typeof URL === 'undefined') return
+
+    const files = await getGalleryShareFiles(photoItems, galleryTitle)
+    if (!files.length) {
+      setCaptureStatus('No se pudieron preparar las fotos de esta galería para descargar.')
+      return
+    }
+
+    const cleanGalleryName = String(galleryTitle || 'galeria-viralco')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase() || 'galeria-viralco'
+    const zip = new JSZip()
+    files.forEach((file) => zip.file(file.name, file))
+
+    const archive = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
+    const archiveUrl = URL.createObjectURL(archive)
+    const link = document.createElement('a')
+    link.href = archiveUrl
+    link.download = `${cleanGalleryName}-galeria.zip`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(archiveUrl), 1000)
+    setCaptureStatus('ZIP descargado. Puedes subirlo completo a Google Drive.')
   }
 
   const downloadFinalPhoto = () => {
@@ -6787,6 +6879,22 @@ const WebApp = () => {
               accessibilityRole="button"
             >
               <Text style={styles.eventGalleryActionButtonText}>{allGallerySelected ? 'Limpiar' : 'Todas'}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => shareWholeGallery(modalGalleryItems, modalGalleryTitle)}
+              disabled={!modalGalleryItems.length}
+              style={[styles.eventGalleryActionButton, !modalGalleryItems.length && styles.eventGalleryPrimaryActionButtonDisabled]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.eventGalleryActionButtonText}>Compartir galería</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => downloadGalleryZip(modalGalleryItems, modalGalleryTitle)}
+              disabled={!modalGalleryItems.length}
+              style={[styles.eventGalleryActionButton, !modalGalleryItems.length && styles.eventGalleryPrimaryActionButtonDisabled]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.eventGalleryActionButtonText}>ZIP para Drive</Text>
             </Pressable>
             <Pressable
               onPress={() => printGalleryQueue(selectedPrintItems)}
