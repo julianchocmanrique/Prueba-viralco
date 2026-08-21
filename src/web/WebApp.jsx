@@ -7493,6 +7493,7 @@ const WebApp = () => {
         <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
           {renderHomeLauncher()}
         </ScrollView>
+        {renderEventGalleryModal()}
         {showCreateEventModal && renderCreateEventModal()}
         {renderHiddenHomeButton()}
       </View>
@@ -7609,6 +7610,7 @@ const WebApp = () => {
       <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
         {renderHomeLauncher()}
       </ScrollView>
+      {renderEventGalleryModal()}
       {showCreateEventModal && renderCreateEventModal()}
       {renderHiddenHomeButton()}
     </View>
