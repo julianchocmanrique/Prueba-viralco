@@ -4542,6 +4542,7 @@ const WebApp = () => {
   const renderEventSetupPreview = () => {
     const slots = getSelectedTypeLayoutSlots()
     const frameSource = overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image
+    const isManualType = selectedType.id.startsWith('personalizar')
 
     return (
       <View style={[styles.eventOptionsSection, styles.setupPreviewSection, isPhone && styles.eventOptionsSectionPhone]}>
@@ -4560,42 +4561,83 @@ const WebApp = () => {
           </Pressable>
         </View>
 
-        <View style={[styles.setupPreviewContent, isMobile && styles.setupPreviewContentMobile]}>
-          <View
-            style={[
-              styles.setupPreviewCanvas,
-              { aspectRatio: selectedType.width / selectedType.height },
-              isMobile && styles.setupPreviewCanvasMobile,
-            ]}
-          >
-            <Image source={frameSource} style={styles.setupPreviewFrameImage} accessibilityLabel={`Vista previa de ${selectedTemplate.name}`} />
-            <View style={styles.setupPreviewWash} />
-            <View style={styles.setupPreviewEventText}>
-              <Text style={styles.setupPreviewEventName}>{eventTitle}</Text>
-              <Text style={styles.setupPreviewEventMeta}>{selectedType.name} / {selectedTemplate.name}</Text>
+        <View style={[styles.setupPreviewContent, isManualType && styles.setupPreviewContentManual, isMobile && styles.setupPreviewContentMobile]}>
+          {isManualType ? (
+            <View
+              style={[
+                styles.customLayoutSheet,
+                styles.setupPreviewManualSheet,
+                customMirrorMode && styles.customLayoutSheetMirrorPaper,
+                customMirrorMode && styles.setupPreviewManualSheetMirror,
+                isMobile && styles.customLayoutSheetMobile,
+              ]}
+            >
+              <View style={[styles.customLayoutStrip, styles.setupPreviewManualStrip]}>
+                <Image
+                  source={frameSource}
+                  style={styles.customLayoutBackgroundImage}
+                  accessibilityLabel={overlayFileName || `Plantilla ${selectedTemplate.name}`}
+                />
+                <View style={styles.customLayoutBackgroundShade} />
+                {renderCustomTextPreviewLayers(false)}
+                {!customLayoutSlots.length ? (
+                  <View style={styles.customLayoutEmptyState}>
+                    <Text style={styles.customLayoutEmptyTitle}>Fondo activo</Text>
+                    <Text style={styles.customLayoutEmptyText}>Agrega una foto para crear un recuadro.</Text>
+                  </View>
+                ) : null}
+                {renderCustomLayoutPhotoSlots(false, false)}
+              </View>
+              {customMirrorMode ? (
+                <View style={[styles.customLayoutStrip, styles.setupPreviewManualStrip]}>
+                  <Image
+                    source={frameSource}
+                    style={styles.customLayoutBackgroundImage}
+                    accessibilityLabel={`Copia de plantilla ${selectedTemplate.name}`}
+                  />
+                  <View style={styles.customLayoutBackgroundShade} />
+                  {renderCustomTextPreviewLayers(false)}
+                  {renderCustomLayoutPhotoSlots(false, false)}
+                </View>
+              ) : null}
             </View>
-            {slots.length ? slots.map((slot) => (
-              <View
-                key={`setup-preview-slot-${slot.photoNumber}`}
-                style={[
-                  styles.setupPreviewSlot,
-                  {
-                    left: `${slot.x}%`,
-                    top: `${slot.y}%`,
-                    width: `${slot.width}%`,
-                    height: `${slot.height}%`,
-                  },
-                ]}
-              >
-                <Text style={styles.setupPreviewSlotNumber}>{slot.photoNumber}</Text>
-                <Text style={styles.setupPreviewSlotLabel}>Foto</Text>
+          ) : (
+            <View
+              style={[
+                styles.setupPreviewCanvas,
+                { aspectRatio: selectedType.width / selectedType.height },
+                isMobile && styles.setupPreviewCanvasMobile,
+              ]}
+            >
+              <Image source={frameSource} style={styles.setupPreviewFrameImage} accessibilityLabel={`Vista previa de ${selectedTemplate.name}`} />
+              <View style={styles.setupPreviewWash} />
+              <View style={styles.setupPreviewEventText}>
+                <Text style={styles.setupPreviewEventName}>{eventTitle}</Text>
+                <Text style={styles.setupPreviewEventMeta}>{selectedType.name} / {selectedTemplate.name}</Text>
               </View>
-            )) : (
-              <View style={styles.setupPreviewEmpty}>
-                <Text style={styles.setupPreviewEmptyText}>Agrega recuadros para ver el diseño.</Text>
-              </View>
-            )}
-          </View>
+              {slots.length ? slots.map((slot) => (
+                <View
+                  key={`setup-preview-slot-${slot.photoNumber}`}
+                  style={[
+                    styles.setupPreviewSlot,
+                    {
+                      left: `${slot.x}%`,
+                      top: `${slot.y}%`,
+                      width: `${slot.width}%`,
+                      height: `${slot.height}%`,
+                    },
+                  ]}
+                >
+                  <Text style={styles.setupPreviewSlotNumber}>{slot.photoNumber}</Text>
+                  <Text style={styles.setupPreviewSlotLabel}>Foto</Text>
+                </View>
+              )) : (
+                <View style={styles.setupPreviewEmpty}>
+                  <Text style={styles.setupPreviewEmptyText}>Agrega recuadros para ver el diseño.</Text>
+                </View>
+              )}
+            </View>
+          )}
 
           <View style={styles.setupPreviewInfo}>
             <Text style={styles.setupPreviewInfoTitle}>{selectedType.name}</Text>
@@ -4794,13 +4836,13 @@ const WebApp = () => {
     )
   })
 
-  const renderCustomLayoutPhotoSlots = (interactive = false) => customLayoutSlots.map((slot, index) => {
+  const renderCustomLayoutPhotoSlots = (interactive = false, mutedPreview = !interactive) => customLayoutSlots.map((slot, index) => {
     const photoNumber = slot.photoNumber
     const selected = interactive && selectedCustomLayoutPhotos.includes(photoNumber)
     if (!slot) return null
     const slotStyle = [
       styles.customLayoutSlot,
-      !interactive && styles.customLayoutSlotMirror,
+      !interactive && mutedPreview && styles.customLayoutSlotMirror,
       {
         left: `${slot.x}%`,
         top: `${slot.y}%`,
@@ -8622,6 +8664,9 @@ const styles = StyleSheet.create({
     gap: 16,
     alignItems: 'center',
   },
+  setupPreviewContentManual: {
+    gridTemplateColumns: 'minmax(280px, 520px) minmax(240px, 1fr)',
+  },
   setupPreviewContentMobile: {
     display: 'flex',
   },
@@ -8639,6 +8684,22 @@ const styles = StyleSheet.create({
   },
   setupPreviewCanvasMobile: {
     maxHeight: 340,
+  },
+  setupPreviewManualSheet: {
+    minWidth: 0,
+    width: '100%',
+    maxWidth: 520,
+    padding: 12,
+    borderWidth: 2,
+    borderColor: colors.rose,
+    boxShadow: '0 18px 42px rgba(15,23,42,0.16)',
+  },
+  setupPreviewManualSheetMirror: {
+    maxWidth: 640,
+    gap: 6,
+  },
+  setupPreviewManualStrip: {
+    minHeight: 0,
   },
   setupPreviewFrameImage: {
     position: 'absolute',
