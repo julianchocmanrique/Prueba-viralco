@@ -36,6 +36,27 @@ const sanitizeArray = (value, limit = 300) => (
   Array.isArray(value) ? value.filter(Boolean).slice(0, limit) : []
 )
 
+const itemIdentity = (item) => safeText(item?.id || item?.name || item?.eventName, 180) || crypto
+  .createHash('md5')
+  .update(JSON.stringify(item || {}))
+  .digest('hex')
+
+const itemTimestamp = (item) => safeText(item?.updatedAt || item?.createdAt || item?.savedAt, 80)
+
+const mergeItemsByIdentity = (currentItems = [], incomingItems = [], limit = 300) => {
+  const merged = new Map()
+  ;[...sanitizeArray(currentItems, limit), ...sanitizeArray(incomingItems, limit)].forEach((item) => {
+    const identity = itemIdentity(item)
+    const existing = merged.get(identity)
+    if (!existing || itemTimestamp(item) >= itemTimestamp(existing)) {
+      merged.set(identity, item)
+    }
+  })
+  return [...merged.values()]
+    .sort((a, b) => itemTimestamp(b).localeCompare(itemTimestamp(a)))
+    .slice(0, limit)
+}
+
 const sanitizeGalleryItems = (items) => (
   sanitizeArray(items, 120).map((item) => ({
     id: safeText(item?.id, 180),
@@ -52,18 +73,19 @@ const sanitizeGalleryItems = (items) => (
   })).filter((item) => item.src || item.publicUrl)
 )
 
-const sanitizeAppState = (payload) => {
-  const eventGalleries = {}
+const sanitizeAppState = (payload, current = defaultAppState()) => {
+  const eventGalleries = { ...(current.eventGalleries || {}) }
   if (payload?.eventGalleries && typeof payload.eventGalleries === 'object') {
     Object.entries(payload.eventGalleries).slice(0, 300).forEach(([key, gallery]) => {
       const galleryId = safeText(gallery?.id || key, 180)
       if (!galleryId) return
+      const currentGallery = eventGalleries[galleryId] || {}
       eventGalleries[galleryId] = {
         id: galleryId,
-        eventName: safeText(gallery?.eventName, 160),
-        operatorId: safeText(gallery?.operatorId, 80),
-        updatedAt: safeText(gallery?.updatedAt, 80),
-        items: sanitizeGalleryItems(gallery?.items),
+        eventName: safeText(gallery?.eventName || currentGallery.eventName, 160),
+        operatorId: safeText(gallery?.operatorId || currentGallery.operatorId, 80),
+        updatedAt: safeText(gallery?.updatedAt || currentGallery.updatedAt, 80),
+        items: sanitizeGalleryItems(mergeItemsByIdentity(currentGallery.items, gallery?.items, 120)),
       }
     })
   }
@@ -71,8 +93,11 @@ const sanitizeAppState = (payload) => {
   return {
     version: 1,
     updatedAt: new Date().toISOString(),
-    recentEvents: sanitizeArray(payload?.recentEvents, 300),
-    deletedEventIds: sanitizeArray(payload?.deletedEventIds, 300).map((id) => safeText(id, 180)).filter(Boolean),
+    recentEvents: mergeItemsByIdentity(current.recentEvents, payload?.recentEvents, 300),
+    deletedEventIds: [...new Set([
+      ...sanitizeArray(current.deletedEventIds, 300),
+      ...sanitizeArray(payload?.deletedEventIds, 300),
+    ].map((id) => safeText(id, 180)).filter(Boolean))],
     eventGalleries,
   }
 }
@@ -96,14 +121,7 @@ const readAppState = async () => {
 const writeAppState = async (payload) => {
   await fs.promises.mkdir(stateRoot, { recursive: true })
   const current = await readAppState()
-  const next = sanitizeAppState({
-    ...current,
-    ...payload,
-    eventGalleries: {
-      ...(current.eventGalleries || {}),
-      ...(payload?.eventGalleries || {}),
-    },
-  })
+  const next = sanitizeAppState(payload, current)
   const tmpPath = `${stateFilePath}.${process.pid}.${Date.now()}.tmp`
   await fs.promises.writeFile(tmpPath, JSON.stringify(next, null, 2))
   await fs.promises.rename(tmpPath, stateFilePath)
@@ -241,30 +259,31 @@ const handlePhotoUpload = async (request, response) => {
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, 'http://localhost')
+    const pathname = url.pathname.replace(/\/+$/, '') || '/'
 
     if (request.method === 'OPTIONS') {
       json(response, 204, {})
       return
     }
 
-    if (request.method === 'GET' && (url.pathname === '/health' || url.pathname === '/prueba-viralco/api/photos/health')) {
+    if (request.method === 'GET' && (pathname === '/health' || pathname === '/prueba-viralco/api/photos/health')) {
       json(response, 200, { ok: true })
       return
     }
 
-    if (request.method === 'GET' && (url.pathname === '/photos' || url.pathname === '/prueba-viralco/api/photos')) {
+    if (request.method === 'GET' && (pathname === '/photos' || pathname === '/prueba-viralco/api/photos')) {
       const photos = await readSavedPhotos()
       json(response, 200, { ok: true, photos })
       return
     }
 
-    if (request.method === 'GET' && (url.pathname === '/state' || url.pathname === '/prueba-viralco/api/state')) {
+    if (request.method === 'GET' && (pathname === '/state' || pathname === '/prueba-viralco/api/state')) {
       const state = await readAppState()
       json(response, 200, { ok: true, state })
       return
     }
 
-    if (request.method === 'POST' && (url.pathname === '/state' || url.pathname === '/prueba-viralco/api/state')) {
+    if (request.method === 'POST' && (pathname === '/state' || pathname === '/prueba-viralco/api/state')) {
       const rawBody = await readBody(request)
       const payload = JSON.parse(rawBody || '{}')
       const state = await writeAppState(payload)
@@ -272,7 +291,7 @@ const server = http.createServer(async (request, response) => {
       return
     }
 
-    if (request.method === 'POST' && (url.pathname === '/photos' || url.pathname === '/prueba-viralco/api/photos')) {
+    if (request.method === 'POST' && (pathname === '/photos' || pathname === '/prueba-viralco/api/photos')) {
       await handlePhotoUpload(request, response)
       return
     }
