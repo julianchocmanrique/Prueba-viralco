@@ -352,18 +352,20 @@ const animationVideoStages = [
   { id: 'sessionEnd', title: 'Fin de la sesión', defaultFile: 'Deseleccionado', compact: true },
 ]
 const defaultAppUsers = [
-  { id: 'super-admin', name: 'Super Admin', shortName: 'Super', username: 'superadmin', password: '1234', role: 'super_admin' },
-  { id: 'admin-viralco', name: 'Administrador', shortName: 'Admin', username: 'admin', password: '1234', role: 'admin' },
-  { id: 'admin-isaju', name: 'Isaju', shortName: 'Isaju', username: 'isaju', password: 'Isaju1234', role: 'admin' },
-  { id: 'operario-1', name: 'Operario 1', shortName: 'Op. 1', username: 'operario1', password: '1234', role: 'operator', adminId: 'admin-viralco' },
-  { id: 'operario-2', name: 'Operario 2', shortName: 'Op. 2', username: 'operario2', password: '1234', role: 'operator', adminId: 'admin-viralco' },
-  { id: 'operario-isaju-1', name: 'Operario Isaju', shortName: 'Op. Isaju', username: 'operarioisaju', password: 'Isaju1234', role: 'operator', adminId: 'admin-isaju' },
+  { id: 'super-admin', name: 'Super Admin', shortName: 'Super', username: 'Superadmin', password: 'Superadmin1234', role: 'super_admin' },
+  { id: 'admin-isaju', name: 'Isaju', shortName: 'Isaju', username: 'Isaju', password: 'Isaju1234', role: 'admin' },
+  { id: 'operador', name: 'Operador', shortName: 'Operador', username: 'operador', password: 'operador1234', role: 'operator', adminId: 'admin-isaju' },
 ]
 const defaultRecentEvents = []
+const allowedDefaultUserIds = defaultAppUsers.map((user) => user.id)
 const mergeUsersWithDefaults = (users = []) => {
-  const merged = Array.isArray(users) ? [...users] : []
+  const merged = Array.isArray(users)
+    ? users.filter((user) => allowedDefaultUserIds.includes(user?.id))
+    : []
   defaultAppUsers.forEach((defaultUser) => {
-    if (!merged.some((user) => user?.id === defaultUser.id)) merged.push(defaultUser)
+    const currentIndex = merged.findIndex((user) => user?.id === defaultUser.id)
+    if (currentIndex >= 0) merged[currentIndex] = { ...merged[currentIndex], ...defaultUser }
+    else merged.push(defaultUser)
   })
   return merged
 }
@@ -4837,8 +4839,9 @@ const WebApp = () => {
           <Text style={styles.loginButtonText}>Entrar</Text>
         </Pressable>
         <View style={styles.loginHelpBox}>
-          <Text style={styles.loginHelpText}>Usuarios iniciales: superadmin, admin, operario1 y operario2.</Text>
-          <Text style={styles.loginHelpText}>Clave temporal: 1234.</Text>
+          <Text style={styles.loginHelpText}>Superadmin: Superadmin / Superadmin1234.</Text>
+          <Text style={styles.loginHelpText}>Administrador: Isaju / Isaju1234.</Text>
+          <Text style={styles.loginHelpText}>Operador: operador / operador1234.</Text>
         </View>
       </View>
     </View>

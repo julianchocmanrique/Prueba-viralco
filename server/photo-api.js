@@ -30,16 +30,17 @@ const defaultAppState = () => ({
   version: 2,
   updatedAt: new Date(0).toISOString(),
   users: [
-    { id: 'super-admin', name: 'Super Admin', username: 'superadmin', password: '1234', role: 'super_admin' },
-    { id: 'admin-viralco', name: 'Administrador', username: 'admin', password: '1234', role: 'admin' },
-    { id: 'operario-1', name: 'Operario 1', username: 'operario1', password: '1234', role: 'operator', adminId: 'admin-viralco' },
-    { id: 'operario-2', name: 'Operario 2', username: 'operario2', password: '1234', role: 'operator', adminId: 'admin-viralco' },
+    { id: 'super-admin', name: 'Super Admin', username: 'Superadmin', password: 'Superadmin1234', role: 'super_admin' },
+    { id: 'admin-isaju', name: 'Isaju', username: 'Isaju', password: 'Isaju1234', role: 'admin' },
+    { id: 'operador', name: 'Operador', username: 'operador', password: 'operador1234', role: 'operator', adminId: 'admin-isaju' },
   ],
   recentEvents: [],
   deletedEventIds: [],
   deletedGalleryPhotoIds: [],
   eventGalleries: {},
 })
+
+const allowedUserIds = new Set(defaultAppState().users.map((user) => user.id))
 
 const sanitizeArray = (value, limit = 300) => (
   Array.isArray(value) ? value.filter(Boolean).slice(0, limit) : []
@@ -97,8 +98,18 @@ const sanitizeUsers = (users) => (
     password: safeText(user?.password, 120),
     role: ['super_admin', 'admin', 'operator'].includes(user?.role) ? user.role : 'operator',
     adminId: safeText(user?.adminId, 80),
-  })).filter((user) => user.id && user.username && user.role)
+  })).filter((user) => allowedUserIds.has(user.id) && user.username && user.role)
 )
+
+const mergeUsersWithDefaults = (users) => {
+  const merged = sanitizeUsers(users)
+  defaultAppState().users.forEach((defaultUser) => {
+    const currentIndex = merged.findIndex((user) => user.id === defaultUser.id)
+    if (currentIndex >= 0) merged[currentIndex] = { ...merged[currentIndex], ...defaultUser }
+    else merged.push(defaultUser)
+  })
+  return merged
+}
 
 const sanitizeAppState = (payload, current = defaultAppState()) => {
   const acceptsSharedData = Number(payload?.schemaVersion) >= 2 && payload?.syncToken === syncToken
@@ -132,7 +143,7 @@ const sanitizeAppState = (payload, current = defaultAppState()) => {
   return {
     version: 2,
     updatedAt: new Date().toISOString(),
-    users: sanitizeUsers(payload?.users).length ? sanitizeUsers(payload.users) : sanitizeUsers(current.users || defaultAppState().users),
+    users: mergeUsersWithDefaults(sanitizeUsers(payload?.users).length ? payload.users : current.users),
     recentEvents: acceptsSharedData
       ? mergeItemsByIdentity(current.recentEvents, sanitizeArray(payload?.recentEvents, 300).filter(isAfterReset), 300)
       : sanitizeArray(current.recentEvents, 300),
@@ -152,7 +163,7 @@ const readAppState = async () => {
     return {
       ...defaultAppState(),
       ...state,
-      users: sanitizeUsers(state.users).length ? sanitizeUsers(state.users) : defaultAppState().users,
+      users: mergeUsersWithDefaults(state.users),
       recentEvents: sanitizeArray(state.recentEvents, 300),
       deletedEventIds: sanitizeArray(state.deletedEventIds, 300),
       deletedGalleryPhotoIds: sanitizeArray(state.deletedGalleryPhotoIds, 500),
