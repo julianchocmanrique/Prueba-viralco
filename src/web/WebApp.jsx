@@ -274,6 +274,35 @@ const makeExampleVideo = (fileName) => ({
 })
 const gifOverlaySizes = ['Rectángulo 720p 16:9', 'Vertical 720p 9:16', 'Cuadrado 720p', 'Pantalla completa 1080p']
 const qualityOptions = ['Media', 'Alta', 'Superior']
+const cameraLensModes = [
+  {
+    id: 'normal',
+    label: 'Normal',
+    helper: 'Encuadre cerrado para una persona.',
+    zoom: 1.28,
+    previewScale: 1.14,
+    width: 1280,
+    height: 720,
+  },
+  {
+    id: 'wide',
+    label: 'Gran angular',
+    helper: 'Más espacio para parejas o grupos.',
+    zoom: 1,
+    previewScale: 1,
+    width: 1920,
+    height: 1080,
+  },
+  {
+    id: 'ultra-wide',
+    label: 'Ultra gran angular',
+    helper: 'Máximo campo visible del espejo.',
+    zoom: 0.86,
+    previewScale: 1,
+    width: 2560,
+    height: 1440,
+  },
+]
 const animationExperienceStyles = [
   { id: 'video-vertical', label: 'Vídeo vertical - Cabina espejo' },
   { id: 'minimal', label: 'Animación limpia' },
@@ -495,6 +524,7 @@ const WebApp = () => {
   const [showEventGallery, setShowEventGallery] = useState(false)
   const [selectedGalleryId, setSelectedGalleryId] = useState('')
   const [selectedGalleryPrintIds, setSelectedGalleryPrintIds] = useState([])
+  const [selectedGalleryViewPhoto, setSelectedGalleryViewPhoto] = useState(null)
   const [showBackgroundRemovalScreen, setShowBackgroundRemovalScreen] = useState(false)
   const [showEventOptionsScreen, setShowEventOptionsScreen] = useState(false)
   const [showAnimationVideoScreen, setShowAnimationVideoScreen] = useState(false)
@@ -547,6 +577,7 @@ const WebApp = () => {
   const [photoCountdownNext, setPhotoCountdownNext] = useState(5)
   const [photoReviewSeconds, setPhotoReviewSeconds] = useState(5)
   const [flashBeforePhoto, setFlashBeforePhoto] = useState(true)
+  const [cameraLensMode, setCameraLensMode] = useState('wide')
   const [roamingMode, setRoamingMode] = useState(false)
   const [gifOverlayUrl, setGifOverlayUrl] = useState('')
   const [gifOverlayFileName, setGifOverlayFileName] = useState('')
@@ -733,11 +764,13 @@ const WebApp = () => {
   const openEventGallery = (galleryId) => {
     setSelectedGalleryId(galleryId)
     setSelectedGalleryPrintIds([])
+    setSelectedGalleryViewPhoto(null)
     setShowEventGallery(true)
   }
   const closeEventGallery = () => {
     setShowEventGallery(false)
     setSelectedGalleryPrintIds([])
+    setSelectedGalleryViewPhoto(null)
   }
   const toggleGalleryPrintSelection = (photo, index) => {
     const photoKey = getGalleryPhotoKey(photo, index)
@@ -746,6 +779,20 @@ const WebApp = () => {
         ? current.filter((item) => item !== photoKey)
         : [...current, photoKey]
     ))
+  }
+  const stopGalleryActionEvent = (event) => {
+    event?.preventDefault?.()
+    event?.stopPropagation?.()
+    event?.nativeEvent?.preventDefault?.()
+    event?.nativeEvent?.stopPropagation?.()
+    event?.nativeEvent?.stopImmediatePropagation?.()
+  }
+  const openGalleryPhotoViewer = (photo, index) => {
+    if (!getGalleryPhotoSource(photo)) {
+      setCaptureStatus('Esta foto ya no está disponible para abrirla.')
+      return
+    }
+    setSelectedGalleryViewPhoto({ photo, index })
   }
   const getServerPhotoId = (photo) => {
     if (photo?.id) return String(photo.id)
@@ -961,6 +1008,7 @@ const WebApp = () => {
     photoCountdownNext,
     photoReviewSeconds,
     flashBeforePhoto,
+    cameraLensMode,
     roamingMode,
     qualityMode,
     activePreset,
@@ -1015,6 +1063,7 @@ const WebApp = () => {
     setPhotoCountdownNext(Math.min(Math.max(Math.round(nextNumber(setup.photoCountdownNext, photoCountdownNext)), 1), 10))
     setPhotoReviewSeconds(Math.min(Math.max(Math.round(nextNumber(setup.photoReviewSeconds, photoReviewSeconds)), 1), 8))
     setFlashBeforePhoto(setup.flashBeforePhoto !== undefined ? Boolean(setup.flashBeforePhoto) : flashBeforePhoto)
+    if (cameraLensModes.some((mode) => mode.id === setup.cameraLensMode)) setCameraLensMode(setup.cameraLensMode)
     setRoamingMode(setup.roamingMode !== undefined ? Boolean(setup.roamingMode) : roamingMode)
     if (qualityOptions.includes(setup.qualityMode)) setQualityMode(setup.qualityMode)
     if (['Suave', 'Rápido', 'Fiesta', 'Evento'].includes(setup.activePreset)) setActivePreset(setup.activePreset)
@@ -1874,29 +1923,66 @@ const WebApp = () => {
     return Boolean(stream.getVideoTracks?.().some((track) => track.readyState === 'live'))
   }
 
-  const getCameraAttemptConstraints = () => [
-    {
-      video: {
-        facingMode: { ideal: 'user' },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { ideal: 30, max: 30 },
+  const getActiveCameraLensMode = (modeId = cameraLensMode) =>
+    cameraLensModes.find((mode) => mode.id === modeId) || cameraLensModes[1]
+
+  const getCameraAttemptConstraints = (modeId = cameraLensMode) => {
+    const lensMode = getActiveCameraLensMode(modeId)
+    const baseVideo = {
+      facingMode: { ideal: 'user' },
+      width: { ideal: lensMode.width },
+      height: { ideal: lensMode.height },
+      aspectRatio: { ideal: 16 / 9 },
+      frameRate: { ideal: 30, max: 30 },
+    }
+
+    return [
+      {
+        video: baseVideo,
+        audio: false,
       },
-      audio: false,
-    },
-    {
-      video: {
-        facingMode: { ideal: 'user' },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+      {
+        video: {
+          facingMode: { ideal: 'user' },
+          width: { ideal: Math.min(lensMode.width, 1920) },
+          height: { ideal: Math.min(lensMode.height, 1080) },
+        },
+        audio: false,
       },
-      audio: false,
-    },
-    {
-      video: true,
-      audio: false,
-    },
-  ]
+      {
+        video: {
+          facingMode: { ideal: 'user' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      },
+      {
+        video: true,
+        audio: false,
+      },
+    ]
+  }
+
+  const applyCameraLensModeToStream = async (stream, modeId = cameraLensMode) => {
+    const track = stream?.getVideoTracks?.()[0]
+    if (!track?.getCapabilities || !track?.applyConstraints) return
+    try {
+      const capabilities = track.getCapabilities()
+      if (!capabilities?.zoom) return
+      const lensMode = getActiveCameraLensMode(modeId)
+      const minZoom = Number(capabilities.zoom.min)
+      const maxZoom = Number(capabilities.zoom.max)
+      const requestedZoom = Number(lensMode.zoom) || 1
+      const targetZoom =
+        lensMode.id === 'ultra-wide'
+          ? minZoom
+          : Math.min(maxZoom, Math.max(minZoom, requestedZoom))
+      await track.applyConstraints({ advanced: [{ zoom: targetZoom }] })
+    } catch {
+      // Algunos navegadores anuncian zoom pero no permiten cambiarlo.
+    }
+  }
 
   const checkCameraEnvironment = async () => {
     if (!navigator?.mediaDevices?.getUserMedia) {
@@ -1927,7 +2013,7 @@ const WebApp = () => {
     }
   }
 
-  const openCamera = async ({ force = true, reason = 'Abriendo cámara del espejo mágico...' } = {}) => {
+  const openCamera = async ({ force = true, reason = 'Abriendo cámara del espejo mágico...', lensModeId = cameraLensMode } = {}) => {
     if (cameraOpening && !force) return streamRef.current
     const requestId = cameraOpenRequestRef.current + 1
     cameraOpenRequestRef.current = requestId
@@ -1943,7 +2029,7 @@ const WebApp = () => {
 
       let stream = null
       let lastError = null
-      const attempts = getCameraAttemptConstraints()
+      const attempts = getCameraAttemptConstraints(lensModeId)
       for (let index = 0; index < attempts.length; index += 1) {
         if (requestId !== cameraOpenRequestRef.current) return null
         try {
@@ -1967,6 +2053,7 @@ const WebApp = () => {
 
       streamRef.current = stream
       setCameraStream(stream)
+      await applyCameraLensModeToStream(stream, lensModeId)
       setCaptureStatus('Cámara verificada. Ubica a la persona frente al espejo.')
       return stream
     } catch (error) {
@@ -1994,6 +2081,19 @@ const WebApp = () => {
 
     setCaptureStatus(reason)
     return openCamera({ force: true, reason })
+  }
+
+  const selectCameraLensMode = (modeId) => {
+    const nextMode = getActiveCameraLensMode(modeId)
+    setCameraLensMode(nextMode.id)
+    setCaptureStatus(`Cámara en modo ${nextMode.label}.`)
+    if (streamRef.current) {
+      openCamera({
+        force: true,
+        lensModeId: nextMode.id,
+        reason: `Ajustando cámara a ${nextMode.label}...`,
+      })
+    }
   }
 
   const captureFrame = () => {
@@ -6066,6 +6166,8 @@ const WebApp = () => {
 
   const renderCamera = (shellStyle = null, onPress = null, showBadge = true, showLiveFrame = false) => {
     const CameraContainer = onPress ? Pressable : View
+    const activeLensMode = getActiveCameraLensMode()
+    const cameraTransform = `scaleX(-1) scale(${activeLensMode.previewScale || 1})`
 
     return (
       <CameraContainer
@@ -6083,7 +6185,7 @@ const WebApp = () => {
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            transform: 'scaleX(-1)',
+            transform: cameraTransform,
             display: 'block',
           },
         })
@@ -6276,6 +6378,7 @@ const WebApp = () => {
                     </View>
                     <Text style={styles.photoSettingValue}>{photoReviewSeconds} sec</Text>
                   </View>
+                  {renderCameraLensPicker(true)}
                   <Pressable
                     onPress={() => {
                       setCaptureOriginal((value) => !value)
@@ -6604,11 +6707,58 @@ const WebApp = () => {
     const selectedPrintIdSet = new Set(selectedGalleryPrintIds)
     const selectedPrintItems = modalGalleryItems.filter((photo, index) => selectedPrintIdSet.has(getGalleryPhotoKey(photo, index)))
     const allGallerySelected = modalGalleryItems.length > 0 && selectedPrintItems.length === modalGalleryItems.length
+    const viewedPhoto = selectedGalleryViewPhoto?.photo
+    const viewedPhotoSource = getGalleryPhotoSource(viewedPhoto)
+    const viewedPhotoIndex = Number.isFinite(selectedGalleryViewPhoto?.index) ? selectedGalleryViewPhoto.index : 0
 
     return showEventGallery ? (
       <View style={styles.eventGalleryOverlay}>
         <Pressable onPress={closeEventGallery} style={styles.eventGalleryBackdrop} />
         <View style={[styles.eventGalleryPanel, isMobile && styles.eventGalleryPanelMobile]}>
+          {viewedPhoto && viewedPhotoSource ? (
+            <View style={styles.eventGalleryViewer}>
+              <View style={[styles.eventGalleryViewerHeader, isPhone && styles.eventGalleryViewerHeaderPhone]}>
+                <View>
+                  <Text style={styles.eventGalleryEyebrow}>Vista de foto</Text>
+                  <Text style={[styles.eventGalleryTitle, styles.eventGalleryViewerTitle, isMobile && styles.eventGalleryTitleMobile]}>
+                    Foto {modalGalleryItems.length - viewedPhotoIndex}
+                  </Text>
+                  <Text style={[styles.eventGalleryMeta, styles.eventGalleryViewerMeta]}>{viewedPhoto.photoType || modalGalleryTitle}</Text>
+                </View>
+                <View style={styles.eventGalleryViewerActions}>
+                  <Pressable
+                    onPress={() => printGalleryQueue([viewedPhoto])}
+                    style={[styles.eventGalleryMiniButton, styles.eventGalleryMiniButtonPrimary, styles.eventGalleryViewerActionButton]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={[styles.eventGalleryMiniButtonText, styles.eventGalleryMiniButtonPrimaryText]}>Imprimir</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      deleteGalleryPhoto(modalGalleryId, viewedPhoto, viewedPhotoIndex)
+                      setSelectedGalleryViewPhoto(null)
+                    }}
+                    style={[styles.eventGalleryMiniButton, styles.eventGalleryMiniButtonDanger, styles.eventGalleryViewerActionButton]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={[styles.eventGalleryMiniButtonText, styles.eventGalleryMiniButtonDangerText]}>Eliminar</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setSelectedGalleryViewPhoto(null)}
+                    style={[styles.eventGalleryClose, isMobile && styles.eventGalleryCloseMobile]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cerrar foto grande"
+                  >
+                    <Text style={[styles.eventGalleryCloseText, isMobile && styles.eventGalleryCloseTextMobile]}>×</Text>
+                  </Pressable>
+                </View>
+              </View>
+              <View style={styles.eventGalleryViewerBody}>
+                <Image source={{ uri: viewedPhotoSource }} style={styles.eventGalleryViewerImage} accessibilityLabel="Foto grande de la galería" />
+              </View>
+            </View>
+          ) : (
+            <>
           <View style={[styles.eventGalleryHeader, isMobile && styles.eventGalleryHeaderMobile]}>
             <View>
               <Text style={styles.eventGalleryEyebrow}>Galería del evento</Text>
@@ -6651,32 +6801,29 @@ const WebApp = () => {
               const photoKey = getGalleryPhotoKey(photo, index)
               const photoSelected = selectedPrintIdSet.has(photoKey)
               return (
-                <Pressable
+                <View
                   key={photoKey}
-                  onPress={() => toggleGalleryPrintSelection(photo, index)}
                   style={[styles.eventGalleryCard, photoSelected && styles.eventGalleryCardSelected]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Seleccionar foto ${index + 1} para imprimir`}
                 >
-                  <View style={styles.eventGalleryImageWrap}>
+                  <Pressable
+                    onPress={() => toggleGalleryPrintSelection(photo, index)}
+                    style={styles.eventGalleryImageWrap}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Seleccionar foto ${index + 1} para imprimir`}
+                  >
                     <Image source={{ uri: photo.src }} style={[styles.eventGalleryImage, isMobile && styles.eventGalleryImageMobile]} accessibilityLabel={`Foto guardada ${index + 1}`} />
                     <View style={[styles.eventGallerySelectBadge, photoSelected && styles.eventGallerySelectBadgeActive]}>
                       <Text style={[styles.eventGallerySelectBadgeText, photoSelected && styles.eventGallerySelectBadgeTextActive]}>{photoSelected ? '✓' : '+'}</Text>
                     </View>
-                  </View>
+                  </Pressable>
                   <View style={styles.eventGalleryCardFooter}>
                     <Text style={styles.eventGalleryCardTitle}>Foto {modalGalleryItems.length - index}</Text>
                     <Text style={styles.eventGalleryCardText}>{photo.photoType}</Text>
                     <View style={styles.eventGalleryCardActions}>
                       <Pressable
                         onPress={(event) => {
-                          event?.stopPropagation?.()
-                          setFinalPhotoUrl(photo.localUrl || photo.src)
-                          if (photo.publicUrl) {
-                            setSavedPhotoUrl(photo.publicUrl)
-                            setQrPhotoUrl(photo.publicUrl)
-                          }
-                          closeEventGallery()
+                          stopGalleryActionEvent(event)
+                          openGalleryPhotoViewer(photo, index)
                         }}
                         style={styles.eventGalleryMiniButton}
                         accessibilityRole="button"
@@ -6685,7 +6832,7 @@ const WebApp = () => {
                       </Pressable>
                       <Pressable
                         onPress={(event) => {
-                          event?.stopPropagation?.()
+                          stopGalleryActionEvent(event)
                           printGalleryQueue([photo])
                         }}
                         style={[styles.eventGalleryMiniButton, styles.eventGalleryMiniButtonPrimary]}
@@ -6695,7 +6842,7 @@ const WebApp = () => {
                       </Pressable>
                       <Pressable
                         onPress={(event) => {
-                          event?.stopPropagation?.()
+                          stopGalleryActionEvent(event)
                           deleteGalleryPhoto(modalGalleryId, photo, index)
                         }}
                         style={[styles.eventGalleryMiniButton, styles.eventGalleryMiniButtonDanger]}
@@ -6706,7 +6853,7 @@ const WebApp = () => {
                       </Pressable>
                     </View>
                   </View>
-                </Pressable>
+                </View>
               )
             })}
             {!modalGalleryItems.length ? (
@@ -6716,6 +6863,8 @@ const WebApp = () => {
               </View>
             ) : null}
           </ScrollView>
+            </>
+          )}
         </View>
       </View>
     ) : null
@@ -7371,6 +7520,36 @@ const WebApp = () => {
     )
   }
 
+  const renderCameraLensPicker = (compact = false) => {
+    const currentLens = getActiveCameraLensMode()
+
+    return (
+      <View style={styles.cameraLensSection}>
+        <View style={styles.cameraLensHeader}>
+          <Text style={styles.photoSettingLabel}>Encuadre de cámara</Text>
+          <Text style={styles.cameraLensCurrent}>{currentLens.label}</Text>
+        </View>
+        <View style={[styles.cameraLensGrid, compact && styles.cameraLensGridCompact]}>
+          {cameraLensModes.map((mode) => {
+            const active = mode.id === cameraLensMode
+            return (
+              <Pressable
+                key={mode.id}
+                onPress={() => selectCameraLensMode(mode.id)}
+                style={[styles.cameraLensOption, active && styles.cameraLensOptionActive]}
+                accessibilityRole="button"
+                accessibilityLabel={`Usar cámara ${mode.label}`}
+              >
+                <Text style={[styles.cameraLensOptionTitle, active && styles.cameraLensOptionTitleActive]}>{mode.label}</Text>
+                {!compact ? <Text style={[styles.cameraLensOptionHelper, active && styles.cameraLensOptionHelperActive]}>{mode.helper}</Text> : null}
+              </Pressable>
+            )
+          })}
+        </View>
+      </View>
+    )
+  }
+
   const renderCaptureConfigScreen = () => (
     <View style={styles.captureConfigPage}>
       <View style={[styles.captureModeHeader, isMobile && styles.captureModeHeaderMobile]}>
@@ -7402,6 +7581,8 @@ const WebApp = () => {
         </View>
         <View style={styles.photoConfigCard}>
           <Text style={styles.photoConfigTitle}>Foto</Text>
+
+          {renderCameraLensPicker()}
 
           <View style={styles.photoSettingRow}>
             <Text style={styles.photoSettingLabel}>Cuenta regresiva antes</Text>
@@ -10394,6 +10575,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(3,7,18,0.82)',
   },
   eventGalleryPanel: {
+    position: 'relative',
     width: 'min(92vw, 980px)',
     maxHeight: '88svh',
     borderRadius: 8,
@@ -10405,6 +10587,59 @@ const styles = StyleSheet.create({
     width: '96vw',
     maxHeight: '90svh',
     borderRadius: 7,
+  },
+  eventGalleryViewer: {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 3,
+    backgroundColor: 'rgba(3,7,18,0.96)',
+  },
+  eventGalleryViewerHeader: {
+    minHeight: 86,
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.12)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  eventGalleryViewerHeaderPhone: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  eventGalleryViewerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  eventGalleryViewerActionButton: {
+    flex: 0,
+    minWidth: 104,
+    backgroundColor: '#ffffff',
+  },
+  eventGalleryViewerTitle: {
+    color: '#ffffff',
+  },
+  eventGalleryViewerMeta: {
+    color: 'rgba(255,255,255,0.74)',
+  },
+  eventGalleryViewerBody: {
+    height: 'calc(100% - 86px)',
+    padding: 'clamp(10px, 2vw, 22px)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventGalleryViewerImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain',
+    borderRadius: 8,
+    backgroundColor: colors.dark,
+    boxShadow: '0 24px 80px rgba(0,0,0,0.38)',
   },
   eventGalleryHeaderMobile: {
     minHeight: 72,
@@ -14423,6 +14658,69 @@ const styles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 34,
     fontWeight: '900',
+  },
+  cameraLensSection: {
+    gap: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(10,77,232,0.22)',
+    backgroundColor: colors.roseSoft,
+    padding: 14,
+  },
+  cameraLensHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  cameraLensCurrent: {
+    color: colors.rose,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
+  },
+  cameraLensGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: 10,
+  },
+  cameraLensGridCompact: {
+    gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))',
+  },
+  cameraLensOption: {
+    minHeight: 88,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    justifyContent: 'center',
+    gap: 4,
+  },
+  cameraLensOptionActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+    boxShadow: '0 10px 24px rgba(10,77,232,0.12)',
+  },
+  cameraLensOptionTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '950',
+  },
+  cameraLensOptionTitleActive: {
+    color: colors.rose,
+  },
+  cameraLensOptionHelper: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  cameraLensOptionHelperActive: {
+    color: colors.roseDark,
   },
   gifHeaderRow: {
     flexDirection: 'row',
