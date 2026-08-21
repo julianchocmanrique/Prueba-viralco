@@ -528,6 +528,7 @@ const WebApp = () => {
   const [showPreviewShareMenu, setShowPreviewShareMenu] = useState(false)
   const [showEventGallery, setShowEventGallery] = useState(false)
   const [selectedGalleryId, setSelectedGalleryId] = useState('')
+  const [selectedGalleryPrintIds, setSelectedGalleryPrintIds] = useState([])
   const [showBackgroundRemovalScreen, setShowBackgroundRemovalScreen] = useState(false)
   const [showEventOptionsScreen, setShowEventOptionsScreen] = useState(false)
   const [showAnimationVideoScreen, setShowAnimationVideoScreen] = useState(false)
@@ -747,6 +748,26 @@ const WebApp = () => {
 
     return [...folders, ...remoteOnlyFolders]
   }, [deletedEventIds, eventGalleries, isAdminProfile, recentEvents, visibleLaunchEvents])
+  const getGalleryPhotoKey = (photo, index = 0) =>
+    String(photo?.id || photo?.publicUrl || photo?.src || `gallery-photo-${index}`)
+  const getGalleryPhotoSource = (photo) => photo?.localUrl || photo?.publicUrl || photo?.src || ''
+  const openEventGallery = (galleryId) => {
+    setSelectedGalleryId(galleryId)
+    setSelectedGalleryPrintIds([])
+    setShowEventGallery(true)
+  }
+  const closeEventGallery = () => {
+    setShowEventGallery(false)
+    setSelectedGalleryPrintIds([])
+  }
+  const toggleGalleryPrintSelection = (photo, index) => {
+    const photoKey = getGalleryPhotoKey(photo, index)
+    setSelectedGalleryPrintIds((current) => (
+      current.includes(photoKey)
+        ? current.filter((item) => item !== photoKey)
+        : [...current, photoKey]
+    ))
+  }
   const eventTemplateOptions = useMemo(() => getTemplatesForEventType(eventType), [eventType])
   const printSizeLabel = '10x15 cm'
   const activePrintLabel = 'Canon CP1500'
@@ -3146,6 +3167,107 @@ const WebApp = () => {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;')
 
+  const printGalleryQueue = (photoItems = []) => {
+    if (typeof window === 'undefined') return
+    const printablePhotos = photoItems
+      .map((photo) => ({
+        ...photo,
+        printSrc: getGalleryPhotoSource(photo),
+      }))
+      .filter((photo) => photo.printSrc)
+
+    if (!printablePhotos.length) {
+      setCaptureStatus('Selecciona una o varias fotos de la galería para imprimir.')
+      return
+    }
+
+    const existingFrame = window.document.getElementById('viralco-print-frame')
+    existingFrame?.remove()
+
+    const printFrame = window.document.createElement('iframe')
+    printFrame.id = 'viralco-print-frame'
+    printFrame.title = 'Cola de impresión Viralco'
+    printFrame.setAttribute('aria-hidden', 'true')
+    Object.assign(printFrame.style, {
+      position: 'fixed',
+      right: '0',
+      bottom: '0',
+      width: '1px',
+      height: '1px',
+      border: '0',
+      opacity: '0',
+      pointerEvents: 'none',
+      zIndex: '-1',
+    })
+    window.document.body.appendChild(printFrame)
+
+    const printWindow = printFrame.contentWindow
+    const printDocument = printWindow?.document
+    if (!printWindow || !printDocument) {
+      printFrame.remove()
+      setCaptureStatus('No se pudo preparar la cola de impresión en esta pestaña.')
+      return
+    }
+
+    const cleanupPrintFrame = () => {
+      setTimeout(() => {
+        printFrame.remove()
+        setCaptureStatus(`Galería lista después de imprimir o cancelar en papel ${printSizeLabel}.`)
+      }, 250)
+    }
+    printWindow.addEventListener('afterprint', cleanupPrintFrame, { once: true })
+
+    const pageWidthCm = cp1500ShortEdgeCm
+    const pageHeightCm = cp1500LongEdgeCm
+    const printSafeMarginCm = 0.18
+    const printableWidth = `${pageWidthCm}cm`
+    const printableHeight = `${pageHeightCm}cm`
+    const safePrintWidth = `${pageWidthCm - printSafeMarginCm * 2}cm`
+    const safePrintHeight = `${pageHeightCm - printSafeMarginCm * 2}cm`
+    const queuedPhotos = printablePhotos.flatMap((photo) => (
+      Array.from({ length: normalizedPrintSettings.copies }, () => photo)
+    ))
+    const imagePages = queuedPhotos.map((photo, index) => (
+      `<section class="print-page"><img src="${escapeHtml(photo.printSrc)}" alt="Foto de galería Viralco ${index + 1}" /></section>`
+    )).join('')
+
+    printDocument.open()
+    printDocument.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(eventTitle)} - Cola Viralco</title>
+    <style>
+      body { margin: 0; background: #f3f4f6; font-family: Arial, sans-serif; }
+      main { min-height: 100vh; display: grid; place-items: center; gap: 24px; padding: 24px; }
+      img { max-width: min(92vw, 760px); max-height: 92vh; background: #111827; box-shadow: 0 20px 60px rgba(0,0,0,.18); }
+      @page { size: ${pageWidthCm}cm ${pageHeightCm}cm; margin: 0; }
+      @media print {
+        html, body { width: ${printableWidth}; height: ${printableHeight}; margin: 0; background: #fff; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        main { width: ${printableWidth}; min-height: 0; padding: 0; margin: 0; display: block; }
+        .print-page { width: ${printableWidth}; height: ${printableHeight}; padding: ${printSafeMarginCm}cm; margin: 0; box-sizing: border-box; display: grid; place-items: center; break-inside: avoid; page-break-after: always; break-after: page; }
+        .print-page:last-child { page-break-after: auto; break-after: auto; }
+        img { width: ${safePrintWidth}; height: ${safePrintHeight}; max-width: none; max-height: none; object-fit: contain; object-position: center center; box-shadow: none; display: block; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>${imagePages}</main>
+    <script>
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          window.focus();
+          window.print();
+        }, 350);
+      });
+    </script>
+  </body>
+</html>`)
+    printDocument.close()
+    setCaptureStatus(`Cola de impresión lista: ${printablePhotos.length} foto${printablePhotos.length === 1 ? '' : 's'} seleccionada${printablePhotos.length === 1 ? '' : 's'}, ${normalizedPrintSettings.copies} copia${normalizedPrintSettings.copies === 1 ? '' : 's'} cada una.`)
+  }
+
   const executePrint = () => {
     if (!captureComplete || typeof window === 'undefined') return
 
@@ -4391,8 +4513,7 @@ const WebApp = () => {
               <Pressable
                 key={`gallery-folder-${folder.id}-${index}`}
                 onPress={() => {
-                  setSelectedGalleryId(folder.id)
-                  setShowEventGallery(true)
+                  openEventGallery(folder.id)
                 }}
                 style={styles.eventFolderCard}
                 accessibilityRole="button"
@@ -6143,8 +6264,7 @@ const WebApp = () => {
     latestEventGalleryPhoto ? (
       <Pressable
         onPress={() => {
-          setSelectedGalleryId(eventGalleryId)
-          setShowEventGallery(true)
+          openEventGallery(eventGalleryId)
         }}
         style={[styles.eventGalleryThumbButton, isMobile && styles.eventGalleryThumbButtonMobile, isPhone && styles.eventGalleryThumbButtonPhone]}
         accessibilityRole="button"
@@ -6164,44 +6284,103 @@ const WebApp = () => {
       : null
     const modalGalleryItems = selectedFolder?.items || (selectedGalleryId ? (eventGalleries[selectedGalleryId]?.items || []) : currentEventGallery)
     const modalGalleryTitle = selectedFolder?.eventName || eventGalleries[selectedGalleryId]?.eventName || eventTitle
+    const selectedPrintIdSet = new Set(selectedGalleryPrintIds)
+    const selectedPrintItems = modalGalleryItems.filter((photo, index) => selectedPrintIdSet.has(getGalleryPhotoKey(photo, index)))
+    const allGallerySelected = modalGalleryItems.length > 0 && selectedPrintItems.length === modalGalleryItems.length
 
     return showEventGallery ? (
       <View style={styles.eventGalleryOverlay}>
-        <Pressable onPress={() => setShowEventGallery(false)} style={styles.eventGalleryBackdrop} />
+        <Pressable onPress={closeEventGallery} style={styles.eventGalleryBackdrop} />
         <View style={[styles.eventGalleryPanel, isMobile && styles.eventGalleryPanelMobile]}>
           <View style={[styles.eventGalleryHeader, isMobile && styles.eventGalleryHeaderMobile]}>
             <View>
               <Text style={styles.eventGalleryEyebrow}>Galería del evento</Text>
               <Text style={[styles.eventGalleryTitle, isMobile && styles.eventGalleryTitleMobile]}>{modalGalleryTitle}</Text>
-              <Text style={styles.eventGalleryMeta}>{modalGalleryItems.length} foto{modalGalleryItems.length === 1 ? '' : 's'} guardada{modalGalleryItems.length === 1 ? '' : 's'}</Text>
+              <Text style={styles.eventGalleryMeta}>
+                {modalGalleryItems.length} foto{modalGalleryItems.length === 1 ? '' : 's'} guardada{modalGalleryItems.length === 1 ? '' : 's'}
+                {selectedPrintItems.length ? ` · ${selectedPrintItems.length} en cola` : ''}
+              </Text>
             </View>
-            <Pressable onPress={() => setShowEventGallery(false)} style={[styles.eventGalleryClose, isMobile && styles.eventGalleryCloseMobile]}>
+            <Pressable onPress={closeEventGallery} style={[styles.eventGalleryClose, isMobile && styles.eventGalleryCloseMobile]}>
               <Text style={[styles.eventGalleryCloseText, isMobile && styles.eventGalleryCloseTextMobile]}>×</Text>
             </Pressable>
           </View>
+          <View style={[styles.eventGalleryActionBar, isPhone && styles.eventGalleryActionBarPhone]}>
+            <View style={styles.eventGallerySelectionPill}>
+              <Text style={styles.eventGallerySelectionText}>
+                {selectedPrintItems.length ? `${selectedPrintItems.length} seleccionada${selectedPrintItems.length === 1 ? '' : 's'}` : 'Toca fotos para imprimir'}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                setSelectedGalleryPrintIds(allGallerySelected ? [] : modalGalleryItems.map((photo, index) => getGalleryPhotoKey(photo, index)))
+              }}
+              style={styles.eventGalleryActionButton}
+              accessibilityRole="button"
+            >
+              <Text style={styles.eventGalleryActionButtonText}>{allGallerySelected ? 'Limpiar' : 'Todas'}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => printGalleryQueue(selectedPrintItems)}
+              disabled={!selectedPrintItems.length}
+              style={[styles.eventGalleryPrimaryActionButton, !selectedPrintItems.length && styles.eventGalleryPrimaryActionButtonDisabled]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.eventGalleryPrimaryActionText}>Imprimir cola</Text>
+            </Pressable>
+          </View>
           <ScrollView contentContainerStyle={[styles.eventGalleryGrid, isMobile && styles.eventGalleryGridMobile, isPhone && styles.eventGalleryGridPhone]}>
-            {modalGalleryItems.map((photo, index) => (
-              <Pressable
-                key={photo.id || `${photo.src}-${index}`}
-                onPress={() => {
-                  setFinalPhotoUrl(photo.localUrl || photo.src)
-                  if (photo.publicUrl) {
-                    setSavedPhotoUrl(photo.publicUrl)
-                    setQrPhotoUrl(photo.publicUrl)
-                  }
-                  setShowEventGallery(false)
-                }}
-                style={styles.eventGalleryCard}
-                accessibilityRole="button"
-                accessibilityLabel={`Abrir foto ${index + 1}`}
-              >
-                <Image source={{ uri: photo.src }} style={[styles.eventGalleryImage, isMobile && styles.eventGalleryImageMobile]} accessibilityLabel={`Foto guardada ${index + 1}`} />
-                <View style={styles.eventGalleryCardFooter}>
-                  <Text style={styles.eventGalleryCardTitle}>Foto {modalGalleryItems.length - index}</Text>
-                  <Text style={styles.eventGalleryCardText}>{photo.photoType}</Text>
-                </View>
-              </Pressable>
-            ))}
+            {modalGalleryItems.map((photo, index) => {
+              const photoKey = getGalleryPhotoKey(photo, index)
+              const photoSelected = selectedPrintIdSet.has(photoKey)
+              return (
+                <Pressable
+                  key={photoKey}
+                  onPress={() => toggleGalleryPrintSelection(photo, index)}
+                  style={[styles.eventGalleryCard, photoSelected && styles.eventGalleryCardSelected]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Seleccionar foto ${index + 1} para imprimir`}
+                >
+                  <View style={styles.eventGalleryImageWrap}>
+                    <Image source={{ uri: photo.src }} style={[styles.eventGalleryImage, isMobile && styles.eventGalleryImageMobile]} accessibilityLabel={`Foto guardada ${index + 1}`} />
+                    <View style={[styles.eventGallerySelectBadge, photoSelected && styles.eventGallerySelectBadgeActive]}>
+                      <Text style={[styles.eventGallerySelectBadgeText, photoSelected && styles.eventGallerySelectBadgeTextActive]}>{photoSelected ? '✓' : '+'}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.eventGalleryCardFooter}>
+                    <Text style={styles.eventGalleryCardTitle}>Foto {modalGalleryItems.length - index}</Text>
+                    <Text style={styles.eventGalleryCardText}>{photo.photoType}</Text>
+                    <View style={styles.eventGalleryCardActions}>
+                      <Pressable
+                        onPress={(event) => {
+                          event?.stopPropagation?.()
+                          setFinalPhotoUrl(photo.localUrl || photo.src)
+                          if (photo.publicUrl) {
+                            setSavedPhotoUrl(photo.publicUrl)
+                            setQrPhotoUrl(photo.publicUrl)
+                          }
+                          closeEventGallery()
+                        }}
+                        style={styles.eventGalleryMiniButton}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.eventGalleryMiniButtonText}>Ver</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={(event) => {
+                          event?.stopPropagation?.()
+                          printGalleryQueue([photo])
+                        }}
+                        style={[styles.eventGalleryMiniButton, styles.eventGalleryMiniButtonPrimary]}
+                        accessibilityRole="button"
+                      >
+                        <Text style={[styles.eventGalleryMiniButtonText, styles.eventGalleryMiniButtonPrimaryText]}>Imprimir</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </Pressable>
+              )
+            })}
             {!modalGalleryItems.length ? (
               <View style={styles.eventGalleryEmptyState}>
                 <Text style={styles.eventGalleryCardTitle}>Sin fotos guardadas</Text>
@@ -9965,6 +10144,75 @@ const styles = StyleSheet.create({
     fontSize: 32,
     lineHeight: 36,
   },
+  eventGalleryActionBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    backgroundColor: colors.soft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  eventGalleryActionBarPhone: {
+    flexWrap: 'wrap',
+    justifyContent: 'stretch',
+  },
+  eventGallerySelectionPill: {
+    marginRight: 'auto',
+    minHeight: 42,
+    borderRadius: 21,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  eventGallerySelectionText: {
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
+  eventGalleryActionButton: {
+    minHeight: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    cursor: 'pointer',
+  },
+  eventGalleryActionButtonText: {
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
+  eventGalleryPrimaryActionButton: {
+    minHeight: 42,
+    borderRadius: 21,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    cursor: 'pointer',
+    boxShadow: '0 10px 22px rgba(21,88,230,0.20)',
+  },
+  eventGalleryPrimaryActionButtonDisabled: {
+    opacity: 0.45,
+    cursor: 'not-allowed',
+  },
+  eventGalleryPrimaryActionText: {
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
   eventGalleryGrid: {
     padding: 16,
     display: 'grid',
@@ -9989,6 +10237,14 @@ const styles = StyleSheet.create({
     boxShadow: '0 12px 30px rgba(15,23,42,0.10)',
     cursor: 'pointer',
   },
+  eventGalleryCardSelected: {
+    borderColor: colors.blue,
+    boxShadow: '0 18px 38px rgba(21,88,230,0.18)',
+  },
+  eventGalleryImageWrap: {
+    position: 'relative',
+    backgroundColor: colors.dark,
+  },
   eventGalleryImage: {
     width: '100%',
     aspectRatio: 0.78,
@@ -10000,7 +10256,62 @@ const styles = StyleSheet.create({
   },
   eventGalleryCardFooter: {
     padding: 10,
-    gap: 2,
+    gap: 8,
+  },
+  eventGallerySelectBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.88)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 10px 22px rgba(0,0,0,0.20)',
+  },
+  eventGallerySelectBadgeActive: {
+    backgroundColor: colors.blue,
+  },
+  eventGallerySelectBadgeText: {
+    color: colors.blue,
+    fontSize: 20,
+    lineHeight: 22,
+    fontWeight: '950',
+  },
+  eventGallerySelectBadgeTextActive: {
+    color: '#ffffff',
+  },
+  eventGalleryCardActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  eventGalleryMiniButton: {
+    minHeight: 34,
+    flex: 1,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    cursor: 'pointer',
+  },
+  eventGalleryMiniButtonPrimary: {
+    borderColor: colors.blue,
+    backgroundColor: colors.blue,
+  },
+  eventGalleryMiniButtonText: {
+    color: colors.ink,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '950',
+  },
+  eventGalleryMiniButtonPrimaryText: {
+    color: '#ffffff',
   },
   eventGalleryEmptyState: {
     minHeight: 180,
