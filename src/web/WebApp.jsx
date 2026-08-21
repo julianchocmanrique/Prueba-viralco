@@ -2950,24 +2950,51 @@ const WebApp = () => {
   const executePrint = () => {
     if (!captureComplete || typeof window === 'undefined') return
 
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) {
-      setCaptureStatus('El navegador bloqueó la ventana de impresión.')
+    const existingFrame = window.document.getElementById('viralco-print-frame')
+    existingFrame?.remove()
+
+    const printFrame = window.document.createElement('iframe')
+    printFrame.id = 'viralco-print-frame'
+    printFrame.title = 'Impresión Viralco'
+    printFrame.setAttribute('aria-hidden', 'true')
+    Object.assign(printFrame.style, {
+      position: 'fixed',
+      right: '0',
+      bottom: '0',
+      width: '1px',
+      height: '1px',
+      border: '0',
+      opacity: '0',
+      pointerEvents: 'none',
+      zIndex: '-1',
+    })
+    window.document.body.appendChild(printFrame)
+
+    const printWindow = printFrame.contentWindow
+    const printDocument = printWindow?.document
+    if (!printWindow || !printDocument) {
+      printFrame.remove()
+      setCaptureStatus('No se pudo preparar la impresión en esta pestaña.')
       return
     }
-    printWindow.document.open()
-    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>Preparando impresión</title></head><body style="margin:0;display:grid;place-items:center;min-height:100vh;font-family:Arial,sans-serif;color:#111827;">Preparando impresión Canon CP1500...</body></html>`)
-    printWindow.document.close()
+
+    const cleanupPrintFrame = () => {
+      setTimeout(() => {
+        printFrame.remove()
+        setCaptureStatus(`Vista previa lista después de imprimir o cancelar en papel ${printSizeLabel}.`)
+      }, 250)
+    }
+    printWindow.addEventListener('afterprint', cleanupPrintFrame, { once: true })
 
     const pageWidthCm = cp1500ShortEdgeCm
     const pageHeightCm = cp1500LongEdgeCm
     const printableWidth = `${pageWidthCm}cm`
     const printableHeight = `${pageHeightCm}cm`
     const imageCopies = Array.from({ length: normalizedPrintSettings.copies }, (_, index) => (
-      `<img src="${finalPhotoUrl}" alt="Foto Viralco ${index + 1}" />`
+      `<img src="${escapeHtml(finalPhotoUrl)}" alt="Foto Viralco ${index + 1}" />`
     )).join('')
-    printWindow.document.open()
-    printWindow.document.write(`<!doctype html>
+    printDocument.open()
+    printDocument.write(`<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -2987,20 +3014,20 @@ const WebApp = () => {
     </style>
   </head>
   <body>
-    <main>${imageCopies}</main>
-    <script>
-      window.addEventListener('load', () => {
-        setTimeout(() => {
-          window.focus();
-          window.print();
-        }, 350);
-      });
-    </script>
-  </body>
-</html>`)
-    printWindow.document.close()
+	    <main>${imageCopies}</main>
+	    <script>
+	      window.addEventListener('load', () => {
+	        setTimeout(() => {
+	          window.focus();
+	          window.print();
+	        }, 350);
+	      });
+	    </script>
+	  </body>
+	</html>`)
+    printDocument.close()
     setShowPrintOptions(false)
-    setCaptureStatus(`Impresión lista en papel ${printSizeLabel}, ${normalizedPrintSettings.copies} copia${normalizedPrintSettings.copies === 1 ? '' : 's'}${normalizedPrintSettings.secondaryPrinter ? ' usando impresora secundaria' : ''}.`)
+    setCaptureStatus(`Impresión abierta en esta misma pestaña: ${printSizeLabel}, ${normalizedPrintSettings.copies} copia${normalizedPrintSettings.copies === 1 ? '' : 's'}${normalizedPrintSettings.secondaryPrinter ? ' usando impresora secundaria' : ''}.`)
   }
 
   const runTool = async (tool) => {
