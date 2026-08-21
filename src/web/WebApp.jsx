@@ -2988,10 +2988,13 @@ const WebApp = () => {
 
     const pageWidthCm = cp1500ShortEdgeCm
     const pageHeightCm = cp1500LongEdgeCm
+    const printSafeMarginCm = 0.18
     const printableWidth = `${pageWidthCm}cm`
     const printableHeight = `${pageHeightCm}cm`
+    const safePrintWidth = `${pageWidthCm - printSafeMarginCm * 2}cm`
+    const safePrintHeight = `${pageHeightCm - printSafeMarginCm * 2}cm`
     const imageCopies = Array.from({ length: normalizedPrintSettings.copies }, (_, index) => (
-      `<img src="${escapeHtml(finalPhotoUrl)}" alt="Foto Viralco ${index + 1}" />`
+      `<section class="print-page"><img src="${escapeHtml(finalPhotoUrl)}" alt="Foto Viralco ${index + 1}" /></section>`
     )).join('')
     printDocument.open()
     printDocument.write(`<!doctype html>
@@ -3004,13 +3007,14 @@ const WebApp = () => {
       main { min-height: 100vh; display: grid; place-items: center; gap: 24px; padding: 24px; }
       img { max-width: min(92vw, 760px); max-height: 92vh; background: #111827; box-shadow: 0 20px 60px rgba(0,0,0,.18); }
       @page { size: ${pageWidthCm}cm ${pageHeightCm}cm; margin: 0; }
-      @media print {
-        html, body { width: ${printableWidth}; margin: 0; background: #fff; }
-        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        main { width: ${printableWidth}; min-height: 0; padding: 0; margin: 0; display: block; }
-        img { width: ${printableWidth}; height: ${printableHeight}; max-width: none; max-height: none; object-fit: cover; object-position: center center; box-shadow: none; break-inside: avoid; display: block; page-break-after: always; break-after: page; }
-        img:last-child { page-break-after: auto; break-after: auto; }
-      }
+	      @media print {
+	        html, body { width: ${printableWidth}; height: ${printableHeight}; margin: 0; background: #fff; }
+	        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+	        main { width: ${printableWidth}; min-height: 0; padding: 0; margin: 0; display: block; }
+	        .print-page { width: ${printableWidth}; height: ${printableHeight}; padding: ${printSafeMarginCm}cm; margin: 0; box-sizing: border-box; display: grid; place-items: center; break-inside: avoid; page-break-after: always; break-after: page; }
+	        .print-page:last-child { page-break-after: auto; break-after: auto; }
+	        img { width: ${safePrintWidth}; height: ${safePrintHeight}; max-width: none; max-height: none; object-fit: contain; object-position: center center; box-shadow: none; display: block; }
+	      }
     </style>
   </head>
   <body>
