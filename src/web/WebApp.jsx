@@ -279,9 +279,10 @@ const cameraLensModes = [
   {
     id: 'normal',
     label: 'Normal',
-    helper: 'Encuadre cerrado para una persona.',
-    zoom: 1.28,
-    previewScale: 1.14,
+    helper: 'Retrato cercano para una persona.',
+    detail: 'Encuadre 1.55x',
+    zoom: 1.6,
+    previewScale: 1.55,
     width: 1280,
     height: 720,
   },
@@ -289,8 +290,9 @@ const cameraLensModes = [
     id: 'wide',
     label: 'Gran angular',
     helper: 'Más espacio para parejas o grupos.',
-    zoom: 1,
-    previewScale: 1,
+    detail: 'Encuadre 1.18x',
+    zoom: 1.18,
+    previewScale: 1.18,
     width: 1920,
     height: 1080,
   },
@@ -298,6 +300,7 @@ const cameraLensModes = [
     id: 'ultra-wide',
     label: 'Ultra gran angular',
     helper: 'Máximo campo visible del espejo.',
+    detail: 'Campo completo',
     zoom: 0.86,
     previewScale: 1,
     width: 2560,
@@ -2113,9 +2116,16 @@ const WebApp = () => {
     const context = canvas.getContext('2d')
     if (!context) return ''
 
+    // Keep the exported photo aligned with the framing shown in the camera preview.
+    const previewScale = Math.max(1, getActiveCameraLensMode().previewScale || 1)
+    const sourceWidth = video.videoWidth / previewScale
+    const sourceHeight = video.videoHeight / previewScale
+    const sourceX = (video.videoWidth - sourceWidth) / 2
+    const sourceY = (video.videoHeight - sourceHeight) / 2
+
     context.translate(canvas.width, 0)
     context.scale(-1, 1)
-    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height)
     const jpegQuality = qualityMode === 'Superior' ? 0.96 : qualityMode === 'Media' ? 0.82 : 0.9
     return canvas.toDataURL('image/jpeg', jpegQuality)
   }
@@ -7703,6 +7713,7 @@ const WebApp = () => {
               >
                 <Text style={[styles.cameraLensOptionTitle, active && styles.cameraLensOptionTitleActive]}>{mode.label}</Text>
                 {!compact ? <Text style={[styles.cameraLensOptionHelper, active && styles.cameraLensOptionHelperActive]}>{mode.helper}</Text> : null}
+                {!compact ? <Text style={[styles.cameraLensOptionDetail, active && styles.cameraLensOptionDetailActive]}>{mode.detail}</Text> : null}
               </Pressable>
             )
           })}
@@ -14985,6 +14996,16 @@ const styles = StyleSheet.create({
   },
   cameraLensOptionHelperActive: {
     color: colors.roseDark,
+  },
+  cameraLensOptionDetail: {
+    color: '#64748b',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '950',
+    textTransform: 'uppercase',
+  },
+  cameraLensOptionDetailActive: {
+    color: colors.rose,
   },
   gifHeaderRow: {
     flexDirection: 'row',
