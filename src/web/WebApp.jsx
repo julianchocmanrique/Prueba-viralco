@@ -632,6 +632,7 @@ const WebApp = () => {
   const [applyFrameAfter, setApplyFrameAfter] = useState(true)
   const [printSettings, setPrintSettings] = useState(defaultPrintSettings)
   const videoRef = useRef(null)
+  const captureConfigVideoRef = useRef(null)
   const streamRef = useRef(null)
   const cameraOpenRequestRef = useRef(0)
   const countdownRef = useRef(null)
@@ -1900,10 +1901,10 @@ const WebApp = () => {
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
-    if (videoRef.current) {
-      videoRef.current.pause?.()
-      videoRef.current.srcObject = null
-    }
+    ;[videoRef.current, captureConfigVideoRef.current].filter(Boolean).forEach((video) => {
+      video.pause?.()
+      video.srcObject = null
+    })
     streamRef.current = null
     setCameraStream(null)
   }
@@ -1911,11 +1912,11 @@ const WebApp = () => {
   const waitForVideoReady = async (stream, timeoutMs = 3200) => {
     const startedAt = Date.now()
     while (Date.now() - startedAt < timeoutMs) {
-      const video = videoRef.current
       const liveTrack = stream.getVideoTracks?.().some((track) => track.readyState === 'live')
       if (!liveTrack) throw new Error('La cámara se detuvo antes de iniciar.')
 
-      if (video) {
+      const videos = [videoRef.current, captureConfigVideoRef.current].filter(Boolean)
+      for (const video of videos) {
         if (video.srcObject !== stream) video.srcObject = stream
         await video.play?.().catch(() => undefined)
         if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) return true
@@ -2037,6 +2038,9 @@ const WebApp = () => {
         try {
           setCaptureStatus(index === 0 ? 'Verificando cámara del espejo mágico...' : 'Reintentando cámara con configuración compatible...')
           stream = await navigator.mediaDevices.getUserMedia(attempts[index])
+          streamRef.current = stream
+          setCameraStream(stream)
+          await wait(0)
           await waitForVideoReady(stream)
           break
         } catch (error) {
@@ -2362,7 +2366,7 @@ const WebApp = () => {
     return [{ x: margin, y: heightValue * 0.17, width: widthValue - margin * 2, height: heightValue * 0.66 }]
   }
 
-  const renderLiveCaptureFrameOverlay = () => {
+  const renderLiveCaptureFrameOverlay = (imageOpacity = 0.68) => {
     const activeIndex = retakeFrameIndex === null
       ? Math.min(framesReady, selectedShotCount - 1)
       : Math.min(retakeFrameIndex, selectedShotCount - 1)
@@ -2376,7 +2380,7 @@ const WebApp = () => {
         <View style={styles.liveFrameOverlaySurface}>
           <Image
             source={frameSource}
-            style={styles.liveFrameOverlayImage}
+            style={[styles.liveFrameOverlayImage, { opacity: imageOpacity }]}
             accessibilityLabel={`Marco activo ${selectedTemplate.name}`}
           />
           <View style={styles.liveFrameOverlaySoftWash} />
@@ -6257,7 +6261,7 @@ const WebApp = () => {
     )
   }
 
-  const renderCamera = (shellStyle = null, onPress = null, showBadge = true, showLiveFrame = false) => {
+  const renderCamera = (shellStyle = null, onPress = null, showBadge = true, showLiveFrame = false, elementRef = videoRef, frameOpacity = 0.68) => {
     const CameraContainer = onPress ? Pressable : View
     const activeLensMode = getActiveCameraLensMode()
     const cameraTransform = `scaleX(-1) scale(${activeLensMode.previewScale || 1})`
@@ -6271,7 +6275,7 @@ const WebApp = () => {
       >
       {cameraStream ? (
         React.createElement('video', {
-          ref: videoRef,
+          ref: elementRef,
           playsInline: true,
           muted: true,
           style: {
@@ -6288,7 +6292,7 @@ const WebApp = () => {
       <View style={styles.cameraShade} />
       {showLiveFrame ? (
         <>
-          {renderLiveCaptureFrameOverlay()}
+          {renderLiveCaptureFrameOverlay(frameOpacity)}
           <View style={styles.safeFrame} />
         </>
       ) : <View style={styles.safeFrame} />}
@@ -7570,6 +7574,56 @@ const WebApp = () => {
     </View>
   )
 
+  const renderCaptureLivePreview = () => (
+    <View style={styles.captureLivePreviewSection}>
+      <View style={styles.captureLivePreviewControls}>
+        <View style={styles.captureLivePreviewCopy}>
+          <Text style={styles.captureLivePreviewTitle}>Vista con cámara</Text>
+          <Text style={styles.captureLivePreviewText}>
+            Revisa el encuadre real y el marco antes de abrir el evento.
+          </Text>
+        </View>
+        <Pressable
+          onPress={() => {
+            if (showCaptureLivePreview) {
+              setShowCaptureLivePreview(false)
+              stopCamera()
+              setCaptureStatus('Vista de cámara cerrada.')
+              return
+            }
+            setShowCaptureLivePreview(true)
+            setTimeout(() => {
+              openCamera({
+                force: true,
+                reason: `Abriendo vista previa en modo ${getActiveCameraLensMode().label}...`,
+              })
+            }, 0)
+          }}
+          style={[styles.captureLivePreviewButton, showCaptureLivePreview && styles.captureLivePreviewButtonActive]}
+          accessibilityRole="button"
+          accessibilityLabel={showCaptureLivePreview ? 'Cerrar vista previa de cámara' : 'Abrir vista previa de cámara'}
+        >
+          <Text style={[styles.captureLivePreviewButtonText, showCaptureLivePreview && styles.captureLivePreviewButtonTextActive]}>
+            {showCaptureLivePreview ? 'Cerrar cámara' : 'Abrir cámara'}
+          </Text>
+        </Pressable>
+      </View>
+
+      {showCaptureLivePreview ? (
+        <View style={styles.captureLivePreviewStage}>
+          {renderCamera(styles.captureConfigLiveCamera, null, false, true, captureConfigVideoRef, 0.42)}
+          <View style={styles.captureLivePreviewStatus}>
+            <View style={[styles.captureLivePreviewStatusDot, cameraStream && styles.captureLivePreviewStatusDotReady]} />
+            <Text style={styles.captureLivePreviewStatusText}>
+              {cameraOpening ? 'Conectando cámara...' : cameraStream ? `Cámara activa · ${getActiveCameraLensMode().label}` : 'Permite el acceso a la cámara para verla aquí.'}
+            </Text>
+          </View>
+          {cameraError ? <Text style={styles.captureLivePreviewError}>{cameraError}</Text> : null}
+        </View>
+      ) : null}
+    </View>
+  )
+
   const renderCaptureConfigPreview = () => {
     const slots = getSelectedTypeLayoutSlots()
     const frameSource = overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image
@@ -7585,52 +7639,6 @@ const WebApp = () => {
             </Text>
           </View>
         </View>
-
-        <View style={styles.captureLivePreviewControls}>
-          <View style={styles.captureLivePreviewCopy}>
-            <Text style={styles.captureLivePreviewTitle}>Vista con cámara</Text>
-            <Text style={styles.captureLivePreviewText}>
-              Revisa el encuadre real y el marco antes de abrir el evento.
-            </Text>
-          </View>
-          <Pressable
-            onPress={() => {
-              if (showCaptureLivePreview) {
-                setShowCaptureLivePreview(false)
-                stopCamera()
-                setCaptureStatus('Vista de cámara cerrada.')
-                return
-              }
-              setShowCaptureLivePreview(true)
-              setTimeout(() => {
-                openCamera({
-                  force: true,
-                  reason: `Abriendo vista previa en modo ${getActiveCameraLensMode().label}...`,
-                })
-              }, 0)
-            }}
-            style={[styles.captureLivePreviewButton, showCaptureLivePreview && styles.captureLivePreviewButtonActive]}
-            accessibilityRole="button"
-            accessibilityLabel={showCaptureLivePreview ? 'Cerrar vista previa de cámara' : 'Abrir vista previa de cámara'}
-          >
-            <Text style={[styles.captureLivePreviewButtonText, showCaptureLivePreview && styles.captureLivePreviewButtonTextActive]}>
-              {showCaptureLivePreview ? 'Cerrar cámara' : 'Abrir cámara'}
-            </Text>
-          </Pressable>
-        </View>
-
-        {showCaptureLivePreview ? (
-          <View style={styles.captureLivePreviewStage}>
-            {renderCamera(styles.captureConfigLiveCamera, null, false, true)}
-            <View style={styles.captureLivePreviewStatus}>
-              <View style={[styles.captureLivePreviewStatusDot, cameraStream && styles.captureLivePreviewStatusDotReady]} />
-              <Text style={styles.captureLivePreviewStatusText}>
-                {cameraOpening ? 'Conectando cámara...' : cameraStream ? `Cámara activa · ${getActiveCameraLensMode().label}` : 'Permite el acceso a la cámara para verla aquí.'}
-              </Text>
-            </View>
-            {cameraError ? <Text style={styles.captureLivePreviewError}>{cameraError}</Text> : null}
-          </View>
-        ) : null}
 
         <View
           style={[
@@ -7736,6 +7744,7 @@ const WebApp = () => {
           <Text style={styles.photoConfigTitle}>Foto</Text>
 
           {renderCameraLensPicker()}
+          {renderCaptureLivePreview()}
 
           <View style={styles.photoSettingRow}>
             <Text style={styles.photoSettingLabel}>Cuenta regresiva antes</Text>
@@ -14704,6 +14713,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 14,
     flexWrap: 'wrap',
+  },
+  captureLivePreviewSection: {
+    gap: 14,
   },
   captureLivePreviewControls: {
     flexDirection: 'row',
