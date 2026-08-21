@@ -531,6 +531,7 @@ const WebApp = () => {
   const [showLaunchIntroScreen, setShowLaunchIntroScreen] = useState(false)
   const [showCustomPhotoLayoutScreen, setShowCustomPhotoLayoutScreen] = useState(false)
   const [showCapturePhotoScreen, setShowCapturePhotoScreen] = useState(false)
+  const [showCaptureLivePreview, setShowCaptureLivePreview] = useState(false)
   const [showOperatorMenu, setShowOperatorMenu] = useState(false)
   const [operatorQuickPanel, setOperatorQuickPanel] = useState(null)
   const [operatorSettingsActive, setOperatorSettingsActive] = useState(false)
@@ -7478,6 +7479,52 @@ const WebApp = () => {
             </Text>
           </View>
         </View>
+
+        <View style={styles.captureLivePreviewControls}>
+          <View style={styles.captureLivePreviewCopy}>
+            <Text style={styles.captureLivePreviewTitle}>Vista con cámara</Text>
+            <Text style={styles.captureLivePreviewText}>
+              Revisa el encuadre real y el marco antes de abrir el evento.
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => {
+              if (showCaptureLivePreview) {
+                setShowCaptureLivePreview(false)
+                stopCamera()
+                setCaptureStatus('Vista de cámara cerrada.')
+                return
+              }
+              setShowCaptureLivePreview(true)
+              setTimeout(() => {
+                openCamera({
+                  force: true,
+                  reason: `Abriendo vista previa en modo ${getActiveCameraLensMode().label}...`,
+                })
+              }, 0)
+            }}
+            style={[styles.captureLivePreviewButton, showCaptureLivePreview && styles.captureLivePreviewButtonActive]}
+            accessibilityRole="button"
+            accessibilityLabel={showCaptureLivePreview ? 'Cerrar vista previa de cámara' : 'Abrir vista previa de cámara'}
+          >
+            <Text style={[styles.captureLivePreviewButtonText, showCaptureLivePreview && styles.captureLivePreviewButtonTextActive]}>
+              {showCaptureLivePreview ? 'Cerrar cámara' : 'Abrir cámara'}
+            </Text>
+          </Pressable>
+        </View>
+
+        {showCaptureLivePreview ? (
+          <View style={styles.captureLivePreviewStage}>
+            {renderCamera(styles.captureConfigLiveCamera, null, false, true)}
+            <View style={styles.captureLivePreviewStatus}>
+              <View style={[styles.captureLivePreviewStatusDot, cameraStream && styles.captureLivePreviewStatusDotReady]} />
+              <Text style={styles.captureLivePreviewStatusText}>
+                {cameraOpening ? 'Conectando cámara...' : cameraStream ? `Cámara activa · ${getActiveCameraLensMode().label}` : 'Permite el acceso a la cámara para verla aquí.'}
+              </Text>
+            </View>
+            {cameraError ? <Text style={styles.captureLivePreviewError}>{cameraError}</Text> : null}
+          </View>
+        ) : null}
 
         <View
           style={[
@@ -14548,6 +14595,100 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 14,
     flexWrap: 'wrap',
+  },
+  captureLivePreviewControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+    flexWrap: 'wrap',
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(10,77,232,0.18)',
+    backgroundColor: colors.roseSoft,
+  },
+  captureLivePreviewCopy: {
+    flex: 1,
+    minWidth: 220,
+    gap: 2,
+  },
+  captureLivePreviewTitle: {
+    color: colors.ink,
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '950',
+  },
+  captureLivePreviewText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  captureLivePreviewButton: {
+    minHeight: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: colors.rose,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  captureLivePreviewButtonActive: {
+    backgroundColor: colors.rose,
+  },
+  captureLivePreviewButtonText: {
+    color: colors.rose,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
+  },
+  captureLivePreviewButtonTextActive: {
+    color: '#ffffff',
+  },
+  captureLivePreviewStage: {
+    gap: 10,
+  },
+  captureConfigLiveCamera: {
+    width: '100%',
+    height: 'min(62vh, 620px)',
+    minHeight: 340,
+    borderWidth: 2,
+    borderColor: colors.rose,
+  },
+  captureLivePreviewStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+  },
+  captureLivePreviewStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#94a3b8',
+  },
+  captureLivePreviewStatusDotReady: {
+    backgroundColor: '#16a34a',
+  },
+  captureLivePreviewStatusText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  captureLivePreviewError: {
+    color: '#b91c1c',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   capturePreviewConfigMeta: {
     color: colors.muted,
