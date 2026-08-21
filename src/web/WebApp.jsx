@@ -1143,6 +1143,43 @@ const WebApp = () => {
     setCaptureStatus(`${eventToDelete?.name || eventToDelete?.eventName || 'Evento'} eliminado.`)
   }
 
+  const getAssignableOperatorsForEvent = (eventItem) => {
+    if (activeProfile.role === 'admin') return assignableOperators
+    const ownerAdminId = eventItem?.ownerAdminId || eventItem?.adminId || 'admin-viralco'
+    const ownerOperators = operatorUsers.filter((user) => !user.adminId || user.adminId === ownerAdminId)
+    return ownerOperators.length ? ownerOperators : operatorUsers
+  }
+
+  const changeEventOperator = (eventToUpdate, nextOperatorId) => {
+    const eventId = getEventIdentity(eventToUpdate)
+    const normalizedOperatorId = nextOperatorId === 'admin' ? '' : nextOperatorId
+    const galleryIds = getEventGalleryIds(eventToUpdate)
+    setRecentEvents((current) => current.map((item) => {
+      if (getEventIdentity(item) !== eventId) return item
+      return {
+        ...item,
+        operatorId: normalizedOperatorId,
+        updatedAt: 'Ahora',
+      }
+    }))
+    setEventGalleries((current) => {
+      const next = { ...current }
+      galleryIds.forEach((galleryId) => {
+        if (!next[galleryId]) return
+        next[galleryId] = {
+          ...next[galleryId],
+          operatorId: normalizedOperatorId || 'admin',
+        }
+      })
+      return next
+    })
+    if ((selectedRecentId || '') === eventId || selectedRecentId === eventToUpdate?.name) {
+      setAssignedOperatorId(normalizedOperatorId)
+    }
+    const nextProfile = users.find((profile) => profile.id === normalizedOperatorId)
+    setCaptureStatus(`${eventToUpdate?.name || eventToUpdate?.eventName || 'Evento'} asignado a ${nextProfile?.name || 'Administrador'}.`)
+  }
+
   const saveCurrentSetupToRecentEvents = (status = 'Evento guardado.') => {
     const currentSetup = getCurrentSetup()
     const existingSetup =
@@ -4949,6 +4986,9 @@ const WebApp = () => {
               templateOptions[0] ||
               templates[0]
             const assignedProfile = users.find((profile) => profile.id === item.operatorId)
+            const rowAssignableOperators = getAssignableOperatorsForEvent(item)
+            const currentOperatorInList = assignedProfile &&
+              !rowAssignableOperators.some((operator) => operator.id === assignedProfile.id)
             const active = (item.id || item.name) === (selectedRecentEvent?.id || selectedRecentEvent?.name)
             const shotCount = item.photoTypeId === 'personalizar-5x15'
               ? Math.max(Number(item.customPhotoCount) || type.shots || 0, 0)
@@ -4973,7 +5013,31 @@ const WebApp = () => {
                 <View style={styles.adminEventTags}>
                   <Text style={styles.adminEventTag}>{template.name}</Text>
                   <Text style={styles.adminEventTag}>{shotCount} foto{shotCount === 1 ? '' : 's'}</Text>
-                  <Text style={styles.adminEventTag}>{assignedProfile?.shortName || 'Admin'}</Text>
+                </View>
+                <View style={styles.adminOperatorControl}>
+                  <Text style={styles.adminOperatorLabel}>Asignado a</Text>
+                  {React.createElement(
+                    'select',
+                    {
+                      value: item.operatorId || 'admin',
+                      onClick: (event) => event.stopPropagation(),
+                      onChange: (event) => {
+                        event.stopPropagation()
+                        changeEventOperator(item, event.target.value)
+                      },
+                      style: styles.adminOperatorSelect,
+                      'aria-label': `Asignar operario para ${item.name || 'evento'}`,
+                    },
+                    [
+                      React.createElement('option', { key: 'admin', value: 'admin' }, 'Admin / sin operario'),
+                      currentOperatorInList
+                        ? React.createElement('option', { key: assignedProfile.id, value: assignedProfile.id }, assignedProfile.name)
+                        : null,
+                      ...rowAssignableOperators.map((operator) => (
+                        React.createElement('option', { key: operator.id, value: operator.id }, operator.name)
+                      )),
+                    ],
+                  )}
                 </View>
                 <View style={styles.adminEventActions}>
                   <Pressable
@@ -9093,7 +9157,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
     gap: 6,
-    maxWidth: '42%',
+    maxWidth: '30%',
   },
   adminEventTag: {
     minHeight: 26,
@@ -9106,6 +9170,31 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '900',
     paddingHorizontal: 9,
+  },
+  adminOperatorControl: {
+    minWidth: 170,
+    maxWidth: 230,
+    gap: 4,
+    flexShrink: 0,
+  },
+  adminOperatorLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '950',
+    textTransform: 'uppercase',
+  },
+  adminOperatorSelect: {
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    color: colors.rose,
+    fontSize: 12,
+    fontWeight: '900',
+    paddingHorizontal: 12,
+    outlineColor: colors.rose,
   },
   adminEventActions: {
     flexDirection: 'row',
