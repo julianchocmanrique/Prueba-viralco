@@ -10572,10 +10572,12 @@ const styles = StyleSheet.create({
   eventGalleryBackdrop: {
     position: 'absolute',
     inset: 0,
+    zIndex: 0,
     backgroundColor: 'rgba(3,7,18,0.82)',
   },
   eventGalleryPanel: {
     position: 'relative',
+    zIndex: 1,
     width: 'min(92vw, 980px)',
     maxHeight: '88svh',
     borderRadius: 8,
@@ -10591,7 +10593,7 @@ const styles = StyleSheet.create({
   eventGalleryViewer: {
     position: 'absolute',
     inset: 0,
-    zIndex: 3,
+    zIndex: 4,
     backgroundColor: 'rgba(3,7,18,0.96)',
   },
   eventGalleryViewerHeader: {
