@@ -1123,15 +1123,47 @@ const WebApp = () => {
     setCaptureStatus(`${nextName}: ${status}`)
   }
 
+  const safeSetLocalStorage = (key, value, fallbackValue = null) => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value))
+    } catch {
+      if (fallbackValue === null) return
+      try {
+        window.localStorage.setItem(key, JSON.stringify(fallbackValue))
+      } catch {
+        // localStorage can be full when photos or fonts are large; the cloud copy remains the source of truth.
+      }
+    }
+  }
+
+  const persistEventSnapshotNow = (activeSetup, nextEvents, nextDeletedIds = deletedEventIds) => {
+    const compactEvents = nextEvents.map((item) => ({ ...item, uploadedCustomFonts: [] }))
+    safeSetLocalStorage(appSetupStorageKey, activeSetup, { ...activeSetup, uploadedCustomFonts: [] })
+    safeSetLocalStorage(recentEventsStorageKey, nextEvents, compactEvents)
+    safeSetLocalStorage(deletedEventsStorageKey, nextDeletedIds)
+  }
+
   const rememberRecentEvent = (setup) => {
-    const setupId = getEventIdentity(setup)
-    setDeletedEventIds((current) => current.filter((id) => id !== setupId))
-    setRecentEvents((current) => {
-      const next = [
-        { ...setup, id: setup.id || `evento-${Date.now()}`, updatedAt: 'Ahora' },
-        ...current.filter((item) => getEventIdentity(item) !== setupId),
-      ].slice(0, 200)
-      return next
+    const setupId = getEventIdentity(setup) || createEventSlug(setup?.eventName || setup?.name || 'evento')
+    const eventToRemember = {
+      ...setup,
+      id: setup.id || setupId || `evento-${Date.now()}`,
+      updatedAt: 'Ahora',
+    }
+    const eventId = getEventIdentity(eventToRemember)
+    const nextDeletedEventIds = deletedEventIds.filter((id) => id !== eventId)
+    const nextRecentEvents = [
+      eventToRemember,
+      ...recentEvents.filter((item) => getEventIdentity(item) !== eventId),
+    ].slice(0, 200)
+
+    persistEventSnapshotNow(eventToRemember, nextRecentEvents, nextDeletedEventIds)
+    setDeletedEventIds(nextDeletedEventIds)
+    setRecentEvents(nextRecentEvents)
+    void pushCloudStateNow({
+      recentEvents: nextRecentEvents,
+      deletedEventIds: nextDeletedEventIds,
     })
   }
 
@@ -1149,6 +1181,8 @@ const WebApp = () => {
     galleryIds.forEach((galleryId) => {
       delete nextEventGalleries[galleryId]
     })
+    persistEventSnapshotNow(nextRecentEvents[0] || getCurrentSetup(), nextRecentEvents, nextDeletedEventIds)
+    safeSetLocalStorage(eventGalleryStorageKey, nextEventGalleries)
     setRecentEvents(nextRecentEvents)
     setDeletedEventIds(nextDeletedEventIds)
     setEventGalleries(nextEventGalleries)
@@ -1190,6 +1224,8 @@ const WebApp = () => {
         operatorId: normalizedOperatorId || 'admin',
       }
     })
+    persistEventSnapshotNow(nextRecentEvents.find((item) => getEventIdentity(item) === eventId) || getCurrentSetup(), nextRecentEvents)
+    safeSetLocalStorage(eventGalleryStorageKey, nextEventGalleries)
     setRecentEvents(nextRecentEvents)
     setEventGalleries(nextEventGalleries)
     void pushCloudStateNow({
@@ -1225,6 +1261,7 @@ const WebApp = () => {
       ...recentEvents.filter((item) => getEventIdentity(item) !== savedSetupId),
     ].slice(0, 200)
 
+    persistEventSnapshotNow(savedSetup, nextRecentEvents, nextDeletedEventIds)
     setDeletedEventIds(nextDeletedEventIds)
     setRecentEvents(nextRecentEvents)
     void pushCloudStateNow({
@@ -1329,6 +1366,7 @@ const WebApp = () => {
   )
 
   const startLaunchIntroExperience = () => {
+    saveCurrentSetupToRecentEvents('Evento listo para fotos.')
     setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(true)
     setCaptureIntroActive(true)
@@ -1653,15 +1691,10 @@ const WebApp = () => {
               ...(serverGalleries || {}),
             }, nextDeletedGalleryPhotoIds))
         }
-      } catch {
-        window.localStorage.removeItem(appSetupStorageKey)
-        window.localStorage.removeItem(appSessionStorageKey)
-        window.localStorage.removeItem(recentEventsStorageKey)
-        window.localStorage.removeItem(deletedEventsStorageKey)
-        window.localStorage.removeItem(deletedGalleryPhotosStorageKey)
-        window.localStorage.removeItem(eventGalleryStorageKey)
-        window.localStorage.removeItem(activeProfileStorageKey)
-        window.localStorage.removeItem(activeUserStorageKey)
+      } catch (error) {
+        if (typeof console !== 'undefined') {
+          console.warn('No se pudo restaurar toda la configuración local. Se conserva el respaldo guardado.', error)
+        }
       } finally {
         storageHydratedRef.current = true
       }
@@ -4201,6 +4234,7 @@ const WebApp = () => {
       setCaptureStatus('Agrega al menos un recuadro de foto antes de capturar.')
       return
     }
+    saveCurrentSetupToRecentEvents('Evento listo para fotos.')
     setRetakeFrameIndex(null)
     setOperatorSettingsActive(false)
     setShowHomeLauncher(false)
