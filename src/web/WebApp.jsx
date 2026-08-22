@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import JSZip from 'jszip'
 import {
   Animated,
   Image,
@@ -33,9 +34,82 @@ const colors = {
 const appSetupStorageKey = 'viralco-mirror-photo-app'
 const appSessionStorageKey = 'viralco-mirror-photo-session'
 const recentEventsStorageKey = 'viralco-mirror-recent-events'
+const deletedEventsStorageKey = 'viralco-mirror-deleted-events'
+const deletedGalleryPhotosStorageKey = 'viralco-mirror-deleted-gallery-photos'
 const eventGalleryStorageKey = 'viralco-mirror-event-galleries'
 const activeProfileStorageKey = 'viralco-mirror-active-profile'
-const photoUploadEndpoint = '/prueba-viralco/api/photos'
+const activeUserStorageKey = 'viralco-mirror-active-user'
+const cloudApiBase = 'https://beijing-recommend-marilyn-por.trycloudflare.com'
+const photoUploadEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/`
+const photoDeleteEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/delete/`
+const eventGalleryDeleteEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/delete-event/`
+const cloudStateEndpoint = `${cloudApiBase}/prueba-viralco/api/state`
+const cloudSyncToken = 'viralco-reset-20260821-login'
+const persistentPhotoDbName = 'viralco-mirror-photo-images'
+const persistentPhotoStoreName = 'images'
+const persistentFinalPhotoKey = 'final'
+const persistentFrameKey = (index) => `frame-${index}`
+const cp1500ShortEdgeCm = 10
+const cp1500LongEdgeCm = 14.8
+const cp1500CanvasWidth = 2000
+const cp1500CanvasHeight = Math.round(cp1500CanvasWidth * (cp1500LongEdgeCm / cp1500ShortEdgeCm))
+const createEventSlug = (value) =>
+  String(value || 'evento-viralco')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase() || 'evento-viralco'
+const getEventIdentity = (event) => event?.id || event?.name || createEventSlug(event?.eventName || event?.name)
+
+const openPersistentPhotoDb = () =>
+  new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      reject(new Error('IndexedDB no disponible'))
+      return
+    }
+    const request = window.indexedDB.open(persistentPhotoDbName, 1)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(persistentPhotoStoreName)) {
+        db.createObjectStore(persistentPhotoStoreName)
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error || new Error('No se pudo abrir IndexedDB'))
+  })
+
+const writePersistentPhoto = async (key, value) => {
+  const db = await openPersistentPhotoDb()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(persistentPhotoStoreName, 'readwrite')
+    const store = transaction.objectStore(persistentPhotoStoreName)
+    const request = value ? store.put(value, key) : store.delete(key)
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error)
+    transaction.oncomplete = () => db.close()
+    transaction.onerror = () => {
+      db.close()
+      reject(transaction.error)
+    }
+  })
+}
+
+const readPersistentPhoto = async (key) => {
+  const db = await openPersistentPhotoDb()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(persistentPhotoStoreName, 'readonly')
+    const store = transaction.objectStore(persistentPhotoStoreName)
+    const request = store.get(key)
+    request.onsuccess = () => resolve(request.result || '')
+    request.onerror = () => reject(request.error)
+    transaction.oncomplete = () => db.close()
+    transaction.onerror = () => {
+      db.close()
+      reject(transaction.error)
+    }
+  })
+}
 
 const photoTypes = [
   {
@@ -79,9 +153,9 @@ const photoTypes = [
     name: 'Personalizar',
     note: 'Diseño personalizado con recuadros manuales.',
     shots: 3,
-    aspect: '10 / 15',
-    width: 2000,
-    height: 3000,
+    aspect: `${cp1500ShortEdgeCm} / ${cp1500LongEdgeCm}`,
+    width: cp1500CanvasWidth,
+    height: cp1500CanvasHeight,
   },
   {
     id: 'postal',
@@ -167,10 +241,15 @@ const templates = Object.values(templatesByEventType).flat()
 const getTemplatesForEventType = (type) => templatesByEventType[type] || templatesByEventType[defaultEventType]
 const filters = ['Original', 'Glam', 'Blanco y negro', 'Cálido', 'Marca']
 const shareTools = ['WhatsApp', 'QR', 'Imprimir']
-const photoTextPresets = ['El tiempo de Dios es perfecto', 'Gracias por acompañarnos', 'Un recuerdo especial']
 const customPhotoMaxSlots = 8
 const customTextFonts = ['Arial', 'Georgia', 'Impact', 'Verdana', 'Courier New']
-const customTextColors = ['#7f1d1d', '#111827', '#0a4de8', '#ffffff', '#facc15', '#ec4899']
+const customTextColors = [
+  '#111827', '#ffffff', '#6b7280', '#d1d5db',
+  '#7f1d1d', '#dc2626', '#f97316', '#facc15',
+  '#16a34a', '#22c55e', '#14b8a6', '#06b6d4',
+  '#0a4de8', '#2563eb', '#6366f1', '#7c3aed',
+  '#a21caf', '#ec4899', '#f43f5e', '#b96f71',
+]
 const customTextLabels = {
   script: 'Frase',
   name: 'Nombre',
@@ -196,6 +275,38 @@ const makeExampleVideo = (fileName) => ({
 })
 const gifOverlaySizes = ['Rectángulo 720p 16:9', 'Vertical 720p 9:16', 'Cuadrado 720p', 'Pantalla completa 1080p']
 const qualityOptions = ['Media', 'Alta', 'Superior']
+const cameraLensModes = [
+  {
+    id: 'normal',
+    label: 'Normal',
+    helper: 'Retrato cercano para una persona.',
+    detail: 'Encuadre 1.55x',
+    zoom: 1.6,
+    previewScale: 1.55,
+    width: 1280,
+    height: 720,
+  },
+  {
+    id: 'wide',
+    label: 'Gran angular',
+    helper: 'Más espacio para parejas o grupos.',
+    detail: 'Encuadre 1.18x',
+    zoom: 1.18,
+    previewScale: 1.18,
+    width: 1920,
+    height: 1080,
+  },
+  {
+    id: 'ultra-wide',
+    label: 'Ultra gran angular',
+    helper: 'Máximo campo visible del espejo.',
+    detail: 'Campo completo',
+    zoom: 0.86,
+    previewScale: 1,
+    width: 2560,
+    height: 1440,
+  },
+]
 const animationExperienceStyles = [
   { id: 'video-vertical', label: 'Vídeo vertical - Cabina espejo' },
   { id: 'minimal', label: 'Animación limpia' },
@@ -240,50 +351,40 @@ const animationVideoStages = [
   { id: 'afterProcessing', title: 'Después de procesar', defaultFile: 'Deseleccionado', compact: true },
   { id: 'sessionEnd', title: 'Fin de la sesión', defaultFile: 'Deseleccionado', compact: true },
 ]
-const defaultRecentEvents = [
-  {
-    id: 'boda-valentina',
-    name: 'Boda Valentina',
-    eventType: 'Boda',
-    photoTypeId: 'postal',
-    templateId: 'boda-clasica',
-    filter: 'Glam',
-    updatedAt: 'Reciente',
-  },
+const defaultAppUsers = [
+  { id: 'super-admin', name: 'Super Admin', shortName: 'Super', username: 'Superadmin', password: 'Superadmin1234', role: 'super_admin' },
+  { id: 'admin-isaju', name: 'Isaju', shortName: 'Isaju', username: 'Isaju', password: 'Isaju1234', role: 'admin' },
+  { id: 'operador', name: 'Operador', shortName: 'Operador', username: 'operador', password: 'operador1234', role: 'operator', adminId: 'admin-isaju' },
 ]
-const profileOptions = [
-  { id: 'admin', name: 'Administrador', shortName: 'Admin', role: 'admin' },
-  { id: 'operario-1', name: 'Operario 1', shortName: 'Op. 1', role: 'operator' },
-  { id: 'operario-2', name: 'Operario 2', shortName: 'Op. 2', role: 'operator' },
-]
-const operatorAssignedEvents = {
-  'operario-1': [
-    {
-      id: 'op1-cumple-color',
-      operatorId: 'operario-1',
-      name: 'Cumple Laura',
-      eventName: 'Cumple Laura',
-      eventType: 'Cumpleaños',
-      photoTypeId: 'doble',
-      templateId: 'cumple-color',
-      filter: 'Original',
-      updatedAt: 'Asignado',
-    },
-  ],
-  'operario-2': [
-    {
-      id: 'op2-corporativo-gala',
-      operatorId: 'operario-2',
-      name: 'Gala Empresa',
-      eventName: 'Gala Empresa',
-      eventType: 'Corporativo',
-      photoTypeId: 'postal',
-      templateId: 'corp-gala',
-      filter: 'Glam',
-      updatedAt: 'Asignado',
-    },
-  ],
+const defaultRecentEvents = []
+const allowedDefaultUserIds = defaultAppUsers.map((user) => user.id)
+const mergeUsersWithDefaults = (users = []) => {
+  const merged = Array.isArray(users)
+    ? users.filter((user) => allowedDefaultUserIds.includes(user?.id))
+    : []
+  defaultAppUsers.forEach((defaultUser) => {
+    const currentIndex = merged.findIndex((user) => user?.id === defaultUser.id)
+    if (currentIndex >= 0) merged[currentIndex] = { ...merged[currentIndex], ...defaultUser }
+    else merged.push(defaultUser)
+  })
+  return merged
 }
+const mergeEventsWithDefaults = (events = [], deletedIds = []) => {
+  return events.filter((event) => !deletedIds.includes(getEventIdentity(event)))
+}
+const mergeCloudAndLocalEvents = (cloudEvents = [], localEvents = [], deletedIds = []) => {
+  const merged = new Map()
+  mergeEventsWithDefaults(cloudEvents, deletedIds).forEach((event) => {
+    merged.set(getEventIdentity(event), event)
+  })
+  mergeEventsWithDefaults(localEvents, deletedIds).forEach((event) => {
+    const identity = getEventIdentity(event)
+    if (!identity) return
+    merged.set(identity, event)
+  })
+  return Array.from(merged.values())
+}
+const serializeSyncState = (value) => JSON.stringify(value || null)
 const editorTools = [
   { id: 'imagen', label: 'Imagen', icon: '▧' },
   { id: 'texto', label: 'Texto', icon: 'T' },
@@ -305,11 +406,7 @@ const designTools = [
   { id: 'diseno', label: 'Diseño de impresión', icon: '▦' },
 ]
 const printPaperPresets = [
-  { id: '4x6', label: '4x6', sizeText: '10.16 x 15.24 cm', width: '10.16', height: '15.24', margin: '0', note: 'Postal 4x6 pulgadas.' },
   { id: '10x15', label: '10 x 15', sizeText: '10 x 15 cm', width: '10', height: '15', margin: '0', note: 'Hoja para dos tiras 5x15.' },
-  { id: '5x15', label: '5 x 15', sizeText: '5 x 15 cm', width: '5', height: '15', margin: '0', note: 'Una tira vertical.' },
-  { id: '10x20', label: '10 x 20', sizeText: '10 x 20 cm', width: '10', height: '20', margin: '0', note: 'Formato vertical más alto.' },
-  { id: '15x20', label: '15 x 20', sizeText: '15 x 20 cm', width: '15', height: '20', margin: '0.2', note: 'Ampliación para marco.' },
 ]
 const printDpiOptions = [203, 300, 600]
 const defaultPrintSettings = {
@@ -320,7 +417,7 @@ const defaultPrintSettings = {
   copies: '1',
   dpi: 300,
   orientation: 'Vertical',
-  fit: 'Ajustar',
+  fit: 'Rellenar',
   twoPerPage: false,
   secondaryPrinter: false,
 }
@@ -438,6 +535,7 @@ const WebApp = () => {
   const isMobile = width < 760
   const isPhone = width <= 500
   const isShortScreen = height < 720
+  const isPortraitMirrorScreen = width >= 760 && width < 880 && height > width * 1.35
   const capturePulse = useRef(new Animated.Value(0)).current
   const captureFloat = useRef(new Animated.Value(0)).current
   const [showCreateEventModal, setShowCreateEventModal] = useState(false)
@@ -452,12 +550,16 @@ const WebApp = () => {
   const [qrPhotoUrl, setQrPhotoUrl] = useState('')
   const [showPreviewShareMenu, setShowPreviewShareMenu] = useState(false)
   const [showEventGallery, setShowEventGallery] = useState(false)
+  const [selectedGalleryId, setSelectedGalleryId] = useState('')
+  const [selectedGalleryPrintIds, setSelectedGalleryPrintIds] = useState([])
+  const [selectedGalleryViewPhoto, setSelectedGalleryViewPhoto] = useState(null)
   const [showBackgroundRemovalScreen, setShowBackgroundRemovalScreen] = useState(false)
   const [showEventOptionsScreen, setShowEventOptionsScreen] = useState(false)
   const [showAnimationVideoScreen, setShowAnimationVideoScreen] = useState(false)
   const [showLaunchIntroScreen, setShowLaunchIntroScreen] = useState(false)
   const [showCustomPhotoLayoutScreen, setShowCustomPhotoLayoutScreen] = useState(false)
   const [showCapturePhotoScreen, setShowCapturePhotoScreen] = useState(false)
+  const [showCaptureLivePreview, setShowCaptureLivePreview] = useState(false)
   const [showOperatorMenu, setShowOperatorMenu] = useState(false)
   const [operatorQuickPanel, setOperatorQuickPanel] = useState(null)
   const [operatorSettingsActive, setOperatorSettingsActive] = useState(false)
@@ -467,12 +569,20 @@ const WebApp = () => {
   const [eventName, setEventName] = useState('')
   const [eventNameError, setEventNameError] = useState('')
   const [eventType, setEventType] = useState('')
+  const [assignedOperatorId, setAssignedOperatorId] = useState('')
   const [selectedType, setSelectedType] = useState(photoTypes[0])
   const previewOutputWidth = Math.min(width * 0.92, Math.max(280, (height - (isMobile ? 250 : 280)) * (selectedType.width / selectedType.height)), 860)
   const [selectedTemplate, setSelectedTemplate] = useState(getTemplatesForEventType(defaultEventType)[0])
   const [selectedFilter, setSelectedFilter] = useState(filters[0])
-  const [activeProfileId, setActiveProfileId] = useState('admin')
+  const [users, setUsers] = useState(defaultAppUsers)
+  const [activeUserId, setActiveUserId] = useState('')
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [activeProfileId, setActiveProfileId] = useState('admin-viralco')
   const [recentEvents, setRecentEvents] = useState(defaultRecentEvents)
+  const [deletedEventIds, setDeletedEventIds] = useState([])
+  const [deletedGalleryPhotoIds, setDeletedGalleryPhotoIds] = useState([])
   const [eventGalleries, setEventGalleries] = useState({})
   const [selectedRecentId, setSelectedRecentId] = useState(defaultRecentEvents[0]?.id || '')
   const [cameraStream, setCameraStream] = useState(null)
@@ -494,8 +604,9 @@ const WebApp = () => {
   const [captureOriginal, setCaptureOriginal] = useState(true)
   const [photoCountdownFirst, setPhotoCountdownFirst] = useState(5)
   const [photoCountdownNext, setPhotoCountdownNext] = useState(5)
-  const [photoReviewSeconds, setPhotoReviewSeconds] = useState(4)
+  const [photoReviewSeconds, setPhotoReviewSeconds] = useState(5)
   const [flashBeforePhoto, setFlashBeforePhoto] = useState(true)
+  const [cameraLensMode, setCameraLensMode] = useState('wide')
   const [roamingMode, setRoamingMode] = useState(false)
   const [gifOverlayUrl, setGifOverlayUrl] = useState('')
   const [gifOverlayFileName, setGifOverlayFileName] = useState('')
@@ -508,7 +619,7 @@ const WebApp = () => {
   const [gifDelayMs, setGifDelayMs] = useState(300)
   const [qualityMode, setQualityMode] = useState('Alta')
   const [preCaptureText, setPreCaptureText] = useState('Prepárese')
-  const [photoScriptText, setPhotoScriptText] = useState(photoTextPresets[0])
+  const [photoScriptText, setPhotoScriptText] = useState('')
   const [photoNameText, setPhotoNameText] = useState('')
   const [photoDateText, setPhotoDateText] = useState('')
   const [photoEventText, setPhotoEventText] = useState('')
@@ -516,8 +627,14 @@ const WebApp = () => {
   const [customPhotoOrder, setCustomPhotoOrder] = useState([])
   const [customPhotoLayout, setCustomPhotoLayout] = useState([])
   const [selectedCustomLayoutPhoto, setSelectedCustomLayoutPhoto] = useState(1)
+  const [selectedCustomLayoutPhotos, setSelectedCustomLayoutPhotos] = useState([1])
+  const [multiCustomLayoutSelect, setMultiCustomLayoutSelect] = useState(false)
+  const [customMirrorMode, setCustomMirrorMode] = useState(false)
   const [customTextLayers, setCustomTextLayers] = useState(defaultCustomTextLayers)
   const [selectedCustomTextLayer, setSelectedCustomTextLayer] = useState('name')
+  const [showCustomTextColorPalette, setShowCustomTextColorPalette] = useState(false)
+  const [showCustomTextFontMenu, setShowCustomTextFontMenu] = useState(false)
+  const [uploadedCustomFonts, setUploadedCustomFonts] = useState([])
   const [activeCustomMenu, setActiveCustomMenu] = useState('photos')
   const [customAlignmentGuides, setCustomAlignmentGuides] = useState({ x: [], y: [] })
   const [captureAnimation, setCaptureAnimation] = useState(captureAnimationPresets[0].id)
@@ -542,28 +659,38 @@ const WebApp = () => {
   const [applyFrameAfter, setApplyFrameAfter] = useState(true)
   const [printSettings, setPrintSettings] = useState(defaultPrintSettings)
   const videoRef = useRef(null)
+  const captureConfigVideoRef = useRef(null)
   const streamRef = useRef(null)
+  const cameraOpenRequestRef = useRef(0)
   const countdownRef = useRef(null)
   const customEditorStripRef = useRef(null)
   const customLayoutPointerRef = useRef(null)
   const storageHydratedRef = useRef(false)
+  const cloudStateSaveTimerRef = useRef(null)
 
   const eventTitle = eventName.trim() || 'Evento Viralco'
-  const eventGalleryId = eventTitle
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .toLowerCase() || 'evento-viralco'
-  const currentEventGallery = eventGalleries[eventGalleryId]?.items || []
+  const eventGalleryId = selectedRecentId || createEventSlug(eventTitle)
+  const fallbackEventGalleryId = createEventSlug(eventTitle)
+  const currentEventGalleryItems = [
+    ...(eventGalleries[eventGalleryId]?.items || []),
+    ...(eventGalleryId !== fallbackEventGalleryId ? (eventGalleries[fallbackEventGalleryId]?.items || []) : []),
+  ]
+  const currentEventGallery = currentEventGalleryItems.filter((photo, index, all) => (
+    index === all.findIndex((item) => (item.id || item.src) === (photo.id || photo.src))
+  ))
   const latestEventGalleryPhoto = currentEventGallery[0]
-  const activeProfile = profileOptions.find((profile) => profile.id === activeProfileId) || profileOptions[0]
-  const isAdminProfile = activeProfile.role === 'admin'
+  const activeUser = users.find((user) => user.id === activeUserId) || null
+  const activeProfile = activeUser || users.find((user) => user.id === activeProfileId) || defaultAppUsers[1]
+  const isSuperAdminProfile = activeProfile.role === 'super_admin'
+  const isAdminProfile = activeProfile.role === 'super_admin' || activeProfile.role === 'admin'
   const visibleLaunchEvents = useMemo(() => {
-    if (isAdminProfile) return recentEvents.length ? recentEvents : defaultRecentEvents
-    const operatorRecentEvents = recentEvents.filter((item) => item.operatorId === activeProfile.id)
-    return operatorRecentEvents.length ? operatorRecentEvents : (operatorAssignedEvents[activeProfile.id] || [])
-  }, [activeProfile.id, isAdminProfile, recentEvents])
+    const activeEvents = recentEvents.filter((item) => !deletedEventIds.includes(getEventIdentity(item)))
+    if (activeProfile.role === 'super_admin') return activeEvents
+    if (activeProfile.role === 'admin') {
+      return activeEvents.filter((item) => (item.ownerAdminId || item.adminId || 'admin-viralco') === activeProfile.id)
+    }
+    return activeEvents.filter((item) => item.operatorId === activeProfile.id)
+  }, [activeProfile.id, activeProfile.role, deletedEventIds, recentEvents])
   const eventReady = Boolean(eventName.trim())
   const framesReady = photoFrames.length
   const captureComplete = Boolean(finalPhotoUrl)
@@ -575,20 +702,23 @@ const WebApp = () => {
     () => normalizeCustomPhotoLayout(customPhotoLayout, customPhotoCount),
     [customPhotoLayout, customPhotoCount],
   )
+  const customFontChoices = useMemo(
+    () => [...customTextFonts, ...uploadedCustomFonts.map((font) => font.family)],
+    [uploadedCustomFonts],
+  )
   const selectedShotCount = selectedType.id === 'personalizar-5x15' ? customPhotoCount : selectedType.shots
   const normalizedPrintSettings = useMemo(() => {
     const parsePositive = (value, fallback) => {
       const parsed = Number(String(value).replace(',', '.'))
       return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
     }
-    const widthCm = Math.max(parsePositive(printSettings.widthCm, 10), 1)
-    const heightCm = Math.max(parsePositive(printSettings.heightCm, 15), 1)
+    const widthCm = cp1500ShortEdgeCm
+    const heightCm = cp1500LongEdgeCm
     const marginCm = Math.min(parsePositive(printSettings.marginCm, 0), Math.min(widthCm, heightCm) / 3)
     const copies = Math.min(Math.max(Math.round(parsePositive(printSettings.copies, 1)), 1), 20)
     const dpi = printDpiOptions.includes(Number(printSettings.dpi)) ? Number(printSettings.dpi) : 300
-    const landscape = printSettings.orientation === 'Horizontal'
-    const orientedWidthCm = landscape ? Math.max(widthCm, heightCm) : Math.min(widthCm, heightCm)
-    const orientedHeightCm = landscape ? Math.min(widthCm, heightCm) : Math.max(widthCm, heightCm)
+    const orientedWidthCm = widthCm
+    const orientedHeightCm = heightCm
     const printableWidthCm = Math.max(orientedWidthCm - marginCm * 2, 0.1)
     const printableHeightCm = Math.max(orientedHeightCm - marginCm * 2, 0.1)
     return {
@@ -613,10 +743,172 @@ const WebApp = () => {
     () => visibleLaunchEvents.find((item) => (item.id || item.name) === selectedRecentId) || visibleLaunchEvents[0],
     [visibleLaunchEvents, selectedRecentId],
   )
+  const getEventGalleryIds = (event) => [
+    event?.id,
+    createEventSlug(event?.eventName || event?.name),
+  ].filter(Boolean).filter((id, index, all) => all.indexOf(id) === index)
+  const normalizeGalleryItems = (items = []) => items
+    .filter((photo, photoIndex, all) => (
+      photoIndex === all.findIndex((item) => (item.id || item.src) === (photo.id || photo.src))
+    ))
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+  const getEventGalleryFolder = (event, index = 0) => {
+    const ids = getEventGalleryIds(event)
+    const items = normalizeGalleryItems(ids.flatMap((id) => eventGalleries[id]?.items || []))
+    return {
+      id: ids[0] || `evento-${index + 1}`,
+      event,
+      eventName: event?.eventName || event?.name || `Evento ${index + 1}`,
+      items,
+      latest: items[0],
+      operatorId: event?.operatorId || 'admin',
+    }
+  }
+  const visibleGalleryFolders = useMemo(() => {
+    const sourceEvents = isSuperAdminProfile
+      ? recentEvents.filter((item) => !deletedEventIds.includes(getEventIdentity(item)))
+      : visibleLaunchEvents
+    const folders = sourceEvents.map(getEventGalleryFolder)
+    if (!isAdminProfile) return folders
+
+    const knownIds = new Set(folders.flatMap((folder) => [folder.id, ...getEventGalleryIds(folder.event)]))
+    const remoteOnlyFolders = Object.values(eventGalleries)
+      .filter((gallery) => gallery?.id && !knownIds.has(gallery.id))
+      .map((gallery, index) => {
+        const items = normalizeGalleryItems(gallery.items || [])
+        return {
+          id: gallery.id || `galeria-${index + 1}`,
+          event: { id: gallery.id, name: gallery.eventName, eventName: gallery.eventName, operatorId: gallery.operatorId },
+          eventName: gallery.eventName || `Evento ${index + 1}`,
+          items,
+          latest: items[0],
+          operatorId: gallery.operatorId || 'admin',
+        }
+      })
+
+    return [...folders, ...remoteOnlyFolders]
+  }, [deletedEventIds, eventGalleries, isAdminProfile, isSuperAdminProfile, recentEvents, visibleLaunchEvents])
+  const getGalleryPhotoKey = (photo, index = 0) =>
+    String(photo?.id || photo?.publicUrl || photo?.src || `gallery-photo-${index}`)
+  const getGalleryPhotoSource = (photo) => photo?.localUrl || photo?.publicUrl || photo?.src || ''
+  const openEventGallery = (galleryId) => {
+    setSelectedGalleryId(galleryId)
+    setSelectedGalleryPrintIds([])
+    setSelectedGalleryViewPhoto(null)
+    setShowEventGallery(true)
+  }
+  const closeEventGallery = () => {
+    setShowEventGallery(false)
+    setSelectedGalleryPrintIds([])
+    setSelectedGalleryViewPhoto(null)
+  }
+  const toggleGalleryPrintSelection = (photo, index) => {
+    const photoKey = getGalleryPhotoKey(photo, index)
+    setSelectedGalleryPrintIds((current) => (
+      current.includes(photoKey)
+        ? current.filter((item) => item !== photoKey)
+        : [...current, photoKey]
+    ))
+  }
+  const stopGalleryActionEvent = (event) => {
+    event?.preventDefault?.()
+    event?.stopPropagation?.()
+    event?.nativeEvent?.preventDefault?.()
+    event?.nativeEvent?.stopPropagation?.()
+    event?.nativeEvent?.stopImmediatePropagation?.()
+  }
+  const openGalleryPhotoViewer = (photo, index) => {
+    if (!getGalleryPhotoSource(photo)) {
+      setCaptureStatus('Esta foto ya no está disponible para abrirla.')
+      return
+    }
+    setSelectedGalleryViewPhoto({ photo, index })
+  }
+  const getServerPhotoId = (photo) => {
+    if (photo?.id) return String(photo.id)
+    const source = String(photo?.publicUrl || photo?.src || '')
+    const path = source.split('/uploads/photos/')[1] || ''
+    const parts = path.split('/').filter(Boolean)
+    return parts.length >= 3 ? parts[1] : (parts[0] || '')
+  }
+  const deletePhotoFromServer = async (photo) => {
+    const photoId = getServerPhotoId(photo)
+    if (!photoId || typeof fetch === 'undefined') return false
+    try {
+      const response = await fetch(photoDeleteEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          syncToken: cloudSyncToken,
+          id: photoId,
+          eventId: photo?.eventId,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      return Boolean(response.ok && result?.ok)
+    } catch {
+      return false
+    }
+  }
+  const deleteEventGalleryFromServer = async (eventId) => {
+    if (!eventId || typeof fetch === 'undefined') return false
+    try {
+      const response = await fetch(eventGalleryDeleteEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ syncToken: cloudSyncToken, eventId }),
+      })
+      const result = await response.json().catch(() => ({}))
+      return Boolean(response.ok && result?.ok)
+    } catch {
+      return false
+    }
+  }
+  const pruneDeletedGalleryPhotos = (galleries = {}, deletedIds = deletedGalleryPhotoIds) => {
+    const deletedSet = new Set((deletedIds || []).filter(Boolean))
+    if (!deletedSet.size) return galleries || {}
+    return Object.fromEntries(
+      Object.entries(galleries || {}).map(([galleryId, gallery]) => [
+        galleryId,
+        {
+          ...gallery,
+          items: (gallery?.items || []).filter((photo, index) => !deletedSet.has(getServerPhotoId(photo) || getGalleryPhotoKey(photo, index))),
+        },
+      ]).filter(([, gallery]) => (gallery?.items || []).length),
+    )
+  }
+  const deleteGalleryPhoto = (galleryId, photoToDelete, index = 0) => {
+    const photoKey = getGalleryPhotoKey(photoToDelete, index)
+    const photoId = getServerPhotoId(photoToDelete) || photoKey
+    const confirmed = typeof window === 'undefined'
+      ? true
+      : window.confirm('¿Eliminar esta foto de la galería?')
+    if (!confirmed) return
+
+    setEventGalleries((current) => {
+      const gallery = current[galleryId]
+      if (!gallery) return current
+      const nextItems = (gallery.items || []).filter((photo, itemIndex) => getGalleryPhotoKey(photo, itemIndex) !== photoKey)
+      const next = { ...current }
+      if (nextItems.length) {
+        next[galleryId] = {
+          ...gallery,
+          updatedAt: new Date().toISOString(),
+          items: nextItems,
+        }
+      } else {
+        delete next[galleryId]
+      }
+      return next
+    })
+    setSelectedGalleryPrintIds((current) => current.filter((item) => item !== photoKey))
+    setDeletedGalleryPhotoIds((current) => (current.includes(photoId) ? current : [...current, photoId].slice(-400)))
+    void deletePhotoFromServer(photoToDelete)
+    setCaptureStatus('Foto eliminada de la galería.')
+  }
   const eventTemplateOptions = useMemo(() => getTemplatesForEventType(eventType), [eventType])
-  const printSizeLabel = `${normalizedPrintSettings.widthCm}x${normalizedPrintSettings.heightCm} cm`
-  const activePrintPreset = printPaperPresets.find((preset) => preset.id === printSettings.presetId)
-  const activePrintLabel = activePrintPreset?.label || 'Manual'
+  const printSizeLabel = '10x15 cm'
+  const activePrintLabel = 'Canon CP1500'
   const getAppRoutePath = (route = 'inicio') => {
     const base = import.meta.env.BASE_URL || '/'
     const normalizedBase = base.endsWith('/') ? base : `${base}/`
@@ -655,7 +947,8 @@ const WebApp = () => {
       'preview',
       'compartir',
     ])
-    const nextRoute = validRoutes.has(route) ? route : 'inicio'
+    const cleanRoute = ['diseno-foto', 'modo-captura', 'fondo'].includes(route) ? 'configuracion-captura' : route
+    const nextRoute = validRoutes.has(cleanRoute) ? cleanRoute : 'inicio'
     setShowHomeLauncher(nextRoute === 'inicio' || nextRoute === 'nuevo-evento')
     setShowCreateEventModal(nextRoute === 'nuevo-evento')
     setShowStartEditor(nextRoute === 'editor-inicio')
@@ -665,8 +958,8 @@ const WebApp = () => {
     setShowPrintConfigScreen(nextRoute === 'impresion')
     setShowBackgroundRemovalScreen(nextRoute === 'fondo')
     setShowEventOptionsScreen(nextRoute === 'configurar-evento')
-    setShowAnimationVideoScreen(nextRoute === 'animacion')
-    setShowLaunchIntroScreen(nextRoute === 'lanzar-evento')
+    setShowAnimationVideoScreen(false)
+    setShowLaunchIntroScreen(nextRoute === 'lanzar-evento' || nextRoute === 'animacion')
     setShowCustomPhotoLayoutScreen(nextRoute === 'personalizar')
     setShowCapturePhotoScreen(nextRoute === 'captura')
     setCaptureIntroActive(nextRoute === 'captura')
@@ -694,6 +987,36 @@ const WebApp = () => {
 
   const closePreviewShareMenu = () => setShowPreviewShareMenu(false)
 
+  const adminUsers = users.filter((user) => user.role === 'admin')
+  const operatorUsers = users.filter((user) => user.role === 'operator')
+  const assignableOperators = activeProfile.role === 'admin'
+    ? operatorUsers.filter((user) => !user.adminId || user.adminId === activeProfile.id)
+    : operatorUsers
+
+  const handleLogin = () => {
+    const username = loginUsername.trim().toLowerCase()
+    const password = loginPassword.trim()
+    const user = users.find((item) => item.username.toLowerCase() === username && item.password === password)
+    if (!user) {
+      setLoginError('Usuario o clave incorrectos.')
+      return
+    }
+    setActiveUserId(user.id)
+    setActiveProfileId(user.id)
+    setLoginError('')
+    setLoginPassword('')
+    setCaptureStatus(`Acceso como ${user.name}`)
+  }
+
+  const handleLogout = () => {
+    setActiveUserId('')
+    setActiveProfileId('admin-viralco')
+    setLoginUsername('')
+    setLoginPassword('')
+    setShowHomeLauncher(true)
+    setCaptureStatus('Sesión cerrada.')
+  }
+
   useEffect(() => {
     if (typeof window === 'undefined') return
     const base = import.meta.env.BASE_URL || '/'
@@ -713,14 +1036,28 @@ const WebApp = () => {
     name: eventName.trim() || 'Evento Viralco',
     eventName: eventName.trim() || 'Evento Viralco',
     eventType: eventType || defaultEventType,
+    ownerAdminId: activeProfile.role === 'admin' ? activeProfile.id : 'admin-viralco',
+    operatorId: assignedOperatorId,
     photoTypeId: selectedType.id,
     customLayoutMode: 'manual-free',
     customPhotoCount,
     customPhotoOrder: customPhotoSequence,
     customPhotoLayout: customLayoutSlots,
+    customMirrorMode,
     customTextLayers,
+    uploadedCustomFonts,
     templateId: selectedTemplate.id,
     filter: selectedFilter,
+    createdAt: selectedRecentEvent?.createdAt || new Date().toISOString(),
+    captureOriginal,
+    photoCountdownFirst,
+    photoCountdownNext,
+    photoReviewSeconds,
+    flashBeforePhoto,
+    cameraLensMode,
+    roamingMode,
+    qualityMode,
+    activePreset,
     updatedAt: 'Ahora',
   })
 
@@ -735,9 +1072,14 @@ const WebApp = () => {
       selectedTemplate
     const nextFilter = filters.includes(setup.filter) ? setup.filter : selectedFilter
     const nextName = setup.eventName || setup.name || 'Evento Viralco'
+    const nextNumber = (value, fallback) => {
+      const parsed = Number(value)
+      return Number.isFinite(parsed) ? parsed : fallback
+    }
 
     setEventName(nextName)
     setEventType(nextEventType)
+    setAssignedOperatorId(setup.operatorId || '')
     setSelectedType(nextType)
     if (nextType.id === 'personalizar-5x15') {
       const savedManualLayout = setup.customLayoutMode === 'manual-free'
@@ -749,13 +1091,28 @@ const WebApp = () => {
       setCustomPhotoCount(nextCustomCount)
       setCustomPhotoOrder(normalizeCustomPhotoOrder(savedManualLayout ? setup.customPhotoOrder : [], nextCustomCount))
       setCustomPhotoLayout(normalizeCustomPhotoLayout(savedLayout, nextCustomCount))
+      setCustomMirrorMode(Boolean(setup.customMirrorMode))
       if (setup.customTextLayers && typeof setup.customTextLayers === 'object') {
         setCustomTextLayers({ ...defaultCustomTextLayers, ...setup.customTextLayers })
       }
+      if (Array.isArray(setup.uploadedCustomFonts)) {
+        setUploadedCustomFonts(setup.uploadedCustomFonts)
+      }
       setSelectedCustomLayoutPhoto(1)
+      setSelectedCustomLayoutPhotos(nextCustomCount ? [1] : [])
+      setMultiCustomLayoutSelect(false)
     }
     setSelectedTemplate(nextTemplate)
     setSelectedFilter(nextFilter)
+    setCaptureOriginal(setup.captureOriginal !== undefined ? Boolean(setup.captureOriginal) : captureOriginal)
+    setPhotoCountdownFirst(Math.min(Math.max(Math.round(nextNumber(setup.photoCountdownFirst, photoCountdownFirst)), 1), 10))
+    setPhotoCountdownNext(Math.min(Math.max(Math.round(nextNumber(setup.photoCountdownNext, photoCountdownNext)), 1), 10))
+    setPhotoReviewSeconds(Math.min(Math.max(Math.round(nextNumber(setup.photoReviewSeconds, photoReviewSeconds)), 1), 8))
+    setFlashBeforePhoto(setup.flashBeforePhoto !== undefined ? Boolean(setup.flashBeforePhoto) : flashBeforePhoto)
+    if (cameraLensModes.some((mode) => mode.id === setup.cameraLensMode)) setCameraLensMode(setup.cameraLensMode)
+    setRoamingMode(setup.roamingMode !== undefined ? Boolean(setup.roamingMode) : roamingMode)
+    if (qualityOptions.includes(setup.qualityMode)) setQualityMode(setup.qualityMode)
+    if (['Suave', 'Rápido', 'Fiesta', 'Evento'].includes(setup.activePreset)) setActivePreset(setup.activePreset)
     setPhotoFrames([])
     setFinalPhotoUrl('')
     clearSavedPhoto()
@@ -766,26 +1123,165 @@ const WebApp = () => {
     setCaptureStatus(`${nextName}: ${status}`)
   }
 
+  const safeSetLocalStorage = (key, value, fallbackValue = null) => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value))
+    } catch {
+      if (fallbackValue === null) return
+      try {
+        window.localStorage.setItem(key, JSON.stringify(fallbackValue))
+      } catch {
+        // localStorage can be full when photos or fonts are large; the cloud copy remains the source of truth.
+      }
+    }
+  }
+
+  const persistEventSnapshotNow = (activeSetup, nextEvents, nextDeletedIds = deletedEventIds) => {
+    const compactEvents = nextEvents.map((item) => ({ ...item, uploadedCustomFonts: [] }))
+    safeSetLocalStorage(appSetupStorageKey, activeSetup, { ...activeSetup, uploadedCustomFonts: [] })
+    safeSetLocalStorage(recentEventsStorageKey, nextEvents, compactEvents)
+    safeSetLocalStorage(deletedEventsStorageKey, nextDeletedIds)
+  }
+
   const rememberRecentEvent = (setup) => {
-    setRecentEvents((current) => {
-      const next = [
-        { ...setup, id: setup.id || `evento-${Date.now()}`, updatedAt: 'Ahora' },
-        ...current.filter((item) => (item.id || item.name) !== (setup.id || setup.name)),
-      ].slice(0, 1)
-      return next
+    const setupId = getEventIdentity(setup) || createEventSlug(setup?.eventName || setup?.name || 'evento')
+    const eventToRemember = {
+      ...setup,
+      id: setup.id || setupId || `evento-${Date.now()}`,
+      updatedAt: 'Ahora',
+    }
+    const eventId = getEventIdentity(eventToRemember)
+    const nextDeletedEventIds = deletedEventIds.filter((id) => id !== eventId)
+    const nextRecentEvents = [
+      eventToRemember,
+      ...recentEvents.filter((item) => getEventIdentity(item) !== eventId),
+    ].slice(0, 200)
+
+    persistEventSnapshotNow(eventToRemember, nextRecentEvents, nextDeletedEventIds)
+    setDeletedEventIds(nextDeletedEventIds)
+    setRecentEvents(nextRecentEvents)
+    void pushCloudStateNow({
+      recentEvents: nextRecentEvents,
+      deletedEventIds: nextDeletedEventIds,
     })
   }
 
+  const deleteRecentEvent = (eventToDelete) => {
+    const eventId = getEventIdentity(eventToDelete)
+    const galleryIds = getEventGalleryIds(eventToDelete)
+    // A gallery only leaves the server when its event is explicitly deleted here.
+    // Removing a photo, changing a template, or reloading never clears stored files.
+    galleryIds.forEach((galleryId) => {
+      deleteEventGalleryFromServer(galleryId)
+    })
+    const nextRecentEvents = recentEvents.filter((item) => getEventIdentity(item) !== eventId)
+    const nextDeletedEventIds = deletedEventIds.includes(eventId) ? deletedEventIds : [...deletedEventIds, eventId]
+    const nextEventGalleries = { ...eventGalleries }
+    galleryIds.forEach((galleryId) => {
+      delete nextEventGalleries[galleryId]
+    })
+    persistEventSnapshotNow(nextRecentEvents[0] || getCurrentSetup(), nextRecentEvents, nextDeletedEventIds)
+    safeSetLocalStorage(eventGalleryStorageKey, nextEventGalleries)
+    setRecentEvents(nextRecentEvents)
+    setDeletedEventIds(nextDeletedEventIds)
+    setEventGalleries(nextEventGalleries)
+    void pushCloudStateNow({
+      recentEvents: nextRecentEvents,
+      deletedEventIds: nextDeletedEventIds,
+      eventGalleries: nextEventGalleries,
+    })
+    if ((selectedRecentId || '') === eventId || selectedRecentId === eventToDelete?.name) {
+      setSelectedRecentId('')
+    }
+    setCaptureStatus(`${eventToDelete?.name || eventToDelete?.eventName || 'Evento'} eliminado.`)
+  }
+
+  const getAssignableOperatorsForEvent = (eventItem) => {
+    if (activeProfile.role === 'admin') return assignableOperators
+    const ownerAdminId = eventItem?.ownerAdminId || eventItem?.adminId || 'admin-viralco'
+    const ownerOperators = operatorUsers.filter((user) => !user.adminId || user.adminId === ownerAdminId)
+    return ownerOperators.length ? ownerOperators : operatorUsers
+  }
+
+  const changeEventOperator = (eventToUpdate, nextOperatorId) => {
+    const eventId = getEventIdentity(eventToUpdate)
+    const normalizedOperatorId = nextOperatorId === 'admin' ? '' : nextOperatorId
+    const galleryIds = getEventGalleryIds(eventToUpdate)
+    const nextRecentEvents = recentEvents.map((item) => {
+      if (getEventIdentity(item) !== eventId) return item
+      return {
+        ...item,
+        operatorId: normalizedOperatorId,
+        updatedAt: 'Ahora',
+      }
+    })
+    const nextEventGalleries = { ...eventGalleries }
+    galleryIds.forEach((galleryId) => {
+      if (!nextEventGalleries[galleryId]) return
+      nextEventGalleries[galleryId] = {
+        ...nextEventGalleries[galleryId],
+        operatorId: normalizedOperatorId || 'admin',
+      }
+    })
+    persistEventSnapshotNow(nextRecentEvents.find((item) => getEventIdentity(item) === eventId) || getCurrentSetup(), nextRecentEvents)
+    safeSetLocalStorage(eventGalleryStorageKey, nextEventGalleries)
+    setRecentEvents(nextRecentEvents)
+    setEventGalleries(nextEventGalleries)
+    void pushCloudStateNow({
+      recentEvents: nextRecentEvents,
+      eventGalleries: nextEventGalleries,
+    })
+    if ((selectedRecentId || '') === eventId || selectedRecentId === eventToUpdate?.name) {
+      setAssignedOperatorId(normalizedOperatorId)
+    }
+    const nextProfile = users.find((profile) => profile.id === normalizedOperatorId)
+    setCaptureStatus(`${eventToUpdate?.name || eventToUpdate?.eventName || 'Evento'} asignado a ${nextProfile?.name || 'Administrador'}.`)
+  }
+
+  const saveCurrentSetupToRecentEvents = (status = 'Evento guardado.') => {
+    const currentSetup = getCurrentSetup()
+    const existingSetup =
+      selectedRecentEvent ||
+      recentEvents.find((item) => (item.id || item.name) === selectedRecentId)
+    const savedSetupBase = {
+      ...existingSetup,
+      ...currentSetup,
+      id: existingSetup?.id || selectedRecentId || currentSetup.id,
+      ownerAdminId: existingSetup?.ownerAdminId || currentSetup.ownerAdminId,
+      operatorId: currentSetup.operatorId,
+      createdAt: existingSetup?.createdAt || currentSetup.createdAt || new Date().toISOString(),
+      updatedAt: 'Ahora',
+    }
+    const savedSetupId = getEventIdentity(savedSetupBase) || createEventSlug(savedSetupBase.eventName || savedSetupBase.name || 'evento')
+    const savedSetup = { ...savedSetupBase, id: savedSetupBase.id || savedSetupId }
+    const nextDeletedEventIds = deletedEventIds.filter((id) => id !== savedSetupId)
+    const nextRecentEvents = [
+      savedSetup,
+      ...recentEvents.filter((item) => getEventIdentity(item) !== savedSetupId),
+    ].slice(0, 200)
+
+    persistEventSnapshotNow(savedSetup, nextRecentEvents, nextDeletedEventIds)
+    setDeletedEventIds(nextDeletedEventIds)
+    setRecentEvents(nextRecentEvents)
+    void pushCloudStateNow({
+      recentEvents: nextRecentEvents,
+      deletedEventIds: nextDeletedEventIds,
+    })
+    setSelectedRecentId(savedSetup.id || savedSetup.name)
+    setCaptureStatus(status)
+    return savedSetup
+  }
+
   const launchEvent = (setup = getCurrentSetup(), destination = 'capture') => {
-    const nextType = photoTypes.find((item) => item.id === setup.photoTypeId) || selectedType
-    const shouldAskAnimationVideo = destination === 'capture' && nextType.id === 'personalizar-5x15'
-    const shouldShowLaunchIntro = destination === 'capture' && !shouldAskAnimationVideo
+    const shouldShowLaunchIntro = destination === 'capture'
+    setSelectedRecentId(setup.id || setup.name || createEventSlug(setup.eventName || setup.name))
     applyEventSetup(setup)
     rememberRecentEvent(setup)
     setShowHomeLauncher(false)
     setShowCreateEventModal(false)
     setShowEventOptionsScreen(destination === 'options')
-    setShowAnimationVideoScreen(shouldAskAnimationVideo)
+    setShowAnimationVideoScreen(false)
     setShowLaunchIntroScreen(shouldShowLaunchIntro)
     setShowCustomPhotoLayoutScreen(false)
     setShowCapturePhotoScreen(false)
@@ -799,7 +1295,6 @@ const WebApp = () => {
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
     if (destination === 'options') updateAppRoute('configurar-evento')
-    else if (shouldAskAnimationVideo) updateAppRoute('animacion')
     else if (shouldShowLaunchIntro) updateAppRoute('lanzar-evento')
     else if (destination === 'preview') updateAppRoute('preview')
     else if (destination === 'share') updateAppRoute('compartir')
@@ -840,22 +1335,170 @@ const WebApp = () => {
   }
 
   const switchProfile = (profileId) => {
-    setActiveProfileId(profileId)
+    const nextUser = users.find((user) => user.id === profileId)
+    if (!nextUser) return
+    setActiveUserId(nextUser.id)
+    setActiveProfileId(nextUser.id)
     setShowCreateEventModal(false)
     setShowOperatorMenu(false)
     setOperatorQuickPanel(null)
-    setCaptureStatus(`Perfil ${profileOptions.find((profile) => profile.id === profileId)?.name || 'Viralco'} activo.`)
+    setCaptureStatus(`Perfil ${nextUser.name || 'Viralco'} activo.`)
   }
 
+  const returnToHomeScreen = () => {
+    setShowPreviewShareMenu(false)
+    setShowEventGallery(false)
+    setShowOperatorMenu(false)
+    setOperatorQuickPanel(null)
+    applyAppRouteState('inicio')
+    updateAppRoute('inicio')
+  }
+
+  const renderHiddenHomeButton = () => (
+    <Pressable
+      onPress={returnToHomeScreen}
+      style={styles.hiddenHomeButton}
+      accessibilityRole="button"
+      accessibilityLabel="Volver a inicio"
+    >
+      <View style={styles.hiddenHomeButtonDot} />
+    </Pressable>
+  )
+
   const startLaunchIntroExperience = () => {
+    saveCurrentSetupToRecentEvents('Evento listo para fotos.')
     setShowLaunchIntroScreen(false)
     setShowCapturePhotoScreen(true)
     setCaptureIntroActive(true)
     setCountdown('')
     setCaptureStatus(`${selectedType.name}: listo para tomar fotos`)
     updateAppRoute('captura')
-    if (!cameraStream) openCamera()
+    void ensureCameraReady('Verificando cámara antes de iniciar el evento...')
   }
+
+  const fetchServerEventGalleries = async () => {
+    if (typeof fetch === 'undefined') return null
+    try {
+      const response = await fetch(photoUploadEndpoint, { method: 'GET', cache: 'no-store' })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result?.ok || !Array.isArray(result.photos)) return null
+
+      return result.photos.reduce((folders, photo) => {
+        const galleryId = photo.eventId || createEventSlug(photo.eventName)
+        const item = {
+          id: photo.id,
+          eventId: galleryId,
+          operatorId: photo.operatorId || 'admin',
+          eventName: photo.eventName || 'Evento Viralco',
+          photoType: photo.photoType || 'Foto',
+          templateName: photo.templateName || 'Plantilla',
+          createdAt: photo.createdAt || photo.savedAt || new Date().toISOString(),
+          src: photo.absoluteUrl || photo.url,
+          publicUrl: photo.absoluteUrl || photo.url,
+          localUrl: '',
+          frames: photo.frameCount || 0,
+        }
+        if (!item.src) return folders
+        const gallery = folders[galleryId] || {
+          id: galleryId,
+          eventName: item.eventName,
+          operatorId: item.operatorId,
+          items: [],
+        }
+        return {
+          ...folders,
+          [galleryId]: {
+            ...gallery,
+            eventName: gallery.eventName || item.eventName,
+            operatorId: gallery.operatorId || item.operatorId,
+            updatedAt: item.createdAt,
+            items: [item, ...gallery.items].slice(0, 60),
+          },
+        }
+      }, {})
+    } catch {
+      return null
+    }
+  }
+
+  const compactCloudGalleries = (galleries = {}) => (
+    Object.fromEntries(
+      Object.entries(galleries || {}).map(([key, gallery]) => [
+        key,
+        {
+          id: gallery?.id || key,
+          eventName: gallery?.eventName || 'Evento Viralco',
+          operatorId: gallery?.operatorId || 'admin',
+          updatedAt: gallery?.updatedAt || '',
+          items: (gallery?.items || []).slice(0, 80).map((photo) => {
+            const publicUrl = photo.publicUrl || (typeof photo.src === 'string' && !photo.src.startsWith('data:') ? photo.src : '')
+            return {
+              id: photo.id,
+              eventId: photo.eventId || key,
+              operatorId: photo.operatorId || gallery?.operatorId || 'admin',
+              eventName: photo.eventName || gallery?.eventName || 'Evento Viralco',
+              photoType: photo.photoType || 'Foto',
+              templateName: photo.templateName || 'Plantilla',
+              createdAt: photo.createdAt || '',
+              src: publicUrl,
+              publicUrl,
+              localUrl: '',
+              frames: photo.frames || 0,
+            }
+          }).filter((photo) => photo.src || photo.publicUrl),
+        },
+      ]),
+    )
+  )
+
+  const fetchServerAppState = async () => {
+    if (typeof fetch === 'undefined') return null
+    try {
+      const response = await fetch(cloudStateEndpoint, { method: 'GET', cache: 'no-store' })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result?.ok || !result.state) return null
+      return {
+        users: mergeUsersWithDefaults(result.state.users),
+        recentEvents: Array.isArray(result.state.recentEvents) ? result.state.recentEvents : [],
+        deletedEventIds: Array.isArray(result.state.deletedEventIds) ? result.state.deletedEventIds : [],
+        deletedGalleryPhotoIds: Array.isArray(result.state.deletedGalleryPhotoIds) ? result.state.deletedGalleryPhotoIds : [],
+        eventGalleries: result.state.eventGalleries && typeof result.state.eventGalleries === 'object' ? result.state.eventGalleries : {},
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const saveServerAppState = async (state) => {
+    if (typeof fetch === 'undefined') return false
+    try {
+      const response = await fetch(cloudStateEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          schemaVersion: 2,
+          syncToken: cloudSyncToken,
+          users,
+          recentEvents: state.recentEvents,
+          deletedEventIds: state.deletedEventIds,
+          deletedGalleryPhotoIds: state.deletedGalleryPhotoIds,
+          eventGalleries: compactCloudGalleries(pruneDeletedGalleryPhotos(state.eventGalleries, state.deletedGalleryPhotoIds)),
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      return Boolean(response.ok && result?.ok)
+    } catch {
+      return false
+    }
+  }
+
+  const pushCloudStateNow = (overrides = {}) => saveServerAppState({
+    recentEvents,
+    deletedEventIds,
+    deletedGalleryPhotoIds,
+    eventGalleries: pruneDeletedGalleryPhotos(eventGalleries, deletedGalleryPhotoIds),
+    ...overrides,
+  })
 
   const nextShotLabel = useMemo(() => {
     if (captureComplete) return 'Foto final lista'
@@ -910,60 +1553,213 @@ const WebApp = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    const saved = window.localStorage.getItem(appSetupStorageKey)
-    const savedSession = window.localStorage.getItem(appSessionStorageKey)
-    const savedRecent = window.localStorage.getItem(recentEventsStorageKey)
-    const savedGalleries = window.localStorage.getItem(eventGalleryStorageKey)
-    const savedProfile = window.localStorage.getItem(activeProfileStorageKey)
+    let cancelled = false
+    const hydrateStorage = async () => {
+      const saved = window.localStorage.getItem(appSetupStorageKey)
+      const savedSession = window.localStorage.getItem(appSessionStorageKey)
+      const savedRecent = window.localStorage.getItem(recentEventsStorageKey)
+      const savedDeletedEvents = window.localStorage.getItem(deletedEventsStorageKey)
+      const savedDeletedGalleryPhotos = window.localStorage.getItem(deletedGalleryPhotosStorageKey)
+      const savedGalleries = window.localStorage.getItem(eventGalleryStorageKey)
+      const savedProfile = window.localStorage.getItem(activeProfileStorageKey)
+      const savedUser = window.localStorage.getItem(activeUserStorageKey)
 
-    try {
-      if (profileOptions.some((profile) => profile.id === savedProfile)) {
-        setActiveProfileId(savedProfile)
+      try {
+        const cloudState = await fetchServerAppState()
+        const nextUsers = mergeUsersWithDefaults(cloudState?.users)
+        setUsers(nextUsers)
+        const validSavedUser = nextUsers.find((user) => user.id === savedUser)
+        if (validSavedUser) {
+          setActiveUserId(validSavedUser.id)
+          setActiveProfileId(validSavedUser.id)
+        } else if (nextUsers.some((user) => user.id === savedProfile)) {
+          setActiveProfileId(savedProfile)
+        }
+        const parsedDeletedEvents = savedDeletedEvents ? JSON.parse(savedDeletedEvents) : []
+        const nextDeletedEventIds = (cloudState?.deletedEventIds?.length ? cloudState.deletedEventIds : (Array.isArray(parsedDeletedEvents) ? parsedDeletedEvents : [])).filter(Boolean)
+        setDeletedEventIds(nextDeletedEventIds)
+        const parsedDeletedGalleryPhotos = savedDeletedGalleryPhotos ? JSON.parse(savedDeletedGalleryPhotos) : []
+        const nextDeletedGalleryPhotoIds = [
+          ...new Set([
+            ...(Array.isArray(parsedDeletedGalleryPhotos) ? parsedDeletedGalleryPhotos : []),
+            ...(Array.isArray(cloudState?.deletedGalleryPhotoIds) ? cloudState.deletedGalleryPhotoIds : []),
+          ].filter(Boolean)),
+        ].slice(-400)
+        setDeletedGalleryPhotoIds(nextDeletedGalleryPhotoIds)
+        const parsedRecent = savedRecent ? JSON.parse(savedRecent) : null
+        const parsedSetup = saved ? JSON.parse(saved) : null
+        const cloudEvents = Array.isArray(cloudState?.recentEvents) ? cloudState.recentEvents : []
+        const localEventsBase = Array.isArray(parsedRecent) ? parsedRecent : []
+        const localEvents = parsedSetup && typeof parsedSetup === 'object'
+          ? [
+            parsedSetup,
+            ...localEventsBase.filter((event) => getEventIdentity(event) !== getEventIdentity(parsedSetup)),
+          ]
+          : localEventsBase
+        const shouldBootstrapCloudEvents = Boolean(cloudState && !cloudEvents.length && localEvents.length)
+        const preferredEvents = cloudState
+          ? mergeCloudAndLocalEvents(cloudEvents, localEvents, nextDeletedEventIds)
+          : localEvents
+        const cloudEventsForCompare = mergeEventsWithDefaults(cloudEvents, nextDeletedEventIds).slice(0, 200)
+        const shouldPublishLocalEvents = Boolean(
+          cloudState &&
+          localEvents.length &&
+          serializeSyncState(preferredEvents.slice(0, 200)) !== serializeSyncState(cloudEventsForCompare),
+        )
+        let cloudSetupToApply = null
+        let activeHydratedEventId = ''
+        if (preferredEvents.length) {
+          const nextRecentEvents = mergeEventsWithDefaults(preferredEvents, nextDeletedEventIds).slice(0, 200)
+          setRecentEvents(nextRecentEvents)
+          const nextSelectedId = nextRecentEvents[0]?.id || nextRecentEvents[0]?.name || ''
+          activeHydratedEventId = nextSelectedId
+          setSelectedRecentId(nextSelectedId)
+          if (nextRecentEvents[0]) {
+            cloudSetupToApply = nextRecentEvents[0]
+          }
+          if (shouldBootstrapCloudEvents || shouldPublishLocalEvents) {
+            void saveServerAppState({
+              recentEvents: nextRecentEvents,
+              deletedEventIds: nextDeletedEventIds,
+              deletedGalleryPhotoIds: nextDeletedGalleryPhotoIds,
+              eventGalleries: {},
+            })
+          }
+        } else if (cloudState) {
+          setRecentEvents([])
+          setSelectedRecentId('')
+        }
+        if (cloudSetupToApply) {
+          applyEventSetup(cloudSetupToApply, 'listo para fotos')
+          window.localStorage.setItem(appSetupStorageKey, JSON.stringify(cloudSetupToApply))
+        } else if (!cloudState && saved) {
+          const setup = JSON.parse(saved)
+          applyEventSetup(setup, 'listo para fotos')
+        } else if (cloudState && !localEvents.length) {
+          window.localStorage.removeItem(appSetupStorageKey)
+        }
+        if (savedSession) {
+          const session = JSON.parse(savedSession)
+          const sessionEventId = session.eventId || session.selectedRecentId || ''
+          const canRestoreSession = !cloudState || (sessionEventId && sessionEventId === activeHydratedEventId)
+          if (canRestoreSession) {
+            const inlineFrames = Array.isArray(session.photoFrames) ? session.photoFrames.filter(Boolean) : []
+            const frameCount = Number(session.photoFrameCount) || inlineFrames.length || 0
+            const storedFrames = frameCount
+              ? await Promise.all(Array.from({ length: frameCount }, (_, index) => readPersistentPhoto(persistentFrameKey(index)).catch(() => '')))
+              : []
+            const nextFrames = storedFrames.filter(Boolean).length ? storedFrames.filter(Boolean) : inlineFrames
+            const storedFinalPhoto = await readPersistentPhoto(persistentFinalPhotoKey).catch(() => '')
+            if (!cancelled) {
+              if (nextFrames.length) setPhotoFrames(nextFrames)
+              if (storedFinalPhoto || typeof session.finalPhotoUrl === 'string') {
+                setFinalPhotoUrl(storedFinalPhoto || session.finalPhotoUrl)
+              }
+              if (typeof session.savedPhotoUrl === 'string') {
+                setSavedPhotoUrl(session.savedPhotoUrl)
+              }
+              if (typeof session.savedPhotoId === 'string') {
+                setSavedPhotoId(session.savedPhotoId)
+              }
+              if (typeof session.photoSaveStatus === 'string') {
+                setPhotoSaveStatus(session.photoSaveStatus)
+              }
+              if (typeof session.captureStatus === 'string' && session.captureStatus.trim()) {
+                setCaptureStatus(session.captureStatus)
+              }
+            }
+          } else if (cloudState) {
+            window.localStorage.removeItem(appSessionStorageKey)
+          }
+        }
+        let localGalleries = {}
+        if (savedGalleries) {
+          const galleries = JSON.parse(savedGalleries)
+          if (galleries && typeof galleries === 'object') {
+            localGalleries = galleries
+          }
+        }
+        const serverGalleries = await fetchServerEventGalleries()
+        if (!cancelled) {
+          setEventGalleries(cloudState
+            ? pruneDeletedGalleryPhotos({
+              ...(cloudState?.eventGalleries || {}),
+              ...(serverGalleries || {}),
+            }, nextDeletedGalleryPhotoIds)
+            : pruneDeletedGalleryPhotos({
+              ...localGalleries,
+              ...(serverGalleries || {}),
+            }, nextDeletedGalleryPhotoIds))
+        }
+      } catch (error) {
+        if (typeof console !== 'undefined') {
+          console.warn('No se pudo restaurar toda la configuración local. Se conserva el respaldo guardado.', error)
+        }
+      } finally {
+        storageHydratedRef.current = true
       }
-      const parsedRecent = savedRecent ? JSON.parse(savedRecent) : []
-      if (Array.isArray(parsedRecent) && parsedRecent.length) {
-        setRecentEvents(parsedRecent.slice(0, 1))
-        setSelectedRecentId(parsedRecent[0].id || parsedRecent[0].name || '')
+    }
+
+    hydrateStorage()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    let cancelled = false
+    const refreshServerData = async () => {
+      const [cloudState, serverGalleries] = await Promise.all([
+        fetchServerAppState(),
+        fetchServerEventGalleries(),
+      ])
+      if (cancelled) return
+      if (cloudState?.users?.length) setUsers(mergeUsersWithDefaults(cloudState.users))
+      if (cloudState) {
+        const nextDeletedIds = cloudState.deletedEventIds || []
+        setDeletedEventIds(nextDeletedIds)
+        if (Array.isArray(cloudState.deletedGalleryPhotoIds)) {
+          setDeletedGalleryPhotoIds((current) => [
+            ...new Set([...current, ...cloudState.deletedGalleryPhotoIds].filter(Boolean)),
+          ].slice(-400))
+        }
+        const cloudEvents = Array.isArray(cloudState.recentEvents) ? cloudState.recentEvents : []
+        setRecentEvents((current) => {
+          const cloudEventsForCompare = mergeEventsWithDefaults(cloudEvents, nextDeletedIds).slice(0, 200)
+          const nextEvents = mergeCloudAndLocalEvents(cloudEvents, current, nextDeletedIds).slice(0, 200)
+          if (
+            current.length &&
+            serializeSyncState(nextEvents) !== serializeSyncState(cloudEventsForCompare)
+          ) {
+            void saveServerAppState({
+              recentEvents: nextEvents,
+              deletedEventIds: nextDeletedIds,
+              deletedGalleryPhotoIds,
+              eventGalleries: pruneDeletedGalleryPhotos(eventGalleries, deletedGalleryPhotoIds),
+            })
+          }
+          return nextEvents
+        })
       }
-      if (saved) {
-        const setup = JSON.parse(saved)
-        applyEventSetup(setup, 'listo para fotos')
-      }
-      if (savedSession) {
-        const session = JSON.parse(savedSession)
-        if (Array.isArray(session.photoFrames)) {
-          setPhotoFrames(session.photoFrames.filter(Boolean))
-        }
-        if (typeof session.finalPhotoUrl === 'string') {
-          setFinalPhotoUrl(session.finalPhotoUrl)
-        }
-        if (typeof session.savedPhotoUrl === 'string') {
-          setSavedPhotoUrl(session.savedPhotoUrl)
-        }
-        if (typeof session.savedPhotoId === 'string') {
-          setSavedPhotoId(session.savedPhotoId)
-        }
-        if (typeof session.photoSaveStatus === 'string') {
-          setPhotoSaveStatus(session.photoSaveStatus)
-        }
-        if (typeof session.captureStatus === 'string' && session.captureStatus.trim()) {
-          setCaptureStatus(session.captureStatus)
-        }
-      }
-      if (savedGalleries) {
-        const galleries = JSON.parse(savedGalleries)
-        if (galleries && typeof galleries === 'object') {
-          setEventGalleries(galleries)
-        }
-      }
-    } catch {
-      window.localStorage.removeItem(appSetupStorageKey)
-      window.localStorage.removeItem(appSessionStorageKey)
-      window.localStorage.removeItem(recentEventsStorageKey)
-      window.localStorage.removeItem(eventGalleryStorageKey)
-      window.localStorage.removeItem(activeProfileStorageKey)
-    } finally {
-      storageHydratedRef.current = true
+      if (!serverGalleries && !cloudState?.eventGalleries) return
+      setEventGalleries((current) => pruneDeletedGalleryPhotos({
+        ...current,
+        ...(cloudState?.eventGalleries || {}),
+        ...(serverGalleries || {}),
+      }, cloudState?.deletedGalleryPhotoIds || deletedGalleryPhotoIds))
+    }
+
+    const handleFocus = () => {
+      void refreshServerData()
+    }
+    window.addEventListener('focus', handleFocus)
+    const intervalId = window.setInterval(refreshServerData, 12000)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', handleFocus)
+      window.clearInterval(intervalId)
     }
   }, [])
 
@@ -977,34 +1773,80 @@ const WebApp = () => {
       customPhotoCount,
       customPhotoOrder: customPhotoSequence,
       customPhotoLayout: customLayoutSlots,
+      customMirrorMode,
       customTextLayers,
+      uploadedCustomFonts,
       templateId: selectedTemplate.id,
       filter: selectedFilter,
     }
-    window.localStorage.setItem(appSetupStorageKey, JSON.stringify(setup))
-  }, [eventName, eventType, selectedType, customPhotoCount, customPhotoSequence, customLayoutSlots, customTextLayers, selectedTemplate, selectedFilter])
+    try {
+      window.localStorage.setItem(appSetupStorageKey, JSON.stringify(setup))
+    } catch {
+      window.localStorage.setItem(appSetupStorageKey, JSON.stringify({ ...setup, uploadedCustomFonts: [] }))
+    }
+  }, [eventName, eventType, selectedType, customPhotoCount, customPhotoSequence, customLayoutSlots, customMirrorMode, customTextLayers, uploadedCustomFonts, selectedTemplate, selectedFilter])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof FontFace === 'undefined') return
+    uploadedCustomFonts.forEach((font) => {
+      if (!font?.family || !font?.source) return
+      const fontFace = new FontFace(font.family, `url(${font.source})`)
+      fontFace.load()
+        .then((loadedFace) => {
+          document.fonts?.add?.(loadedFace)
+        })
+        .catch(() => {})
+    })
+  }, [uploadedCustomFonts])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageHydratedRef.current) return
-    try {
-      const session = {
-        photoFrames,
-        finalPhotoUrl,
-        savedPhotoUrl,
-        savedPhotoId,
-        photoSaveStatus,
-        captureStatus,
-        updatedAt: Date.now(),
-      }
-      window.localStorage.setItem(appSessionStorageKey, JSON.stringify(session))
-    } catch {
+    let cancelled = false
+    const persistSession = async () => {
       try {
-        window.localStorage.removeItem(appSessionStorageKey)
+        await Promise.all([
+          writePersistentPhoto(persistentFinalPhotoKey, finalPhotoUrl),
+          ...Array.from({ length: customPhotoMaxSlots }, (_, index) => (
+            writePersistentPhoto(persistentFrameKey(index), photoFrames[index] || '')
+          )),
+        ])
       } catch {
-        // Ignore storage cleanup failures.
+        // Keep metadata even if large image storage is not available.
+      }
+
+      if (cancelled) return
+      try {
+        const session = {
+          eventId: selectedRecentId,
+          photoFrameCount: photoFrames.length,
+          hasFinalPhoto: Boolean(finalPhotoUrl),
+          savedPhotoUrl,
+          savedPhotoId,
+          photoSaveStatus,
+          captureStatus,
+          updatedAt: Date.now(),
+        }
+        window.localStorage.setItem(appSessionStorageKey, JSON.stringify(session))
+      } catch {
+        try {
+          window.localStorage.setItem(appSessionStorageKey, JSON.stringify({
+            eventId: selectedRecentId,
+            photoFrameCount: photoFrames.length,
+            hasFinalPhoto: Boolean(finalPhotoUrl),
+            captureStatus,
+            updatedAt: Date.now(),
+          }))
+        } catch {
+          // Ignore session metadata persistence failures.
+        }
       }
     }
-  }, [photoFrames, finalPhotoUrl, savedPhotoUrl, savedPhotoId, photoSaveStatus, captureStatus])
+
+    persistSession()
+    return () => {
+      cancelled = true
+    }
+  }, [photoFrames, finalPhotoUrl, savedPhotoUrl, savedPhotoId, photoSaveStatus, captureStatus, selectedRecentId])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageHydratedRef.current) return
@@ -1013,8 +1855,27 @@ const WebApp = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    window.localStorage.setItem(deletedEventsStorageKey, JSON.stringify(deletedEventIds))
+  }, [deletedEventIds])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    window.localStorage.setItem(deletedGalleryPhotosStorageKey, JSON.stringify(deletedGalleryPhotoIds))
+  }, [deletedGalleryPhotoIds])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
     window.localStorage.setItem(activeProfileStorageKey, activeProfileId)
   }, [activeProfileId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    if (activeUserId) {
+      window.localStorage.setItem(activeUserStorageKey, activeUserId)
+    } else {
+      window.localStorage.removeItem(activeUserStorageKey)
+    }
+  }, [activeUserId])
 
   useEffect(() => {
     const firstLaunchEvent = visibleLaunchEvents[0]
@@ -1022,7 +1883,7 @@ const WebApp = () => {
       setSelectedRecentId('')
       return
     }
-    const hasSelectedEvent = visibleLaunchEvents.some((item) => (item.id || item.name) === selectedRecentId)
+    const hasSelectedEvent = visibleLaunchEvents.some((item) => getEventIdentity(item) === selectedRecentId || item.name === selectedRecentId)
     if (!hasSelectedEvent) {
       setSelectedRecentId(firstLaunchEvent.id || firstLaunchEvent.name)
     }
@@ -1030,12 +1891,13 @@ const WebApp = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageHydratedRef.current) return
+    const visibleGalleries = pruneDeletedGalleryPhotos(eventGalleries, deletedGalleryPhotoIds)
     try {
-      window.localStorage.setItem(eventGalleryStorageKey, JSON.stringify(eventGalleries))
+      window.localStorage.setItem(eventGalleryStorageKey, JSON.stringify(visibleGalleries))
     } catch {
       try {
         const compactGalleries = Object.fromEntries(
-          Object.entries(eventGalleries).map(([key, gallery]) => [
+          Object.entries(visibleGalleries).map(([key, gallery]) => [
             key,
             {
               ...gallery,
@@ -1049,7 +1911,23 @@ const WebApp = () => {
         // Ignore gallery persistence failures when storage is full.
       }
     }
-  }, [eventGalleries])
+  }, [deletedGalleryPhotoIds, eventGalleries])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageHydratedRef.current) return undefined
+    if (cloudStateSaveTimerRef.current) window.clearTimeout(cloudStateSaveTimerRef.current)
+    cloudStateSaveTimerRef.current = window.setTimeout(() => {
+      void saveServerAppState({
+        recentEvents,
+        deletedEventIds,
+        deletedGalleryPhotoIds,
+        eventGalleries: pruneDeletedGalleryPhotos(eventGalleries, deletedGalleryPhotoIds),
+      })
+    }, 900)
+    return () => {
+      if (cloudStateSaveTimerRef.current) window.clearTimeout(cloudStateSaveTimerRef.current)
+    }
+  }, [users, recentEvents, deletedEventIds, deletedGalleryPhotoIds, eventGalleries])
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -1147,26 +2025,47 @@ const WebApp = () => {
 
       setCustomPhotoLayout((current) =>
         normalizeCustomPhotoLayout(current, customPhotoCount).map((slot) => {
-          if (slot.photoNumber !== active.photoNumber) return slot
           if (active.mode === 'resize') {
-            const nextWidth = clampNumber(active.slot.width + deltaX, 18, 100 - active.slot.x)
-            const nextHeight = clampNumber(active.slot.height + deltaY, 7, 100 - active.slot.y)
+            const groupSlots = active.slots?.length ? active.slots : [active.slot]
+            const minDeltaWidth = Math.max(...groupSlots.map((item) => 18 - item.width))
+            const maxDeltaWidth = Math.min(...groupSlots.map((item) => 100 - item.x - item.width))
+            const minDeltaHeight = Math.max(...groupSlots.map((item) => 7 - item.height))
+            const maxDeltaHeight = Math.min(...groupSlots.map((item) => 100 - item.y - item.height))
+            const nextDeltaWidth = clampNumber(deltaX, minDeltaWidth, maxDeltaWidth)
+            const nextDeltaHeight = clampNumber(deltaY, minDeltaHeight, maxDeltaHeight)
             setCustomAlignmentGuides({ x: [], y: [] })
-            return { ...slot, width: nextWidth, height: nextHeight }
+            if (!active.photoNumbers?.includes(slot.photoNumber)) return slot
+            const startSlot = groupSlots.find((item) => item.photoNumber === slot.photoNumber) || slot
+            return {
+              ...slot,
+              width: clampNumber(startSlot.width + nextDeltaWidth, 18, 100 - startSlot.x),
+              height: clampNumber(startSlot.height + nextDeltaHeight, 7, 100 - startSlot.y),
+            }
           }
 
+          const groupSlots = active.slots?.length ? active.slots : [active.slot]
+          const minDeltaX = Math.max(...groupSlots.map((item) => -item.x))
+          const maxDeltaX = Math.min(...groupSlots.map((item) => 100 - item.x - item.width))
+          const minDeltaY = Math.max(...groupSlots.map((item) => -item.y))
+          const maxDeltaY = Math.min(...groupSlots.map((item) => 100 - item.y - item.height))
+          let nextDeltaX = clampNumber(deltaX, minDeltaX, maxDeltaX)
+          let nextDeltaY = clampNumber(deltaY, minDeltaY, maxDeltaY)
           const rawBox = {
-            x: clampNumber(active.slot.x + deltaX, 0, 100 - active.slot.width),
-            y: clampNumber(active.slot.y + deltaY, 0, 100 - active.slot.height),
+            x: clampNumber(active.slot.x + nextDeltaX, 0, 100 - active.slot.width),
+            y: clampNumber(active.slot.y + nextDeltaY, 0, 100 - active.slot.height),
             width: active.slot.width,
             height: active.slot.height,
           }
           const snapped = getSnapPosition(rawBox, getAlignmentTargets(`photo-${active.photoNumber}`))
+          nextDeltaX = clampNumber(snapped.x - active.slot.x, minDeltaX, maxDeltaX)
+          nextDeltaY = clampNumber(snapped.y - active.slot.y, minDeltaY, maxDeltaY)
           setCustomAlignmentGuides(snapped.guides)
+          if (!active.photoNumbers?.includes(slot.photoNumber)) return slot
+          const startSlot = groupSlots.find((item) => item.photoNumber === slot.photoNumber) || slot
           return {
             ...slot,
-            x: snapped.x,
-            y: snapped.y,
+            x: clampNumber(startSlot.x + nextDeltaX, 0, 100 - startSlot.width),
+            y: clampNumber(startSlot.y + nextDeltaY, 0, 100 - startSlot.height),
           }
         }),
       )
@@ -1208,46 +2107,204 @@ const WebApp = () => {
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
+    ;[videoRef.current, captureConfigVideoRef.current].filter(Boolean).forEach((video) => {
+      video.pause?.()
+      video.srcObject = null
+    })
     streamRef.current = null
     setCameraStream(null)
   }
 
-  const openCamera = async () => {
-    setCameraError('')
-    setCameraOpening(true)
-    setCaptureStatus('Abriendo cámara del espejo mágico...')
+  const waitForVideoReady = async (stream, timeoutMs = 3200) => {
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < timeoutMs) {
+      const liveTrack = stream.getVideoTracks?.().some((track) => track.readyState === 'live')
+      if (!liveTrack) throw new Error('La cámara se detuvo antes de iniciar.')
 
-    try {
-      if (!navigator?.mediaDevices?.getUserMedia) {
-        throw new Error('Este navegador no permite abrir la cámara.')
+      const videos = [videoRef.current, captureConfigVideoRef.current].filter(Boolean)
+      for (const video of videos) {
+        if (video.srcObject !== stream) video.srcObject = stream
+        await video.play?.().catch(() => undefined)
+        if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) return true
       }
+      await wait(120)
+    }
+    return Boolean(stream.getVideoTracks?.().some((track) => track.readyState === 'live'))
+  }
 
-      stopCamera()
-      const stream = await navigator.mediaDevices.getUserMedia({
+  const getActiveCameraLensMode = (modeId = cameraLensMode) =>
+    cameraLensModes.find((mode) => mode.id === modeId) || cameraLensModes[1]
+
+  const getCameraAttemptConstraints = (modeId = cameraLensMode) => {
+    const lensMode = getActiveCameraLensMode(modeId)
+    const baseVideo = {
+      facingMode: { ideal: 'user' },
+      width: { ideal: lensMode.width },
+      height: { ideal: lensMode.height },
+      aspectRatio: { ideal: 16 / 9 },
+      frameRate: { ideal: 30, max: 30 },
+    }
+
+    return [
+      {
+        video: baseVideo,
+        audio: false,
+      },
+      {
         video: {
           facingMode: { ideal: 'user' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: Math.min(lensMode.width, 1920) },
+          height: { ideal: Math.min(lensMode.height, 1080) },
         },
         audio: false,
-      })
+      },
+      {
+        video: {
+          facingMode: { ideal: 'user' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      },
+      {
+        video: true,
+        audio: false,
+      },
+    ]
+  }
+
+  const applyCameraLensModeToStream = async (stream, modeId = cameraLensMode) => {
+    const track = stream?.getVideoTracks?.()[0]
+    if (!track?.getCapabilities || !track?.applyConstraints) return
+    try {
+      const capabilities = track.getCapabilities()
+      if (!capabilities?.zoom) return
+      const lensMode = getActiveCameraLensMode(modeId)
+      const minZoom = Number(capabilities.zoom.min)
+      const maxZoom = Number(capabilities.zoom.max)
+      const requestedZoom = Number(lensMode.zoom) || 1
+      const targetZoom =
+        lensMode.id === 'ultra-wide'
+          ? minZoom
+          : Math.min(maxZoom, Math.max(minZoom, requestedZoom))
+      await track.applyConstraints({ advanced: [{ zoom: targetZoom }] })
+    } catch {
+      // Algunos navegadores anuncian zoom pero no permiten cambiarlo.
+    }
+  }
+
+  const checkCameraEnvironment = async () => {
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      throw new Error('Este navegador no permite abrir la cámara.')
+    }
+
+    if (navigator.permissions?.query) {
+      try {
+        const permission = await navigator.permissions.query({ name: 'camera' })
+        if (permission?.state === 'denied') {
+          throw new Error('El navegador tiene bloqueado el permiso de cámara.')
+        }
+      } catch (error) {
+        if (/bloqueado|permiso/i.test(error?.message || '')) throw error
+      }
+    }
+
+    if (navigator.mediaDevices?.enumerateDevices) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const videoInputs = devices.filter((device) => device.kind === 'videoinput')
+        if (devices.length && !videoInputs.length) {
+          throw new Error('No encontré una cámara conectada en este dispositivo.')
+        }
+      } catch (error) {
+        if (/No encontré/i.test(error?.message || '')) throw error
+      }
+    }
+  }
+
+  const openCamera = async ({ force = true, reason = 'Abriendo cámara del espejo mágico...', lensModeId = cameraLensMode } = {}) => {
+    if (cameraOpening && !force) return streamRef.current
+    const requestId = cameraOpenRequestRef.current + 1
+    cameraOpenRequestRef.current = requestId
+    setCameraError('')
+    setCameraOpening(true)
+    setCaptureStatus(reason)
+
+    try {
+      await checkCameraEnvironment()
+
+      stopCamera()
+      await wait(180)
+
+      let stream = null
+      let lastError = null
+      const attempts = getCameraAttemptConstraints(lensModeId)
+      for (let index = 0; index < attempts.length; index += 1) {
+        if (requestId !== cameraOpenRequestRef.current) return null
+        try {
+          setCaptureStatus(index === 0 ? 'Verificando cámara del espejo mágico...' : 'Reintentando cámara con configuración compatible...')
+          stream = await navigator.mediaDevices.getUserMedia(attempts[index])
+          streamRef.current = stream
+          setCameraStream(stream)
+          await wait(0)
+          await waitForVideoReady(stream)
+          break
+        } catch (error) {
+          lastError = error
+          stream?.getTracks?.().forEach((track) => track.stop())
+          stream = null
+          await wait(180)
+        }
+      }
+
+      if (!stream) throw lastError || new Error('No se pudo abrir la cámara.')
+      if (requestId !== cameraOpenRequestRef.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return null
+      }
 
       streamRef.current = stream
       setCameraStream(stream)
-      setCaptureStatus('Cámara activa. Ubica a la persona frente al espejo.')
+      await applyCameraLensModeToStream(stream, lensModeId)
+      setCaptureStatus('Cámara verificada. Ubica a la persona frente al espejo.')
       return stream
     } catch (error) {
       const readableError =
-        error?.name === 'NotFoundError' || /requested device not found/i.test(error?.message || '')
+        error?.name === 'NotFoundError' || /requested device not found|No encontré/i.test(error?.message || '')
           ? 'No encontré una cámara conectada en este dispositivo.'
-          : error?.name === 'NotAllowedError'
+          : error?.name === 'NotAllowedError' || /bloqueado|permiso/i.test(error?.message || '')
             ? 'El navegador no tiene permiso para usar la cámara.'
+            : error?.name === 'NotReadableError'
+              ? 'La cámara está ocupada por otra app. Cierra la otra cámara y vuelve a intentar.'
             : 'No se pudo abrir la cámara.'
       setCameraError(readableError)
       setCaptureStatus('No se pudo abrir la cámara. Revisa permisos del navegador.')
       return null
     } finally {
-      setCameraOpening(false)
+      if (requestId === cameraOpenRequestRef.current) setCameraOpening(false)
+    }
+  }
+
+  const ensureCameraReady = async (reason = 'Verificando cámara antes de tomar foto...') => {
+    const stream = streamRef.current
+    const liveTrack = stream?.getVideoTracks?.().some((track) => track.readyState === 'live')
+    const videoReady = videoRef.current?.readyState >= 2 && videoRef.current?.videoWidth > 0 && videoRef.current?.videoHeight > 0
+    if (stream && liveTrack && videoReady) return stream
+
+    setCaptureStatus(reason)
+    return openCamera({ force: true, reason })
+  }
+
+  const selectCameraLensMode = (modeId) => {
+    const nextMode = getActiveCameraLensMode(modeId)
+    setCameraLensMode(nextMode.id)
+    setCaptureStatus(`Cámara en modo ${nextMode.label}.`)
+    if (streamRef.current) {
+      openCamera({
+        force: true,
+        lensModeId: nextMode.id,
+        reason: `Ajustando cámara a ${nextMode.label}...`,
+      })
     }
   }
 
@@ -1262,9 +2319,16 @@ const WebApp = () => {
     const context = canvas.getContext('2d')
     if (!context) return ''
 
+    // Keep the exported photo aligned with the framing shown in the camera preview.
+    const previewScale = Math.max(1, getActiveCameraLensMode().previewScale || 1)
+    const sourceWidth = video.videoWidth / previewScale
+    const sourceHeight = video.videoHeight / previewScale
+    const sourceX = (video.videoWidth - sourceWidth) / 2
+    const sourceY = (video.videoHeight - sourceHeight) / 2
+
     context.translate(canvas.width, 0)
     context.scale(-1, 1)
-    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height)
     const jpegQuality = qualityMode === 'Superior' ? 0.96 : qualityMode === 'Media' ? 0.82 : 0.9
     return canvas.toDataURL('image/jpeg', jpegQuality)
   }
@@ -1515,7 +2579,7 @@ const WebApp = () => {
     return [{ x: margin, y: heightValue * 0.17, width: widthValue - margin * 2, height: heightValue * 0.66 }]
   }
 
-  const renderLiveCaptureFrameOverlay = () => {
+  const renderLiveCaptureFrameOverlay = (imageOpacity = 0.68) => {
     const activeIndex = retakeFrameIndex === null
       ? Math.min(framesReady, selectedShotCount - 1)
       : Math.min(retakeFrameIndex, selectedShotCount - 1)
@@ -1529,7 +2593,7 @@ const WebApp = () => {
         <View style={styles.liveFrameOverlaySurface}>
           <Image
             source={frameSource}
-            style={styles.liveFrameOverlayImage}
+            style={[styles.liveFrameOverlayImage, { opacity: imageOpacity }]}
             accessibilityLabel={`Marco activo ${selectedTemplate.name}`}
           />
           <View style={styles.liveFrameOverlaySoftWash} />
@@ -1546,10 +2610,12 @@ const WebApp = () => {
       const canvasWidth = selectedType.width
       const canvasHeight = selectedType.height
       const pagePad = canvasWidth * 0.035
-      const gutter = canvasWidth * 0.018
-      const stripWidth = (canvasWidth - pagePad * 2 - gutter) / 2
       const stripHeight = canvasHeight - pagePad * 2
-      const strips = [pagePad, pagePad + stripWidth + gutter]
+      const gutter = customMirrorMode ? canvasWidth * 0.018 : 0
+      const stripWidth = customMirrorMode
+        ? (canvasWidth - pagePad * 2 - gutter) / 2
+        : canvasWidth - pagePad * 2
+      const strips = customMirrorMode ? [pagePad, pagePad + stripWidth + gutter] : [pagePad]
 
       return strips.flatMap((stripX) =>
         customPhotoSequence.map((photoNumber) => {
@@ -1615,8 +2681,32 @@ const WebApp = () => {
     return `${String(date.getDate()).padStart(2, '0')}-${months[date.getMonth()]}-${date.getFullYear()}`
   }
 
-  const getPhotoNameText = () => photoNameText.trim() || eventTitle
-  const getPhotoDateText = () => photoDateText.trim() || formatEventDate()
+  const formatDateFromISO = (value) => {
+    if (!value) return ''
+    const [year, month, day] = value.split('-').map(Number)
+    if (!year || !month || !day) return ''
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+    return `${String(day).padStart(2, '0')}-${months[month - 1]}-${year}`
+  }
+
+  const dateTextToISO = (value) => {
+    if (!value) return ''
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+    const match = value.trim().toLowerCase().match(/^(\d{1,2})-([a-záéíóú]{3})-(\d{4})$/)
+    if (!match) return ''
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+    const monthIndex = months.indexOf(match[2])
+    if (monthIndex < 0) return ''
+    return `${match[3]}-${String(monthIndex + 1).padStart(2, '0')}-${String(Number(match[1])).padStart(2, '0')}`
+  }
+
+  const updatePhotoDateFromISO = (value, status = 'Fecha de la foto actualizada.') => {
+    setPhotoDateText(formatDateFromISO(value))
+    setCaptureStatus(status)
+  }
+
+  const getPhotoNameText = () => photoNameText.trim()
+  const getPhotoDateText = () => photoDateText.trim()
   const getPhotoEventText = () => photoEventText.trim()
 
   const wait = (milliseconds) => new Promise((resolve) => {
@@ -1624,7 +2714,8 @@ const WebApp = () => {
   })
 
   const getPhotoScriptLines = () => {
-    const text = photoScriptText.trim() || photoTextPresets[0]
+    const text = photoScriptText.trim()
+    if (!text) return []
     if (text.length <= 23) return [text]
     const words = text.split(/\s+/)
     const lines = ['']
@@ -1642,6 +2733,7 @@ const WebApp = () => {
 
   const getPhotoNameLines = () => {
     const text = getPhotoNameText()
+    if (!text) return []
     if (text.length <= 16) return [text]
     const words = text.split(/\s+/)
     const lines = ['']
@@ -1657,10 +2749,10 @@ const WebApp = () => {
     return lines
   }
 
-  const drawCustom5x15Strip = (context, frameImages, x, y, widthValue, heightValue) => {
+  const drawCustom5x15Strip = (context, frameImages, x, y, widthValue, heightValue, templateImage = null) => {
     const orderedImages = customPhotoSequence.map((photoNumber) => frameImages[photoNumber - 1]).filter(Boolean)
     const layoutByPhoto = new Map(customLayoutSlots.map((slot) => [slot.photoNumber, slot]))
-    const photoSlots = customPhotoSequence.map((photoNumber) => {
+    const basePhotoSlots = customPhotoSequence.map((photoNumber) => {
       const slot = layoutByPhoto.get(photoNumber) || createDefaultCustomPhotoLayout(customPhotoCount)[photoNumber - 1]
       return {
         photoNumber,
@@ -1670,11 +2762,19 @@ const WebApp = () => {
         height: (slot.height / 100) * heightValue,
       }
     })
+    const photoSlots = basePhotoSlots
 
     context.save()
     context.fillStyle = '#fffdf8'
     context.fillRect(x, y, widthValue, heightValue)
-    drawCustom5x15Decor(context, x, y, widthValue, heightValue)
+    if (templateImage) {
+      context.save()
+      context.globalAlpha = overlayImageUrl ? 0.94 : 1
+      drawCover(context, templateImage, x, y, widthValue, heightValue)
+      context.restore()
+    } else {
+      drawCustom5x15Decor(context, x, y, widthValue, heightValue)
+    }
 
     context.strokeStyle = 'rgba(17, 24, 39, 0.14)'
     context.setLineDash([5, 8])
@@ -1682,20 +2782,52 @@ const WebApp = () => {
     context.strokeRect(x + 2, y + 2, widthValue - 4, heightValue - 4)
     context.setLineDash([])
 
-    context.textAlign = 'center'
-    context.fillStyle = '#1f2937'
-    context.font = `500 ${Math.round(widthValue * 0.073)}px "Brush Script MT", "Segoe Script", "Comic Sans MS", cursive`
-    drawMultilineCenteredText(context, getPhotoScriptLines(), x + widthValue / 2, y + heightValue * 0.078, heightValue * 0.055)
+    const drawCustomCanvasTextLayer = (textId, value) => {
+      if (!value) return
+      const layer = customTextLayers[textId] || defaultCustomTextLayers[textId]
+      const fontSize = Math.round(widthValue * (layer.size / 520))
+      const centerX = x + ((layer.x + layer.width / 2) / 100) * widthValue
+      const centerY = y + (layer.y / 100) * heightValue
+      context.save()
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      context.fillStyle = layer.color
+      const fontFamily = layer.font?.includes(' ') ? `"${layer.font}"` : layer.font || 'Arial'
+      context.font = `900 ${fontSize}px ${fontFamily}, "Helvetica Neue", sans-serif`
+      context.shadowColor = 'rgba(255,255,255,0.78)'
+      context.shadowBlur = Math.max(8, widthValue * 0.012)
+      const text = String(value)
+      const words = text.split(/\s+/)
+      const maxWidth = (layer.width / 100) * widthValue
+      const lines = ['']
+      words.forEach((word) => {
+        const current = lines[lines.length - 1]
+        const next = current ? `${current} ${word}` : word
+        if (context.measureText(next).width > maxWidth && current && lines.length < 3) {
+          lines.push(word)
+        } else {
+          lines[lines.length - 1] = next
+        }
+      })
+      const lineHeight = fontSize * 1.12
+      const startY = centerY - ((lines.length - 1) * lineHeight) / 2
+      lines.forEach((line, index) => {
+        context.fillText(line, centerX, startY + index * lineHeight)
+      })
+      context.restore()
+    }
+
+    drawCustomCanvasTextLayer('script', photoScriptText.trim())
 
     photoSlots.forEach((slot, index) => {
-      const image = orderedImages[index] || orderedImages[index % orderedImages.length] || frameImages[index] || frameImages[index % frameImages.length]
+      const image = frameImages[slot.photoNumber - 1] || orderedImages[index % orderedImages.length] || frameImages[index % frameImages.length]
       context.save()
       context.beginPath()
       context.rect(slot.x, slot.y, slot.width, slot.height)
       context.clip()
       context.fillStyle = '#111827'
       context.fillRect(slot.x, slot.y, slot.width, slot.height)
-      if (image) drawContain(context, image, slot.x, slot.y, slot.width, slot.height)
+      if (image) drawCover(context, image, slot.x, slot.y, slot.width, slot.height)
       context.restore()
 
       context.lineWidth = Math.max(10, widthValue * 0.014)
@@ -1703,20 +2835,9 @@ const WebApp = () => {
       context.strokeRect(slot.x, slot.y, slot.width, slot.height)
     })
 
-    const eventText = getPhotoEventText()
-    context.fillStyle = '#b96f71'
-    context.font = `800 ${Math.round(widthValue * 0.092)}px Arial, "Helvetica Neue", sans-serif`
-    drawMultilineCenteredText(context, getPhotoNameLines(), x + widthValue / 2, y + heightValue * 0.84, heightValue * 0.052)
-
-    if (eventText) {
-      context.fillStyle = '#b96f71'
-      context.font = `700 ${Math.round(widthValue * 0.036)}px Arial, "Helvetica Neue", sans-serif`
-      context.fillText(eventText, x + widthValue / 2, y + heightValue * 0.91)
-    }
-
-    context.fillStyle = '#b96f71'
-    context.font = `700 ${Math.round(widthValue * 0.038)}px Arial, "Helvetica Neue", sans-serif`
-    context.fillText(getPhotoDateText(), x + widthValue / 2, y + heightValue * 0.955)
+    drawCustomCanvasTextLayer('name', getPhotoNameText())
+    drawCustomCanvasTextLayer('event', getPhotoEventText())
+    drawCustomCanvasTextLayer('date', getPhotoDateText())
     context.restore()
   }
 
@@ -1737,20 +2858,25 @@ const WebApp = () => {
       context.fillStyle = '#f8fafc'
       context.fillRect(0, 0, canvasWidth, canvasHeight)
       const frameImages = await Promise.all(frames.map((frame) => loadCanvasImage(frame).catch(() => null)))
+      const templateImage = await loadCanvasImage(overlayImageUrl || getTemplateImageUrl()).catch(() => null)
       const pagePad = canvasWidth * 0.035
-      const gutter = canvasWidth * 0.018
-      const stripWidth = (canvasWidth - pagePad * 2 - gutter) / 2
       const stripHeight = canvasHeight - pagePad * 2
-      drawCustom5x15Strip(context, frameImages, pagePad, pagePad, stripWidth, stripHeight)
-      drawCustom5x15Strip(context, frameImages, pagePad + stripWidth + gutter, pagePad, stripWidth, stripHeight)
-      context.strokeStyle = 'rgba(17, 24, 39, 0.18)'
-      context.setLineDash([12, 14])
-      context.lineWidth = Math.max(3, canvasWidth * 0.002)
-      context.beginPath()
-      context.moveTo(canvasWidth / 2, pagePad)
-      context.lineTo(canvasWidth / 2, canvasHeight - pagePad)
-      context.stroke()
-      context.setLineDash([])
+      if (customMirrorMode) {
+        const gutter = canvasWidth * 0.018
+        const stripWidth = (canvasWidth - pagePad * 2 - gutter) / 2
+        drawCustom5x15Strip(context, frameImages, pagePad, pagePad, stripWidth, stripHeight, templateImage)
+        drawCustom5x15Strip(context, frameImages, pagePad + stripWidth + gutter, pagePad, stripWidth, stripHeight, templateImage)
+        context.strokeStyle = 'rgba(17, 24, 39, 0.18)'
+        context.setLineDash([12, 14])
+        context.lineWidth = Math.max(3, canvasWidth * 0.002)
+        context.beginPath()
+        context.moveTo(canvasWidth / 2, pagePad)
+        context.lineTo(canvasWidth / 2, canvasHeight - pagePad)
+        context.stroke()
+        context.setLineDash([])
+      } else {
+        drawCustom5x15Strip(context, frameImages, pagePad, pagePad, canvasWidth - pagePad * 2, stripHeight, templateImage)
+      }
       await drawGifOverlay(context, canvasWidth, canvasHeight)
       return canvas.toDataURL('image/jpeg', qualityMode === 'Superior' ? 0.96 : qualityMode === 'Media' ? 0.84 : 0.92)
     }
@@ -1833,7 +2959,7 @@ const WebApp = () => {
     setSavedPhotoId('')
 
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 5500) : null
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null
 
     try {
       const response = await fetch(photoUploadEndpoint, {
@@ -1841,6 +2967,9 @@ const WebApp = () => {
         headers: { 'Content-Type': 'application/json' },
         signal: controller?.signal,
         body: JSON.stringify({
+          eventId: eventGalleryId,
+          syncToken: cloudSyncToken,
+          operatorId: selectedRecentEvent?.operatorId || activeProfile.id,
           eventName: eventTitle,
           eventType,
           photoType: selectedType.name,
@@ -1903,6 +3032,97 @@ const WebApp = () => {
     return false
   }
 
+  const getGalleryShareFiles = async (photoItems = [], galleryTitle = eventTitle) => {
+    if (typeof fetch === 'undefined' || typeof File === 'undefined') return []
+
+    const cleanGalleryName = String(galleryTitle || 'galeria-viralco')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase() || 'galeria-viralco'
+
+    const files = await Promise.all(photoItems.map(async (photo, index) => {
+      const source = getGalleryPhotoSource(photo)
+      if (!source) return null
+
+      try {
+        const response = await fetch(source)
+        if (!response.ok) return null
+        const blob = await response.blob()
+        const extension = blob.type === 'image/png' ? 'png' : 'jpg'
+        return new File(
+          [blob],
+          `${cleanGalleryName}-foto-${String(index + 1).padStart(2, '0')}.${extension}`,
+          { type: blob.type || 'image/jpeg' },
+        )
+      } catch (error) {
+        return null
+      }
+    }))
+
+    return files.filter(Boolean)
+  }
+
+  const shareWholeGallery = async (photoItems = [], galleryTitle = eventTitle) => {
+    if (!photoItems.length) {
+      setCaptureStatus('Esta galería todavía no tiene fotos para compartir.')
+      return
+    }
+
+    const files = await getGalleryShareFiles(photoItems, galleryTitle)
+    if (!files.length) {
+      setCaptureStatus('No se pudieron preparar las fotos de esta galería para compartir.')
+      return
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.share && (!navigator.canShare || navigator.canShare({ files }))) {
+      try {
+        await navigator.share({
+          title: `${galleryTitle} - Galería Viralco`,
+          text: `Galería completa del evento ${galleryTitle}.`,
+          files,
+        })
+        setCaptureStatus('Galería lista para enviar por WhatsApp, Drive u otra app disponible.')
+      } catch (error) {
+        if (error?.name !== 'AbortError') setCaptureStatus('No fue posible abrir el menú para compartir la galería.')
+      }
+      return
+    }
+
+    setCaptureStatus('Este dispositivo no permite compartir varias fotos juntas. Usa “Descargar ZIP para Drive”.')
+  }
+
+  const downloadGalleryZip = async (photoItems = [], galleryTitle = eventTitle) => {
+    if (typeof document === 'undefined' || typeof URL === 'undefined') return
+
+    const files = await getGalleryShareFiles(photoItems, galleryTitle)
+    if (!files.length) {
+      setCaptureStatus('No se pudieron preparar las fotos de esta galería para descargar.')
+      return
+    }
+
+    const cleanGalleryName = String(galleryTitle || 'galeria-viralco')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase() || 'galeria-viralco'
+    const zip = new JSZip()
+    files.forEach((file) => zip.file(file.name, file))
+
+    const archive = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
+    const archiveUrl = URL.createObjectURL(archive)
+    const link = document.createElement('a')
+    link.href = archiveUrl
+    link.download = `${cleanGalleryName}-galeria.zip`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(archiveUrl), 1000)
+    setCaptureStatus('ZIP descargado. Puedes subirlo completo a Google Drive.')
+  }
+
   const downloadFinalPhoto = () => {
     if (!finalPhotoUrl || typeof document === 'undefined') return
     const link = document.createElement('a')
@@ -1929,6 +3149,8 @@ const WebApp = () => {
     const publicUrl = serverResult?.absoluteUrl || serverResult?.url || ''
     const item = {
       id: serverResult?.id || `foto-${Date.now()}`,
+      eventId: eventGalleryId,
+      operatorId: selectedRecentEvent?.operatorId || activeProfile.id,
       eventName: eventTitle,
       photoType: selectedType.name,
       templateName: selectedTemplate.name,
@@ -1940,15 +3162,16 @@ const WebApp = () => {
     }
 
     setEventGalleries((current) => {
-      const gallery = current[eventGalleryId] || { id: eventGalleryId, eventName: eventTitle, items: [] }
+      const gallery = current[eventGalleryId] || { id: eventGalleryId, eventName: eventTitle, operatorId: item.operatorId, items: [] }
       const withoutDuplicate = (gallery.items || []).filter((photo) => photo.id !== item.id && photo.src !== item.src)
       return {
         ...current,
         [eventGalleryId]: {
           ...gallery,
           eventName: eventTitle,
+          operatorId: item.operatorId,
           updatedAt: item.createdAt,
-          items: [item, ...withoutDuplicate].slice(0, 18),
+          items: [item, ...withoutDuplicate].slice(0, 60),
         },
       }
     })
@@ -1965,15 +3188,23 @@ const WebApp = () => {
       return
     }
 
-    if (!cameraStream && !streamRef.current) {
-      setCaptureStatus('Solicitando permiso de cámara...')
-      const openedStream = await openCamera()
-      if (!openedStream) {
+    setCaptureStatus('Verificando cámara antes del conteo...')
+    const openedStream = await ensureCameraReady('Verificando cámara antes del conteo...')
+    if (!openedStream) {
+      countdownRef.current = null
+      return
+    }
+
+    if (videoRef.current && (!videoRef.current.videoWidth || !videoRef.current.videoHeight)) {
+      await wait(450)
+      if (!videoRef.current.videoWidth || !videoRef.current.videoHeight) {
         countdownRef.current = null
+        setCaptureStatus('La cámara abrió pero aún no muestra imagen. Oprime otra vez para reiniciarla.')
+        await openCamera({ force: true, reason: 'Reiniciando cámara sin imagen...' })
         return
       }
-      await wait(650)
     }
+    await wait(300)
 
     setCaptureIntroActive(false)
     const countdownSeconds = replacingIndex === null && framesReady > 0 ? photoCountdownNext : photoCountdownFirst
@@ -1981,13 +3212,19 @@ const WebApp = () => {
     countdownRef.current = { active: true }
     setAnimationOverlay({
       mode: captureAnimation,
-      title: preCaptureText,
-      text: replacingIndex === null ? (framesReady ? 'Video antes de la siguiente foto' : 'Video de animación antes de tomar la foto') : `Video antes de repetir foto ${replacingIndex + 1}`,
+      title: 'SONRÍE',
+      text: replacingIndex === null
+        ? (framesReady ? `Prepárate para la foto ${framesReady + 1}` : 'La foto empieza en segundos')
+        : `Prepárate para repetir foto ${replacingIndex + 1}`,
       stage: 'beforeCountdown',
       videoUrl: getAnimationStageVideoUrl('beforeCountdown'),
     })
     setCaptureStatus(replacingIndex === null ? 'Mostrando animación antes de la foto...' : `Preparando reemplazo de foto ${replacingIndex + 1}...`)
-    await wait(flashBeforePhoto ? 900 : 350)
+    await wait(flashBeforePhoto ? 3400 : 2800)
+
+    if (!countdownRef.current?.active) return
+    setAnimationOverlay(null)
+    await wait(250)
 
     if (!countdownRef.current?.active) return
 
@@ -1998,7 +3235,6 @@ const WebApp = () => {
     }
 
     setCountdown('')
-    setAnimationOverlay(null)
 
     const frame = captureFrame()
     if (!frame) {
@@ -2016,8 +3252,9 @@ const WebApp = () => {
     if (replacingIndex !== null) {
       setAnimationOverlay({
         mode: captureAnimation,
-        title: 'Foto reemplazada',
+        title: 'FOTO REEMPLAZADA',
         text: `Actualizando foto ${replacingIndex + 1}`,
+        stage: 'processing',
         videoUrl: getAnimationStageVideoUrl('processing'),
       })
       setCaptureStatus(`Foto ${replacingIndex + 1} reemplazada. Armando resultado final...`)
@@ -2046,8 +3283,8 @@ const WebApp = () => {
     if (nextFrames.length < selectedShotCount) {
       setAnimationOverlay({
         mode: captureAnimation,
-        title: 'Foto guardada',
-        text: `Efecto entre fotos ${nextFrames.length} de ${selectedShotCount}`,
+        title: 'FOTO GUARDADA',
+        text: `Prepárate para la siguiente foto`,
         stage: 'afterCapture',
         videoUrl: getAnimationStageVideoUrl('afterCapture'),
       })
@@ -2062,8 +3299,9 @@ const WebApp = () => {
 
     setAnimationOverlay({
       mode: captureAnimation,
-      title: 'Listo',
+      title: 'LISTO',
       text: 'Armando recuerdo final',
+      stage: 'processing',
       videoUrl: getAnimationStageVideoUrl('processing'),
     })
     setCaptureStatus('Armando foto final...')
@@ -2111,6 +3349,8 @@ const WebApp = () => {
       setCustomPhotoOrder((current) => normalizeCustomPhotoOrder(current, customPhotoCount))
       setCustomPhotoLayout((current) => normalizeCustomPhotoLayout(current, customPhotoCount))
       setSelectedCustomLayoutPhoto(1)
+      setSelectedCustomLayoutPhotos(customPhotoCount ? [1] : [])
+      setMultiCustomLayoutSelect(false)
       setCaptureStatus(customPhotoCount ? `${type.name}: ${customPhotoCount} recuadro${customPhotoCount === 1 ? '' : 's'} manual${customPhotoCount === 1 ? '' : 'es'}.` : 'Personalizar: agrega fotos manualmente sobre el fondo.')
       return
     }
@@ -2118,12 +3358,59 @@ const WebApp = () => {
     setCaptureStatus(`${type.name}: toma ${type.shots} foto${type.shots === 1 ? '' : 's'}`)
   }
 
+  const getSelectedTypeLayoutSlots = () => {
+    if (selectedType.id === 'personalizar-5x15') {
+      return customPhotoSequence.map((photoNumber) => (
+        customLayoutSlots.find((slot) => slot.photoNumber === photoNumber)
+        || createDefaultCustomPhotoLayout(customPhotoCount)[photoNumber - 1]
+      )).filter(Boolean)
+    }
+
+    return getSlots(selectedType, selectedType.width, selectedType.height).map((slot, index) => ({
+      photoNumber: index + 1,
+      x: (slot.x / selectedType.width) * 100,
+      y: (slot.y / selectedType.height) * 100,
+      width: (slot.width / selectedType.width) * 100,
+      height: (slot.height / selectedType.height) * 100,
+    }))
+  }
+
+  const openSelectedTypeLayoutEditor = () => {
+    const nextCount = selectedType.id === 'personalizar-5x15'
+      ? Math.max(customPhotoCount, customLayoutSlots.length)
+      : selectedType.shots
+    const nextSlots = selectedType.id === 'personalizar-5x15'
+      ? customLayoutSlots
+      : getSelectedTypeLayoutSlots()
+    const customType = photoTypes.find((item) => item.id === 'personalizar-5x15') || selectedType
+
+    setSelectedType(customType)
+    setCustomPhotoCount(nextCount)
+    setCustomPhotoOrder(normalizeCustomPhotoOrder([], nextCount))
+    setCustomPhotoLayout(normalizeCustomPhotoLayout(nextSlots, nextCount))
+    setSelectedCustomLayoutPhoto(1)
+    setSelectedCustomLayoutPhotos(nextCount ? [1] : [])
+    setMultiCustomLayoutSelect(false)
+    setPhotoFrames([])
+    setFinalPhotoUrl('')
+    clearSavedPhoto()
+    setRetakeFrameIndex(null)
+    setShowCustomPhotoLayoutScreen(true)
+    updateAppRoute('personalizar')
+    setCaptureStatus(`Layout editable creado con ${nextCount} foto${nextCount === 1 ? '' : 's'}.`)
+  }
+
   const updateCustomPhotoCount = (nextCount) => {
     const boundedCount = Math.min(Math.max(Math.round(Number(nextCount) || 0), 0), customPhotoMaxSlots)
     setCustomPhotoCount(boundedCount)
     setCustomPhotoOrder((current) => normalizeCustomPhotoOrder(current, boundedCount))
     setCustomPhotoLayout((current) => normalizeCustomPhotoLayout(current, boundedCount))
-    setSelectedCustomLayoutPhoto((current) => Math.min(current, Math.max(boundedCount, 1)))
+    setSelectedCustomLayoutPhoto((current) => {
+      const nextSelected = Math.min(current, Math.max(boundedCount, 1))
+      setSelectedCustomLayoutPhotos(boundedCount ? [nextSelected] : [])
+      return nextSelected
+    })
+    setMultiCustomLayoutSelect(false)
     setPhotoFrames([])
     setFinalPhotoUrl('')
     clearSavedPhoto()
@@ -2144,6 +3431,7 @@ const WebApp = () => {
     setCustomPhotoOrder(normalizeCustomPhotoOrder([], nextSlots.length))
     setCustomPhotoLayout(nextSlots)
     setSelectedCustomLayoutPhoto(nextPhotoNumber)
+    setSelectedCustomLayoutPhotos([nextPhotoNumber])
     setPhotoFrames([])
     setFinalPhotoUrl('')
     clearSavedPhoto()
@@ -2151,24 +3439,66 @@ const WebApp = () => {
     setCaptureStatus(`Recuadro ${nextPhotoNumber} agregado. Muévelo y agrándalo manualmente.`)
   }
 
+  const selectCustomLayoutPhoto = (photoNumber, additive = multiCustomLayoutSelect) => {
+    setSelectedCustomLayoutPhoto(photoNumber)
+    setSelectedCustomLayoutPhotos((current) => {
+      if (!additive) return [photoNumber]
+      if (current.includes(photoNumber)) {
+        const next = current.filter((item) => item !== photoNumber)
+        return next.length ? next : [photoNumber]
+      }
+      return [...current, photoNumber].sort((a, b) => a - b)
+    })
+  }
+
   const duplicateCustomLayoutPhoto = () => {
-    const sourceSlot = customLayoutSlots.find((item) => item.photoNumber === selectedCustomLayoutPhoto) || customLayoutSlots[customLayoutSlots.length - 1]
-    if (!sourceSlot) {
+    const selectedSlots = customLayoutSlots.filter((item) => selectedCustomLayoutPhotos.includes(item.photoNumber))
+    const sourceSlots = selectedSlots.length > 1 ? selectedSlots : [customLayoutSlots.find((item) => item.photoNumber === selectedCustomLayoutPhoto) || customLayoutSlots[customLayoutSlots.length - 1]].filter(Boolean)
+    if (!sourceSlots.length) {
       addCustomLayoutPhoto()
       return
     }
-    addCustomLayoutPhoto(sourceSlot)
+    const available = customPhotoMaxSlots - customLayoutSlots.length
+    const slotsToCopy = sourceSlots.slice(0, available)
+    if (!slotsToCopy.length) {
+      setCaptureStatus(`Máximo ${customPhotoMaxSlots} recuadros por diseño.`)
+      return
+    }
+    const nextSlots = [...customLayoutSlots]
+    slotsToCopy.forEach((sourceSlot, index) => {
+      const nextPhotoNumber = nextSlots.length + 1
+      nextSlots.push(createManualCustomPhotoSlot(nextPhotoNumber, nextSlots.length, {
+        ...sourceSlot,
+        x: clampNumber(sourceSlot.x + 4 + index * 2, 0, 100 - sourceSlot.width),
+        y: clampNumber(sourceSlot.y + 4 + index * 2, 0, 100 - sourceSlot.height),
+      }))
+    })
+    const normalizedSlots = normalizeCustomPhotoLayout(nextSlots, nextSlots.length)
+    const duplicatedNumbers = normalizedSlots.slice(-slotsToCopy.length).map((slot) => slot.photoNumber)
+    setCustomPhotoCount(normalizedSlots.length)
+    setCustomPhotoOrder(normalizeCustomPhotoOrder([], normalizedSlots.length))
+    setCustomPhotoLayout(normalizedSlots)
+    setSelectedCustomLayoutPhoto(duplicatedNumbers[0] || 1)
+    setSelectedCustomLayoutPhotos(duplicatedNumbers)
+    setPhotoFrames([])
+    setFinalPhotoUrl('')
+    clearSavedPhoto()
+    setRetakeFrameIndex(null)
+    setCaptureStatus(`${duplicatedNumbers.length} recuadro${duplicatedNumbers.length === 1 ? '' : 's'} duplicado${duplicatedNumbers.length === 1 ? '' : 's'}.`)
   }
 
   const deleteCustomLayoutPhoto = () => {
     if (!customLayoutSlots.length) return
+    const numbersToDelete = selectedCustomLayoutPhotos.length ? selectedCustomLayoutPhotos : [selectedCustomLayoutPhoto]
     const nextSlots = customLayoutSlots
-      .filter((slot) => slot.photoNumber !== selectedCustomLayoutPhoto)
+      .filter((slot) => !numbersToDelete.includes(slot.photoNumber))
       .map((slot, index) => ({ ...slot, photoNumber: index + 1 }))
     setCustomPhotoCount(nextSlots.length)
     setCustomPhotoOrder(normalizeCustomPhotoOrder([], nextSlots.length))
     setCustomPhotoLayout(normalizeCustomPhotoLayout(nextSlots, nextSlots.length))
-    setSelectedCustomLayoutPhoto(Math.min(selectedCustomLayoutPhoto, Math.max(nextSlots.length, 1)))
+    const nextSelected = Math.min(selectedCustomLayoutPhoto, Math.max(nextSlots.length, 1))
+    setSelectedCustomLayoutPhoto(nextSelected)
+    setSelectedCustomLayoutPhotos(nextSlots.length ? [nextSelected] : [])
     setPhotoFrames([])
     setFinalPhotoUrl('')
     clearSavedPhoto()
@@ -2184,17 +3514,29 @@ const WebApp = () => {
     const rect = customEditorStripRef.current?.getBoundingClientRect?.()
     const slot = customLayoutSlots.find((item) => item.photoNumber === photoNumber)
     if (!rect || !slot || !Number.isFinite(startX) || !Number.isFinite(startY)) return
+    const activePhotoNumbers = selectedCustomLayoutPhotos.includes(photoNumber)
+      ? selectedCustomLayoutPhotos.filter((item) => customLayoutSlots.some((slotItem) => slotItem.photoNumber === item))
+      : [photoNumber]
+    const activeSlots = customLayoutSlots.filter((slotItem) => activePhotoNumbers.includes(slotItem.photoNumber))
 
     event?.preventDefault?.()
     event?.stopPropagation?.()
     nativeEvent.preventDefault?.()
     nativeEvent.stopPropagation?.()
-    setSelectedCustomLayoutPhoto(photoNumber)
+    if (multiCustomLayoutSelect) {
+      setSelectedCustomLayoutPhoto(photoNumber)
+      setSelectedCustomLayoutPhotos((current) => current.includes(photoNumber) ? current : [...current, photoNumber].sort((a, b) => a - b))
+    } else {
+      setSelectedCustomLayoutPhoto(photoNumber)
+      setSelectedCustomLayoutPhotos([photoNumber])
+    }
     customLayoutPointerRef.current = {
       mode,
       photoNumber,
+      photoNumbers: activePhotoNumbers,
       rect,
       slot,
+      slots: activeSlots,
       startX,
       startY,
     }
@@ -2249,9 +3591,45 @@ const WebApp = () => {
 
   const cycleCustomTextFont = (textId) => {
     const layer = customTextLayers[textId] || defaultCustomTextLayers[textId]
-    const nextFont = customTextFonts[(customTextFonts.indexOf(layer.font) + 1) % customTextFonts.length]
+    const fonts = customFontChoices.length ? customFontChoices : customTextFonts
+    const nextFont = fonts[(fonts.indexOf(layer.font) + 1) % fonts.length]
     updateCustomTextLayer(textId, { font: nextFont })
     setCaptureStatus(`Fuente de texto cambiada a ${nextFont}.`)
+  }
+
+  const chooseCustomTextFont = (textId, font) => {
+    updateCustomTextLayer(textId, { font })
+    setShowCustomTextFontMenu(false)
+    setCaptureStatus(`Fuente de texto cambiada a ${font}.`)
+  }
+
+  const handleCustomFontFile = (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const cleanName = file.name
+      .replace(/\.(ttf|otf|woff2?|TTF|OTF|WOFF2?)$/, '')
+      .replace(/[^a-zA-Z0-9_-]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 34) || 'Fuente personalizada'
+    const family = `Viralco-${cleanName}-${Date.now().toString(36)}`
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const source = String(reader.result || '')
+      try {
+        if (typeof FontFace !== 'undefined') {
+          const fontFace = new FontFace(family, `url(${source})`)
+          const loadedFace = await fontFace.load()
+          document.fonts?.add?.(loadedFace)
+        }
+        setUploadedCustomFonts((current) => [...current, { family, name: cleanName, source }].slice(-8))
+        chooseCustomTextFont(selectedCustomTextLayer, family)
+        setCaptureStatus(`Fuente ${cleanName} cargada.`)
+      } catch {
+        setCaptureStatus('No se pudo cargar esa fuente. Intenta con TTF, OTF, WOFF o WOFF2.')
+      }
+    }
+    reader.readAsDataURL(file)
+    event.target.value = ''
   }
 
   const cycleCustomTextColor = (textId) => {
@@ -2261,16 +3639,39 @@ const WebApp = () => {
     setCaptureStatus('Color de texto actualizado.')
   }
 
+  const chooseCustomTextColor = (textId, color) => {
+    updateCustomTextLayer(textId, { color })
+    setCaptureStatus('Color de texto actualizado.')
+  }
+
   const nudgeCustomLayoutPhoto = (photoNumber, axis, amount) => {
     if (!customLayoutSlots.length) return
     setSelectedCustomLayoutPhoto(photoNumber)
+    const selectedNumbers = selectedCustomLayoutPhotos.length && selectedCustomLayoutPhotos.includes(photoNumber)
+      ? selectedCustomLayoutPhotos
+      : [photoNumber]
+    const selectedSlots = customLayoutSlots.filter((slot) => selectedNumbers.includes(slot.photoNumber))
+    const clampGroupAmount = () => {
+      if (axis === 'x') {
+        const minAmount = Math.max(...selectedSlots.map((slot) => -slot.x))
+        const maxAmount = Math.min(...selectedSlots.map((slot) => 100 - slot.x - slot.width))
+        return clampNumber(amount, minAmount, maxAmount)
+      }
+      if (axis === 'y') {
+        const minAmount = Math.max(...selectedSlots.map((slot) => -slot.y))
+        const maxAmount = Math.min(...selectedSlots.map((slot) => 100 - slot.y - slot.height))
+        return clampNumber(amount, minAmount, maxAmount)
+      }
+      return amount
+    }
+    const nextAmount = clampGroupAmount()
     setCustomPhotoLayout((current) =>
       normalizeCustomPhotoLayout(current, customPhotoCount).map((slot) => {
-        if (slot.photoNumber !== photoNumber) return slot
-        if (axis === 'x') return { ...slot, x: clampNumber(slot.x + amount, 0, 100 - slot.width) }
-        if (axis === 'y') return { ...slot, y: clampNumber(slot.y + amount, 0, 100 - slot.height) }
-        if (axis === 'width') return { ...slot, width: clampNumber(slot.width + amount, 18, 100 - slot.x) }
-        return { ...slot, height: clampNumber(slot.height + amount, 7, 100 - slot.y) }
+        if (axis === 'x' && selectedNumbers.includes(slot.photoNumber)) return { ...slot, x: clampNumber(slot.x + nextAmount, 0, 100 - slot.width) }
+        if (axis === 'y' && selectedNumbers.includes(slot.photoNumber)) return { ...slot, y: clampNumber(slot.y + nextAmount, 0, 100 - slot.height) }
+        if (axis === 'width' && selectedNumbers.includes(slot.photoNumber)) return { ...slot, width: clampNumber(slot.width + amount, 18, 100 - slot.x) }
+        if (axis === 'height' && selectedNumbers.includes(slot.photoNumber)) return { ...slot, height: clampNumber(slot.height + amount, 7, 100 - slot.y) }
+        return slot
       }),
     )
     setPhotoFrames([])
@@ -2284,6 +3685,8 @@ const WebApp = () => {
     setCustomPhotoOrder([])
     setCustomPhotoLayout([])
     setSelectedCustomLayoutPhoto(1)
+    setSelectedCustomLayoutPhotos([])
+    setMultiCustomLayoutSelect(false)
     setPhotoFrames([])
     setFinalPhotoUrl('')
     clearSavedPhoto()
@@ -2420,24 +3823,158 @@ const WebApp = () => {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;')
 
+  const printGalleryQueue = (photoItems = []) => {
+    if (typeof window === 'undefined') return
+    const printablePhotos = photoItems
+      .map((photo) => ({
+        ...photo,
+        printSrc: getGalleryPhotoSource(photo),
+      }))
+      .filter((photo) => photo.printSrc)
+
+    if (!printablePhotos.length) {
+      setCaptureStatus('Selecciona una o varias fotos de la galería para imprimir.')
+      return
+    }
+
+    const existingFrame = window.document.getElementById('viralco-print-frame')
+    existingFrame?.remove()
+
+    const printFrame = window.document.createElement('iframe')
+    printFrame.id = 'viralco-print-frame'
+    printFrame.title = 'Cola de impresión Viralco'
+    printFrame.setAttribute('aria-hidden', 'true')
+    Object.assign(printFrame.style, {
+      position: 'fixed',
+      right: '0',
+      bottom: '0',
+      width: '1px',
+      height: '1px',
+      border: '0',
+      opacity: '0',
+      pointerEvents: 'none',
+      zIndex: '-1',
+    })
+    window.document.body.appendChild(printFrame)
+
+    const printWindow = printFrame.contentWindow
+    const printDocument = printWindow?.document
+    if (!printWindow || !printDocument) {
+      printFrame.remove()
+      setCaptureStatus('No se pudo preparar la cola de impresión en esta pestaña.')
+      return
+    }
+
+    const cleanupPrintFrame = () => {
+      setTimeout(() => {
+        printFrame.remove()
+        setCaptureStatus(`Galería lista después de imprimir o cancelar en papel ${printSizeLabel}.`)
+      }, 250)
+    }
+    printWindow.addEventListener('afterprint', cleanupPrintFrame, { once: true })
+
+    const pageWidthCm = cp1500ShortEdgeCm
+    const pageHeightCm = cp1500LongEdgeCm
+    const printSafeMarginCm = 0.18
+    const printableWidth = `${pageWidthCm}cm`
+    const printableHeight = `${pageHeightCm}cm`
+    const safePrintWidth = `${pageWidthCm - printSafeMarginCm * 2}cm`
+    const safePrintHeight = `${pageHeightCm - printSafeMarginCm * 2}cm`
+    const queuedPhotos = printablePhotos.flatMap((photo) => (
+      Array.from({ length: normalizedPrintSettings.copies }, () => photo)
+    ))
+    const imagePages = queuedPhotos.map((photo, index) => (
+      `<section class="print-page"><img src="${escapeHtml(photo.printSrc)}" alt="Foto de galería Viralco ${index + 1}" /></section>`
+    )).join('')
+
+    printDocument.open()
+    printDocument.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(eventTitle)} - Cola Viralco</title>
+    <style>
+      body { margin: 0; background: #f3f4f6; font-family: Arial, sans-serif; }
+      main { min-height: 100vh; display: grid; place-items: center; gap: 24px; padding: 24px; }
+      img { max-width: min(92vw, 760px); max-height: 92vh; background: #111827; box-shadow: 0 20px 60px rgba(0,0,0,.18); }
+      @page { size: ${pageWidthCm}cm ${pageHeightCm}cm; margin: 0; }
+      @media print {
+        html, body { width: ${printableWidth}; height: ${printableHeight}; margin: 0; background: #fff; }
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        main { width: ${printableWidth}; min-height: 0; padding: 0; margin: 0; display: block; }
+        .print-page { width: ${printableWidth}; height: ${printableHeight}; padding: ${printSafeMarginCm}cm; margin: 0; box-sizing: border-box; display: grid; place-items: center; break-inside: avoid; page-break-after: always; break-after: page; }
+        .print-page:last-child { page-break-after: auto; break-after: auto; }
+        img { width: ${safePrintWidth}; height: ${safePrintHeight}; max-width: none; max-height: none; object-fit: contain; object-position: center center; box-shadow: none; display: block; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>${imagePages}</main>
+    <script>
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          window.focus();
+          window.print();
+        }, 350);
+      });
+    </script>
+  </body>
+</html>`)
+    printDocument.close()
+    setCaptureStatus(`Cola de impresión lista: ${printablePhotos.length} foto${printablePhotos.length === 1 ? '' : 's'} seleccionada${printablePhotos.length === 1 ? '' : 's'}, ${normalizedPrintSettings.copies} copia${normalizedPrintSettings.copies === 1 ? '' : 's'} cada una.`)
+  }
+
   const executePrint = () => {
     if (!captureComplete || typeof window === 'undefined') return
 
-    const imageCopies = Array.from({ length: normalizedPrintSettings.copies }, (_, index) => (
-      `<img src="${finalPhotoUrl}" alt="Foto Viralco ${index + 1}" />`
-    )).join('')
-    const printFit = normalizedPrintSettings.fit === 'Rellenar' ? 'cover' : 'contain'
-    const printableWidth = `calc(${normalizedPrintSettings.widthCm}cm - ${normalizedPrintSettings.marginCm * 2}cm)`
-    const printableHeight = `calc(${normalizedPrintSettings.heightCm}cm - ${normalizedPrintSettings.marginCm * 2}cm)`
-    const printGridColumns = normalizedPrintSettings.twoPerPage ? '1fr 1fr' : '1fr'
-    const printImageWidth = normalizedPrintSettings.twoPerPage ? `calc((${printableWidth} - 0.2cm) / 2)` : printableWidth
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) {
-      setCaptureStatus('El navegador bloqueó la ventana de impresión.')
+    const existingFrame = window.document.getElementById('viralco-print-frame')
+    existingFrame?.remove()
+
+    const printFrame = window.document.createElement('iframe')
+    printFrame.id = 'viralco-print-frame'
+    printFrame.title = 'Impresión Viralco'
+    printFrame.setAttribute('aria-hidden', 'true')
+    Object.assign(printFrame.style, {
+      position: 'fixed',
+      right: '0',
+      bottom: '0',
+      width: '1px',
+      height: '1px',
+      border: '0',
+      opacity: '0',
+      pointerEvents: 'none',
+      zIndex: '-1',
+    })
+    window.document.body.appendChild(printFrame)
+
+    const printWindow = printFrame.contentWindow
+    const printDocument = printWindow?.document
+    if (!printWindow || !printDocument) {
+      printFrame.remove()
+      setCaptureStatus('No se pudo preparar la impresión en esta pestaña.')
       return
     }
-    printWindow.document.open()
-    printWindow.document.write(`<!doctype html>
+
+    const cleanupPrintFrame = () => {
+      setTimeout(() => {
+        printFrame.remove()
+        setCaptureStatus(`Vista previa lista después de imprimir o cancelar en papel ${printSizeLabel}.`)
+      }, 250)
+    }
+    printWindow.addEventListener('afterprint', cleanupPrintFrame, { once: true })
+
+    const pageWidthCm = cp1500ShortEdgeCm
+    const pageHeightCm = cp1500LongEdgeCm
+    const printSafeMarginCm = 0.18
+    const printableWidth = `${pageWidthCm}cm`
+    const printableHeight = `${pageHeightCm}cm`
+    const safePrintWidth = `${pageWidthCm - printSafeMarginCm * 2}cm`
+    const safePrintHeight = `${pageHeightCm - printSafeMarginCm * 2}cm`
+    const imageCopies = Array.from({ length: normalizedPrintSettings.copies }, (_, index) => (
+      `<section class="print-page"><img src="${escapeHtml(finalPhotoUrl)}" alt="Foto Viralco ${index + 1}" /></section>`
+    )).join('')
+    printDocument.open()
+    printDocument.write(`<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -2446,23 +3983,32 @@ const WebApp = () => {
       body { margin: 0; background: #f3f4f6; font-family: Arial, sans-serif; }
       main { min-height: 100vh; display: grid; place-items: center; gap: 24px; padding: 24px; }
       img { max-width: min(92vw, 760px); max-height: 92vh; background: #111827; box-shadow: 0 20px 60px rgba(0,0,0,.18); }
-      @page { size: ${normalizedPrintSettings.widthCm}cm ${normalizedPrintSettings.heightCm}cm; margin: ${normalizedPrintSettings.marginCm}cm; }
-      @media print {
-        body { background: #fff; }
-        main { width: ${printableWidth}; min-height: 0; padding: 0; display: grid; grid-template-columns: ${printGridColumns}; gap: 0.2cm; align-items: center; justify-items: center; }
-        img { width: ${printImageWidth}; height: ${printableHeight}; max-width: none; max-height: none; object-fit: ${printFit}; box-shadow: none; break-inside: avoid; display: block; }
-        ${normalizedPrintSettings.twoPerPage ? 'img:nth-child(2n) { page-break-after: always; break-after: page; } img:last-child { page-break-after: auto; break-after: auto; }' : 'img { page-break-after: always; break-after: page; } img:last-child { page-break-after: auto; break-after: auto; }'}
-      }
+      @page { size: ${pageWidthCm}cm ${pageHeightCm}cm; margin: 0; }
+	      @media print {
+	        html, body { width: ${printableWidth}; height: ${printableHeight}; margin: 0; background: #fff; }
+	        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+	        main { width: ${printableWidth}; min-height: 0; padding: 0; margin: 0; display: block; }
+	        .print-page { width: ${printableWidth}; height: ${printableHeight}; padding: ${printSafeMarginCm}cm; margin: 0; box-sizing: border-box; display: grid; place-items: center; break-inside: avoid; page-break-after: always; break-after: page; }
+	        .print-page:last-child { page-break-after: auto; break-after: auto; }
+	        img { width: ${safePrintWidth}; height: ${safePrintHeight}; max-width: none; max-height: none; object-fit: contain; object-position: center center; box-shadow: none; display: block; }
+	      }
     </style>
   </head>
   <body>
-    <main>${imageCopies}</main>
-    <script>window.addEventListener('load', () => setTimeout(() => window.print(), 250))</script>
-  </body>
-</html>`)
-    printWindow.document.close()
+	    <main>${imageCopies}</main>
+	    <script>
+	      window.addEventListener('load', () => {
+	        setTimeout(() => {
+	          window.focus();
+	          window.print();
+	        }, 350);
+	      });
+	    </script>
+	  </body>
+	</html>`)
+    printDocument.close()
     setShowPrintOptions(false)
-    setCaptureStatus(`Impresión lista en papel ${printSizeLabel}, ${normalizedPrintSettings.copies} copia${normalizedPrintSettings.copies === 1 ? '' : 's'}${normalizedPrintSettings.secondaryPrinter ? ' usando impresora secundaria' : ''}.`)
+    setCaptureStatus(`Impresión abierta en esta misma pestaña: ${printSizeLabel}, ${normalizedPrintSettings.copies} copia${normalizedPrintSettings.copies === 1 ? '' : 's'}${normalizedPrintSettings.secondaryPrinter ? ' usando impresora secundaria' : ''}.`)
   }
 
   const runTool = async (tool) => {
@@ -2596,39 +4142,12 @@ const WebApp = () => {
   }
 
   const openPhotoDesignScreen = () => {
-    setShowHomeLauncher(false)
-    setShowCreateEventModal(false)
-    setShowEventOptionsScreen(false)
-    setShowAnimationVideoScreen(false)
-    setShowLaunchIntroScreen(false)
-    setShowCapturePhotoScreen(false)
-    setShowPreviewScreen(false)
-    setShowShareScreen(false)
-    setShowStartEditor(false)
-    setShowCaptureModeScreen(false)
-    setShowCaptureConfigScreen(false)
-    setShowPrintConfigScreen(false)
-    setShowBackgroundRemovalScreen(false)
-    setShowPhotoDesignScreen(true)
-    updateAppRoute('diseno-foto')
-    setCaptureStatus('Ajusta el diseño de foto antes de capturar')
+    openCaptureConfigScreen(false)
+    setCaptureStatus('Configuración de captura lista para fotos')
   }
 
   const openCaptureModeScreen = () => {
-    setShowHomeLauncher(false)
-    setShowEventOptionsScreen(false)
-    setShowAnimationVideoScreen(false)
-    setShowLaunchIntroScreen(false)
-    setShowCapturePhotoScreen(false)
-    setShowPreviewScreen(false)
-    setShowShareScreen(false)
-    setShowStartEditor(false)
-    setShowPhotoDesignScreen(false)
-    setShowCaptureConfigScreen(false)
-    setShowPrintConfigScreen(false)
-    setShowBackgroundRemovalScreen(false)
-    setShowCaptureModeScreen(true)
-    updateAppRoute('modo-captura')
+    openCaptureConfigScreen(false)
     setCaptureStatus('Modo Foto habilitado para el espejo mágico')
   }
 
@@ -2652,6 +4171,16 @@ const WebApp = () => {
     setCaptureStatus('Configuración de captura lista para fotos')
   }
 
+  const saveCaptureConfigAndReturn = () => {
+    saveCurrentSetupToRecentEvents('Configuración de captura guardada.')
+    openEventOptionsScreen(operatorSettingsActive)
+  }
+
+  const savePrintConfigAndReturn = () => {
+    saveCurrentSetupToRecentEvents('Configuración de impresión guardada.')
+    openEventOptionsScreen(operatorSettingsActive)
+  }
+
   const openPrintConfigScreen = (fromOperator = false) => {
     const keepOperatorMode = fromOperator || operatorSettingsActive
     setOperatorSettingsActive(keepOperatorMode)
@@ -2673,21 +4202,8 @@ const WebApp = () => {
   }
 
   const openBackgroundRemovalScreen = () => {
-    setShowHomeLauncher(false)
-    setShowEventOptionsScreen(false)
-    setShowAnimationVideoScreen(false)
-    setShowLaunchIntroScreen(false)
-    setShowCapturePhotoScreen(false)
-    setShowPreviewScreen(false)
-    setShowShareScreen(false)
-    setShowStartEditor(false)
-    setShowPhotoDesignScreen(false)
-    setShowCaptureModeScreen(false)
-    setShowCaptureConfigScreen(false)
-    setShowPrintConfigScreen(false)
-    setShowBackgroundRemovalScreen(true)
-    updateAppRoute('fondo')
-    setCaptureStatus('Eliminación de fondo lista para fotos')
+    openCaptureConfigScreen(operatorSettingsActive)
+    setCaptureStatus('Configuración de captura lista para fotos')
   }
 
   const openEventOptionsScreen = (fromOperator = false) => {
@@ -2718,6 +4234,7 @@ const WebApp = () => {
       setCaptureStatus('Agrega al menos un recuadro de foto antes de capturar.')
       return
     }
+    saveCurrentSetupToRecentEvents('Evento listo para fotos.')
     setRetakeFrameIndex(null)
     setOperatorSettingsActive(false)
     setShowHomeLauncher(false)
@@ -2737,7 +4254,7 @@ const WebApp = () => {
     setShowBackgroundRemovalScreen(false)
     setCaptureStatus(`${selectedType.name}: listo para tomar fotos`)
     updateAppRoute('captura')
-    openCamera()
+    void ensureCameraReady('Verificando cámara antes de abrir captura...')
   }
 
   const closeOperatorSettingsToCapture = () => {
@@ -2761,7 +4278,7 @@ const WebApp = () => {
     setShowBackgroundRemovalScreen(false)
     setCountdown('')
     setCaptureStatus(`${selectedType.name}: listo para tomar fotos`)
-    if (!cameraStream) openCamera()
+    void ensureCameraReady('Verificando cámara antes de volver a captura...')
   }
 
   const openOperatorQuickPanel = (panel) => {
@@ -2784,7 +4301,7 @@ const WebApp = () => {
     setShowPrintConfigScreen(false)
     setShowBackgroundRemovalScreen(false)
     setCountdown('')
-    if (!cameraStream) openCamera()
+    void ensureCameraReady('Verificando cámara para el panel del operario...')
   }
 
   const runOperatorAction = (action, opensSettings = false) => {
@@ -2815,27 +4332,13 @@ const WebApp = () => {
     setCountdown('')
     setCaptureStatus(`Vuelve a tomar la foto ${index + 1}. Las otras fotos se conservan.`)
     updateAppRoute('captura')
-    openCamera()
+    void ensureCameraReady(`Verificando cámara para repetir foto ${index + 1}...`)
   }
 
   const openAnimationVideoScreen = () => {
-    setShowHomeLauncher(false)
-    setShowCreateEventModal(false)
-    setShowEventOptionsScreen(false)
-    setShowAnimationVideoScreen(true)
-    setShowLaunchIntroScreen(false)
-    setShowCapturePhotoScreen(false)
-    setShowPreviewScreen(false)
-    setShowShareScreen(false)
-    setShowStartEditor(false)
-    setShowPhotoDesignScreen(false)
-    setShowCaptureModeScreen(false)
-    setShowCaptureConfigScreen(false)
-    setShowPrintConfigScreen(false)
-    setShowBackgroundRemovalScreen(false)
-    updateAppRoute('animacion')
-    setAnimationVideoQuestionMode('question')
-    setCaptureStatus('Pregunta de video de animación antes de tomar fotos.')
+    setShowAnimationVideoScreen(false)
+    setAnimationVideoPromptAnswered(true)
+    openCapturePhotoScreen()
   }
 
   const continueAfterAnimationVideo = () => {
@@ -2920,11 +4423,6 @@ const WebApp = () => {
       setShowCustomPhotoLayoutScreen(true)
       updateAppRoute('personalizar')
       setCaptureStatus('Agrega al menos un recuadro de foto antes de capturar.')
-      return
-    }
-
-    if (selectedType.id === 'personalizar-5x15' && !animationVideoPromptAnswered) {
-      openAnimationVideoScreen()
       return
     }
 
@@ -3078,10 +4576,15 @@ const WebApp = () => {
   }
 
   const updatePrintSetting = (key, value) => {
+    if (key === 'widthCm' || key === 'heightCm') return
     setPrintSettings((current) => ({
       ...current,
-      presetId: key === 'widthCm' || key === 'heightCm' || key === 'marginCm' ? 'manual' : current.presetId,
+      presetId: '10x15',
+      widthCm: '10',
+      heightCm: '15',
+      orientation: 'Vertical',
       [key]: value,
+      ...(key === 'orientation' ? { orientation: 'Vertical' } : {}),
     }))
   }
 
@@ -3099,8 +4602,7 @@ const WebApp = () => {
 
       <View style={styles.printReferenceRow}>
         <View style={styles.printPaperSelector}>
-          <Text style={styles.printPaperSelectorText}>{activePrintLabel}</Text>
-          <Text style={styles.printPaperSelectorArrow}>⌄</Text>
+          <Text style={styles.printPaperSelectorText}>10 x 15</Text>
         </View>
         <View style={styles.printOrientationSwitch}>
           {['Vertical', 'Horizontal'].map((option) => (
@@ -3122,7 +4624,7 @@ const WebApp = () => {
 
       <View style={styles.printPresetGrid}>
         {printPaperPresets.map((preset) => {
-          const active = printSettings.presetId === preset.id
+          const active = true
           return (
             <Pressable
               key={preset.id}
@@ -3179,8 +4681,8 @@ const WebApp = () => {
 
       <View style={styles.printInputGrid}>
         {[
-          { key: 'widthCm', label: 'Ancho cm', value: printSettings.widthCm },
-          { key: 'heightCm', label: 'Alto cm', value: printSettings.heightCm },
+          { key: 'widthCm', label: 'Ancho cm', value: '10', locked: true },
+          { key: 'heightCm', label: 'Alto cm', value: '15', locked: true },
           { key: 'marginCm', label: 'Margen cm', value: printSettings.marginCm },
           { key: 'copies', label: 'Copias', value: printSettings.copies },
         ].map((field) => (
@@ -3189,10 +4691,11 @@ const WebApp = () => {
             <TextInput
               value={field.value}
               onChangeText={(value) => updatePrintSetting(field.key, value)}
+              editable={!field.locked}
               keyboardType="decimal-pad"
               placeholder="0"
               placeholderTextColor="#9ca3af"
-              style={styles.printInput}
+              style={[styles.printInput, field.locked && styles.printInputLocked]}
             />
           </View>
         ))}
@@ -3369,6 +4872,29 @@ const WebApp = () => {
             </Pressable>
           ))}
         </View>
+        {isAdminProfile ? (
+          <View style={[styles.modalTypeWrap, isMobile && styles.modalTypeWrapMobile]}>
+            <Pressable
+              onPress={() => setAssignedOperatorId('')}
+              style={[styles.typeChip, isMobile && styles.typeChipMobile, !assignedOperatorId && styles.typeChipActive]}
+              accessibilityRole="button"
+              accessibilityLabel="Dejar evento para administrador"
+            >
+              <Text style={[styles.typeChipText, isMobile && styles.typeChipTextMobile, !assignedOperatorId && styles.typeChipTextActive]}>Admin</Text>
+            </Pressable>
+            {assignableOperators.map((operator) => (
+              <Pressable
+                key={`assign-${operator.id}`}
+                onPress={() => setAssignedOperatorId(operator.id)}
+                style={[styles.typeChip, isMobile && styles.typeChipMobile, assignedOperatorId === operator.id && styles.typeChipActive]}
+                accessibilityRole="button"
+                accessibilityLabel={`Asignar a ${operator.name}`}
+              >
+                <Text style={[styles.typeChipText, isMobile && styles.typeChipTextMobile, assignedOperatorId === operator.id && styles.typeChipTextActive]}>{operator.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         <Pressable
           onPress={() => launchNewEventFromModal('options')}
           style={[styles.primaryButton, isMobile && styles.modalActionButtonMobile]}
@@ -3393,75 +4919,158 @@ const WebApp = () => {
   const renderProfileSwitcher = () => (
     <View style={[styles.profileSwitcher, isPhone && styles.profileSwitcherPhone]}>
       <View style={styles.profileSwitcherHeader}>
-        <Text style={styles.profileSwitcherEyebrow}>Acceso rápido</Text>
+        <Text style={styles.profileSwitcherEyebrow}>Sesión activa</Text>
         <Text style={styles.profileSwitcherActive}>{activeProfile.name}</Text>
       </View>
       <View style={[styles.profileSwitcherOptions, isPhone && styles.profileSwitcherOptionsPhone]}>
-        {profileOptions.map((profile) => {
-          const active = profile.id === activeProfile.id
-          return (
-            <Pressable
-              key={profile.id}
-              onPress={() => switchProfile(profile.id)}
-              style={[styles.profileChip, isPhone && styles.profileChipPhone, active && styles.profileChipActive]}
-              accessibilityRole="button"
-              accessibilityLabel={`Cambiar a ${profile.name}`}
-            >
-              <Text style={[styles.profileChipText, active && styles.profileChipTextActive]}>{isPhone ? profile.shortName : profile.name}</Text>
-            </Pressable>
-          )
-        })}
+        <Text style={styles.profileChipText}>
+          {activeProfile.role === 'super_admin' ? 'Super admin' : activeProfile.role === 'admin' ? 'Admin' : 'Operario'}
+        </Text>
+        <Pressable
+          onPress={handleLogout}
+          style={[styles.profileChip, isPhone && styles.profileChipPhone]}
+          accessibilityRole="button"
+          accessibilityLabel="Cerrar sesión"
+        >
+          <Text style={styles.profileChipText}>Salir</Text>
+        </Pressable>
       </View>
     </View>
   )
 
-  const renderRecentEventsLauncher = () => (
-    <View style={[styles.recentEventsPanel, isPhone && styles.recentEventsPanelPhone]}>
-      <View style={[styles.recentEventsHeader, isMobile && styles.recentEventsHeaderMobile]}>
-        <View style={styles.recentEventsHeading}>
-          <Text style={styles.panelTitle}>{isAdminProfile ? 'Lanzar evento' : `Evento de ${activeProfile.shortName}`}</Text>
-          <Text style={styles.recentEventsIntro}>
-            {isAdminProfile
-              ? 'Crea, configura o lanza el último evento guardado.'
-              : 'Este perfil solo puede lanzar el evento asignado por el administrador.'}
-          </Text>
-        </View>
+  const renderLoginScreen = () => (
+    <View style={styles.loginPage}>
+      <View style={[styles.loginCard, isPhone && styles.loginCardPhone]}>
+        <Text style={styles.panelEyebrow}>Viralco</Text>
+        <Text style={styles.loginTitle}>Acceso espejo mágico</Text>
+        <Text style={styles.loginIntro}>Ingresa según tu rol para ver solo los eventos que corresponden.</Text>
+        <TextInput
+          value={loginUsername}
+          onChangeText={(value) => {
+            setLoginUsername(value)
+            if (loginError) setLoginError('')
+          }}
+          placeholder="Usuario"
+          placeholderTextColor="#9ca3af"
+          autoCapitalize="none"
+          style={styles.loginInput}
+          accessibilityLabel="Usuario"
+        />
+        <TextInput
+          value={loginPassword}
+          onChangeText={(value) => {
+            setLoginPassword(value)
+            if (loginError) setLoginError('')
+          }}
+          placeholder="Clave"
+          placeholderTextColor="#9ca3af"
+          secureTextEntry
+          style={styles.loginInput}
+          accessibilityLabel="Clave"
+          onSubmitEditing={handleLogin}
+        />
+        {loginError ? <Text style={styles.loginError}>{loginError}</Text> : null}
+        <Pressable onPress={handleLogin} style={styles.loginButton} accessibilityRole="button" accessibilityLabel="Entrar">
+          <Text style={styles.loginButtonText}>Entrar</Text>
+        </Pressable>
       </View>
+    </View>
+  )
 
-      <View style={styles.recentEventsGrid}>
-        {visibleLaunchEvents.length ? visibleLaunchEvents.map((recentEvent) => {
-          const type = photoTypes.find((item) => item.id === recentEvent.photoTypeId) || photoTypes[0]
-          const recentEventTemplates = getTemplatesForEventType(recentEvent.eventType)
-          const template =
-            recentEventTemplates.find((item) => item.id === recentEvent.templateId) ||
-            templates.find((item) => item.id === recentEvent.templateId) ||
-            recentEventTemplates[0] ||
-            templates[0]
-          const active = (recentEvent.id || recentEvent.name) === (selectedRecentEvent?.id || selectedRecentEvent?.name)
+  const renderRecentEventsLauncher = () => {
+    const mainEvent = visibleLaunchEvents[0]
+    const getEventDisplayData = (recentEvent) => {
+      const type = photoTypes.find((item) => item.id === recentEvent.photoTypeId) || photoTypes[0]
+      const recentEventTemplates = getTemplatesForEventType(recentEvent.eventType)
+      const template =
+        recentEventTemplates.find((item) => item.id === recentEvent.templateId) ||
+        templates.find((item) => item.id === recentEvent.templateId) ||
+        recentEventTemplates[0] ||
+        templates[0]
+      const shotCount = recentEvent.photoTypeId === 'personalizar-5x15'
+        ? Math.max(Number(recentEvent.customPhotoCount) || type.shots || 0, 0)
+        : type.shots
+      const active = (recentEvent.id || recentEvent.name) === (selectedRecentEvent?.id || selectedRecentEvent?.name)
+      return { type, template, shotCount, active }
+    }
+
+    return (
+      <View style={[styles.recentEventsPanel, isPhone && styles.recentEventsPanelPhone]}>
+        <View style={[styles.recentEventsHeader, isMobile && styles.recentEventsHeaderMobile]}>
+          <View style={styles.recentEventsHeading}>
+            <Text style={styles.panelTitle}>{isAdminProfile ? 'Lanzar evento' : `Evento de ${activeProfile.shortName}`}</Text>
+            <Text style={styles.recentEventsIntro}>
+              {isAdminProfile
+                ? 'Crea, configura o lanza el último evento guardado.'
+                : 'Este perfil solo puede lanzar el evento asignado por el administrador.'}
+            </Text>
+          </View>
+        </View>
+
+        {mainEvent ? (() => {
+          const { type, template, shotCount, active } = getEventDisplayData(mainEvent)
           return (
-            <Pressable
-              key={recentEvent.id || recentEvent.name}
-              onPress={() => {
-                setSelectedRecentId(recentEvent.id || recentEvent.name)
-                launchEvent(recentEvent)
-              }}
-              style={[styles.recentEventCard, isPhone && styles.recentEventCardPhone, active && styles.recentEventCardActive]}
-              accessibilityRole="button"
-              accessibilityLabel={`Lanzar ${recentEvent.name || 'último evento'}`}
-            >
-              <Image source={template.image} style={styles.recentEventImage} accessibilityLabel={`Plantilla de ${recentEvent.eventType || 'evento'}`} />
-              <View style={styles.recentEventShade} />
-              <View style={styles.recentEventContent}>
-                <Text style={styles.recentEventMeta}>{recentEvent.updatedAt || 'Reciente'}</Text>
-                <Text style={styles.recentEventTitle}>{recentEvent.name || 'Último evento'}</Text>
-                <Text style={styles.recentEventDetails}>{recentEvent.eventType || 'Evento'} / {type.name}</Text>
-                <View style={styles.launchRecentButton}>
-                  <Text style={styles.launchRecentButtonText}>Lanzar evento</Text>
+            <View style={styles.recentEventsGrid}>
+              <View
+                key={mainEvent.id || mainEvent.name}
+                style={[styles.recentEventCard, isPhone && styles.recentEventCardPhone, active && styles.recentEventCardActive]}
+              >
+                <View style={styles.recentEventContent}>
+                  <View style={styles.recentEventTopRow}>
+                    <Text style={styles.recentEventMeta}>{mainEvent.updatedAt || 'Reciente'}</Text>
+                    <Text style={styles.recentEventProfile}>{isAdminProfile ? 'Administrador' : activeProfile.name}</Text>
+                  </View>
+                  <Text style={styles.recentEventTitle}>{mainEvent.name || 'Último evento'}</Text>
+                  <Text style={styles.recentEventDetails}>{mainEvent.eventType || 'Evento'} / {type.name}</Text>
+                  <View style={styles.recentEventDataGrid}>
+                    <View style={styles.recentEventDataItem}>
+                      <Text style={styles.recentEventDataLabel}>Formato</Text>
+                      <Text style={styles.recentEventDataValue}>{type.name}</Text>
+                    </View>
+                    <View style={styles.recentEventDataItem}>
+                      <Text style={styles.recentEventDataLabel}>Plantilla</Text>
+                      <Text style={styles.recentEventDataValue}>{template.name}</Text>
+                    </View>
+                    <View style={styles.recentEventDataItem}>
+                      <Text style={styles.recentEventDataLabel}>Fotos</Text>
+                      <Text style={styles.recentEventDataValue}>{shotCount || type.shots}</Text>
+                    </View>
+                    <View style={styles.recentEventDataItem}>
+                      <Text style={styles.recentEventDataLabel}>Entrega</Text>
+                      <Text style={styles.recentEventDataValue}>QR / WhatsApp / Print</Text>
+                    </View>
+                  </View>
+                  <View style={styles.recentEventActions}>
+                    {isAdminProfile ? (
+                      <Pressable
+                        onPress={() => {
+                          setSelectedRecentId(mainEvent.id || mainEvent.name)
+                          launchEvent(mainEvent, 'options')
+                        }}
+                        style={styles.editRecentButton}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Editar ${mainEvent.name || 'evento'}`}
+                      >
+                        <Text style={styles.editRecentButtonText}>Editar evento</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      onPress={() => {
+                        setSelectedRecentId(mainEvent.id || mainEvent.name)
+                        launchEvent(mainEvent)
+                      }}
+                      style={styles.launchRecentButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Lanzar ${mainEvent.name || 'último evento'}`}
+                    >
+                      <Text style={styles.launchRecentButtonText}>Lanzar evento</Text>
+                    </Pressable>
+                  </View>
                 </View>
               </View>
-            </Pressable>
+            </View>
           )
-        }) : (
+        })() : (
           <View style={styles.recentEventEmpty}>
             <Text style={styles.recentEventEmptyTitle}>Sin eventos recientes</Text>
             <Text style={styles.recentEventEmptyText}>
@@ -3470,8 +5079,8 @@ const WebApp = () => {
           </View>
         )}
       </View>
-    </View>
-  )
+    )
+  }
 
   const renderHomeActionCard = () => {
     if (!isAdminProfile) return null
@@ -3481,6 +5090,167 @@ const WebApp = () => {
         <Pressable onPress={openNewEventModal} style={styles.homeCreateButton} accessibilityRole="button" accessibilityLabel="Crear evento nuevo">
           <Text style={styles.homeCreateButtonText}>+ Crear evento nuevo</Text>
         </Pressable>
+      </View>
+    )
+  }
+
+  const renderAdminEventsSummary = () => {
+    if (!isAdminProfile) return null
+    const orderedEvents = (isSuperAdminProfile ? recentEvents : visibleLaunchEvents)
+      .filter((item) => !deletedEventIds.includes(getEventIdentity(item)))
+      .slice()
+
+    return (
+      <View style={[styles.adminEventsSummary, isPhone && styles.adminEventsSummaryPhone]}>
+        <View style={styles.adminEventsSummaryHeader}>
+          <View>
+            <Text style={styles.panelEyebrow}>Administrador</Text>
+            <Text style={styles.adminEventsSummaryTitle}>Resumen de eventos</Text>
+          </View>
+          <Text style={styles.adminEventsSummaryCount}>{orderedEvents.length}</Text>
+        </View>
+        <View style={styles.adminEventsList}>
+          {orderedEvents.map((item, index) => {
+            const type = photoTypes.find((photoType) => photoType.id === item.photoTypeId) || photoTypes[0]
+            const templateOptions = getTemplatesForEventType(item.eventType)
+            const template =
+              templateOptions.find((templateItem) => templateItem.id === item.templateId) ||
+              templates.find((templateItem) => templateItem.id === item.templateId) ||
+              templateOptions[0] ||
+              templates[0]
+            const assignedProfile = users.find((profile) => profile.id === item.operatorId)
+            const rowAssignableOperators = getAssignableOperatorsForEvent(item)
+            const currentOperatorInList = assignedProfile &&
+              !rowAssignableOperators.some((operator) => operator.id === assignedProfile.id)
+            const active = (item.id || item.name) === (selectedRecentEvent?.id || selectedRecentEvent?.name)
+            const shotCount = item.photoTypeId === 'personalizar-5x15'
+              ? Math.max(Number(item.customPhotoCount) || type.shots || 0, 0)
+              : type.shots
+
+            return (
+              <Pressable
+                key={`admin-event-${item.id || item.name}-${index}`}
+                onPress={() => {
+                  setSelectedRecentId(item.id || item.name)
+                  applyEventSetup(item, 'cargado desde resumen')
+                }}
+                style={[styles.adminEventRow, active && styles.adminEventRowActive]}
+                accessibilityRole="button"
+                accessibilityLabel={`Cargar evento ${item.name || 'sin nombre'}`}
+              >
+                <Text style={styles.adminEventIndex}>{index + 1}</Text>
+                <View style={styles.adminEventMain}>
+                  <Text style={styles.adminEventName}>{item.name || 'Evento sin nombre'}</Text>
+                  <Text style={styles.adminEventMeta}>{item.eventType || 'Evento'} / {type.name}</Text>
+                </View>
+                <View style={styles.adminEventTags}>
+                  <Text style={styles.adminEventTag}>{template.name}</Text>
+                  <Text style={styles.adminEventTag}>{shotCount} foto{shotCount === 1 ? '' : 's'}</Text>
+                </View>
+                <View style={styles.adminOperatorControl}>
+                  <Text style={styles.adminOperatorLabel}>Asignado a</Text>
+                  {React.createElement(
+                    'select',
+                    {
+                      value: item.operatorId || 'admin',
+                      onClick: (event) => event.stopPropagation(),
+                      onChange: (event) => {
+                        event.stopPropagation()
+                        changeEventOperator(item, event.target.value)
+                      },
+                      style: styles.adminOperatorSelect,
+                      'aria-label': `Asignar operario para ${item.name || 'evento'}`,
+                    },
+                    [
+                      React.createElement('option', { key: 'admin', value: 'admin' }, 'Admin / sin operario'),
+                      currentOperatorInList
+                        ? React.createElement('option', { key: assignedProfile.id, value: assignedProfile.id }, assignedProfile.name)
+                        : null,
+                      ...rowAssignableOperators.map((operator) => (
+                        React.createElement('option', { key: operator.id, value: operator.id }, operator.name)
+                      )),
+                    ],
+                  )}
+                </View>
+                <View style={styles.adminEventActions}>
+                  <Pressable
+                    onPress={(event) => {
+                      event?.stopPropagation?.()
+                      setSelectedRecentId(item.id || item.name)
+                      launchEvent(item, 'options')
+                    }}
+                    style={styles.adminEventEditButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Editar evento ${item.name || 'sin nombre'}`}
+                  >
+                    <Text style={styles.adminEventEditText}>Editar</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={(event) => {
+                      event?.stopPropagation?.()
+                      deleteRecentEvent(item)
+                    }}
+                    style={styles.adminEventDeleteButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Eliminar evento ${item.name || 'sin nombre'}`}
+                  >
+                    <Text style={styles.adminEventDeleteText}>Eliminar</Text>
+                  </Pressable>
+                </View>
+              </Pressable>
+            )
+          })}
+        </View>
+      </View>
+    )
+  }
+
+  const renderEventGalleryFolders = () => {
+    if (!visibleGalleryFolders.length) return null
+    return (
+      <View style={[styles.eventFoldersPanel, isPhone && styles.eventFoldersPanelPhone]}>
+        <View style={styles.adminEventsSummaryHeader}>
+          <View>
+            <Text style={styles.panelEyebrow}>{isAdminProfile ? 'Administrador' : activeProfile.name}</Text>
+            <Text style={styles.adminEventsSummaryTitle}>{isAdminProfile ? 'Galerías por evento' : 'Galería asignada'}</Text>
+          </View>
+          <Text style={styles.adminEventsSummaryCount}>{visibleGalleryFolders.length}</Text>
+        </View>
+        <View style={[styles.eventFoldersGrid, isPhone && styles.eventFoldersGridPhone]}>
+          {visibleGalleryFolders.map((folder, index) => {
+            const assignedProfile = users.find((profile) => profile.id === folder.operatorId)
+            return (
+              <Pressable
+                key={`gallery-folder-${folder.id}-${index}`}
+                onPress={() => {
+                  openEventGallery(folder.id)
+                }}
+                style={styles.eventFolderCard}
+                accessibilityRole="button"
+                accessibilityLabel={`Abrir galería de ${folder.eventName}`}
+              >
+                <View style={styles.eventFolderPreview}>
+                  {folder.latest?.src ? (
+                    <Image source={{ uri: folder.latest.src }} style={styles.eventFolderPreviewImage} accessibilityLabel={`Última foto de ${folder.eventName}`} />
+                  ) : (
+                    <View style={styles.eventFolderEmptyPreview}>
+                      <Text style={styles.eventFolderEmptyIcon}>+</Text>
+                    </View>
+                  )}
+                  <View style={styles.eventFolderCount}>
+                    <Text style={styles.eventFolderCountText}>{folder.items.length}</Text>
+                  </View>
+                </View>
+                <View style={styles.eventFolderInfo}>
+                  <Text style={styles.eventFolderName}>{folder.eventName}</Text>
+                  <Text style={styles.eventFolderMeta}>
+                    {folder.items.length ? `${folder.items.length} foto${folder.items.length === 1 ? '' : 's'}` : 'Sin fotos todavía'} · {assignedProfile?.shortName || 'Admin'}
+                  </Text>
+                </View>
+              </Pressable>
+            )
+          })}
+        </View>
       </View>
     )
   }
@@ -3508,8 +5278,124 @@ const WebApp = () => {
       <Text style={[styles.homeWelcomeSub, isPhone && styles.homeWelcomeSubPhone]}>Eventos, fotos y entregas listas para imprimir o compartir</Text>
       {renderRecentEventsLauncher()}
       {renderHomeActionCard()}
+      {renderAdminEventsSummary()}
+      {renderEventGalleryFolders()}
     </View>
   )
+
+  const renderEventSetupPreview = () => {
+    const slots = getSelectedTypeLayoutSlots()
+    const frameSource = overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image
+    const isManualType = selectedType.id.startsWith('personalizar')
+
+    return (
+      <View style={[styles.eventOptionsSection, styles.setupPreviewSection, isPhone && styles.eventOptionsSectionPhone]}>
+        <View style={styles.panelHeader}>
+          <View>
+            <Text style={styles.panelEyebrow}>Previsualizador</Text>
+            <Text style={styles.panelTitle}>Así quedaría</Text>
+          </View>
+          <Pressable
+            onPress={openSelectedTypeLayoutEditor}
+            style={styles.setupPreviewEditButton}
+            accessibilityRole="button"
+            accessibilityLabel="Editar layout manual"
+          >
+            <Text style={styles.setupPreviewEditText}>{isMobile ? 'Editar' : 'Editar layout'}</Text>
+          </Pressable>
+        </View>
+
+        <View style={[styles.setupPreviewContent, isManualType && styles.setupPreviewContentManual, isMobile && styles.setupPreviewContentMobile]}>
+          {isManualType ? (
+            <View
+              style={[
+                styles.customLayoutSheet,
+                styles.setupPreviewManualSheet,
+                customMirrorMode && styles.customLayoutSheetMirrorPaper,
+                customMirrorMode && styles.setupPreviewManualSheetMirror,
+                isMobile && styles.customLayoutSheetMobile,
+              ]}
+            >
+              <View style={[styles.customLayoutStrip, styles.setupPreviewManualStrip]}>
+                <Image
+                  source={frameSource}
+                  style={styles.customLayoutBackgroundImage}
+                  accessibilityLabel={overlayFileName || `Plantilla ${selectedTemplate.name}`}
+                />
+                <View style={styles.customLayoutBackgroundShade} />
+                {renderCustomTextPreviewLayers(false)}
+                {!customLayoutSlots.length ? (
+                  <View style={styles.customLayoutEmptyState}>
+                    <Text style={styles.customLayoutEmptyTitle}>Fondo activo</Text>
+                    <Text style={styles.customLayoutEmptyText}>Agrega una foto para crear un recuadro.</Text>
+                  </View>
+                ) : null}
+                {renderCustomLayoutPhotoSlots(false, false)}
+              </View>
+              {customMirrorMode ? (
+                <View style={[styles.customLayoutStrip, styles.setupPreviewManualStrip]}>
+                  <Image
+                    source={frameSource}
+                    style={styles.customLayoutBackgroundImage}
+                    accessibilityLabel={`Copia de plantilla ${selectedTemplate.name}`}
+                  />
+                  <View style={styles.customLayoutBackgroundShade} />
+                  {renderCustomTextPreviewLayers(false)}
+                  {renderCustomLayoutPhotoSlots(false, false)}
+                </View>
+              ) : null}
+            </View>
+          ) : (
+            <View
+              style={[
+                styles.setupPreviewCanvas,
+                { aspectRatio: selectedType.width / selectedType.height },
+                isMobile && styles.setupPreviewCanvasMobile,
+              ]}
+            >
+              <Image source={frameSource} style={styles.setupPreviewFrameImage} accessibilityLabel={`Vista previa de ${selectedTemplate.name}`} />
+              <View style={styles.setupPreviewWash} />
+              <View style={styles.setupPreviewEventText}>
+                <Text style={styles.setupPreviewEventName}>{eventTitle}</Text>
+                <Text style={styles.setupPreviewEventMeta}>{selectedType.name} / {selectedTemplate.name}</Text>
+              </View>
+              {slots.length ? slots.map((slot) => (
+                <View
+                  key={`setup-preview-slot-${slot.photoNumber}`}
+                  style={[
+                    styles.setupPreviewSlot,
+                    {
+                      left: `${slot.x}%`,
+                      top: `${slot.y}%`,
+                      width: `${slot.width}%`,
+                      height: `${slot.height}%`,
+                    },
+                  ]}
+                >
+                  <Text style={styles.setupPreviewSlotNumber}>{slot.photoNumber}</Text>
+                  <Text style={styles.setupPreviewSlotLabel}>Foto</Text>
+                </View>
+              )) : (
+                <View style={styles.setupPreviewEmpty}>
+                  <Text style={styles.setupPreviewEmptyText}>Agrega recuadros para ver el diseño.</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          <View style={styles.setupPreviewInfo}>
+            <Text style={styles.setupPreviewInfoTitle}>{selectedType.name}</Text>
+            <Text style={styles.setupPreviewInfoText}>{selectedType.note}</Text>
+            <View style={styles.setupPreviewStats}>
+              <Text style={styles.setupPreviewStat}>{slots.length || selectedShotCount} foto{(slots.length || selectedShotCount) === 1 ? '' : 's'}</Text>
+              <Text style={styles.setupPreviewStat}>{selectedTemplate.name}</Text>
+            </View>
+            <Text style={styles.setupPreviewHint}>Puedes editar posición, tamaño, textos, colores y marco desde el layout manual.</Text>
+          </View>
+        </View>
+      </View>
+    )
+  }
 
   const renderEventOptionsScreen = () => (
     <View style={styles.eventOptionsPage}>
@@ -3566,93 +5452,7 @@ const WebApp = () => {
           </View>
         </View>
 
-        {selectedType.id === 'personalizar-5x15' ? (
-          <View style={[styles.eventOptionsSection, isPhone && styles.eventOptionsSectionPhone]}>
-            <View style={styles.panelHeader}>
-            <View>
-              <Text style={styles.panelEyebrow}>Personalizar</Text>
-              <Text style={styles.panelTitle}>Textos y animación</Text>
-            </View>
-              <Text style={styles.nextShot}>Texto normal</Text>
-            </View>
-
-            <View style={styles.photoTextQuickPanel}>
-              <Pressable
-                onPress={() => {
-                  setShowCustomPhotoLayoutScreen(true)
-                  updateAppRoute('personalizar')
-                }}
-                style={styles.customOpenButton}
-                accessibilityRole="button"
-                accessibilityLabel="Abrir cantidad y orden de fotos"
-              >
-                <Text style={styles.customOpenTitle}>Layout manual</Text>
-                <Text style={styles.customOpenMeta}>{customPhotoCount ? `${customPhotoCount} recuadro${customPhotoCount === 1 ? '' : 's'}` : 'Fondo vacío / agregar fotos'}</Text>
-              </Pressable>
-              <View style={styles.scriptPreviewBox}>
-                <Text style={styles.normalPreviewName}>{getPhotoNameText()}</Text>
-                {getPhotoEventText() ? <Text style={styles.normalPreviewDetail}>{getPhotoEventText()}</Text> : null}
-                <Text style={styles.normalPreviewDate}>{getPhotoDateText()}</Text>
-                <Text style={styles.scriptPreviewMeta}>Nombre, fecha y texto en letra normal.</Text>
-              </View>
-              <TextInput
-                value={photoNameText}
-                onChangeText={(value) => {
-                  setPhotoNameText(value)
-                  setCaptureStatus('Nombre de la foto actualizado.')
-                }}
-                placeholder={`Nombre (${eventTitle})`}
-                placeholderTextColor="#9ca3af"
-                style={styles.scriptInput}
-              />
-              <TextInput
-                value={photoEventText}
-                onChangeText={(value) => {
-                  setPhotoEventText(value)
-                  setCaptureStatus('Texto inferior de la foto actualizado.')
-                }}
-                placeholder="Texto inferior opcional"
-                placeholderTextColor="#9ca3af"
-                style={styles.scriptInput}
-              />
-              <TextInput
-                value={photoDateText}
-                onChangeText={(value) => {
-                  setPhotoDateText(value)
-                  setCaptureStatus('Fecha de la foto actualizada.')
-                }}
-                placeholder={`Fecha (${formatEventDate()})`}
-                placeholderTextColor="#9ca3af"
-                style={styles.scriptInput}
-              />
-              <TextInput
-                value={photoScriptText}
-                onChangeText={(value) => {
-                  setPhotoScriptText(value)
-                  setCaptureStatus('Frase superior de la foto actualizada.')
-                }}
-                placeholder="Frase superior de la tira"
-                placeholderTextColor="#9ca3af"
-                style={styles.scriptInput}
-              />
-              <View style={styles.animationPicker}>
-                {captureAnimationPresets.map((animation) => (
-                  <Pressable
-                    key={animation.id}
-                    onPress={() => {
-                      setCaptureAnimation(animation.id)
-                      setCaptureStatus(`Animación antes y entre fotos: ${animation.label}.`)
-                    }}
-                    style={[styles.animationChoice, captureAnimation === animation.id && styles.animationChoiceActive]}
-                  >
-                    <View style={styles.animationChoiceIcon} />
-                    <Text style={[styles.animationChoiceText, captureAnimation === animation.id && styles.animationChoiceTextActive]}>{animation.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          </View>
-        ) : null}
+        {renderEventSetupPreview()}
 
         <View style={[styles.eventOptionsSection, isPhone && styles.eventOptionsSectionPhone]}>
           <View style={styles.panelHeader}>
@@ -3722,9 +5522,114 @@ const WebApp = () => {
     </View>
   )
 
+  const getCustomTextPreviewItems = () => [
+    { id: 'script', label: 'Frase', value: photoScriptText.trim() },
+    { id: 'name', label: 'Nombre', value: getPhotoNameText() },
+    { id: 'event', label: 'Evento', value: getPhotoEventText() },
+    { id: 'date', label: 'Fecha', value: getPhotoDateText() },
+  ].filter((item) => item.value)
+
+  const renderCustomTextPreviewLayers = (interactive = false) => getCustomTextPreviewItems().map((item) => {
+    const layer = customTextLayers[item.id] || defaultCustomTextLayers[item.id]
+    const selected = interactive && selectedCustomTextLayer === item.id
+    const content = (
+      <Text
+        style={[
+          styles.customTextLayerValue,
+          {
+            color: layer.color,
+            fontFamily: layer.font,
+            fontSize: `clamp(${Math.max(10, layer.size - 4)}px, ${layer.size / 10}vw, ${layer.size + 8}px)`,
+            lineHeight: `clamp(${Math.max(14, layer.size)}px, ${(layer.size + 5) / 10}vw, ${layer.size + 14}px)`,
+          },
+        ]}
+      >
+        {item.value}
+      </Text>
+    )
+    const layerStyle = [
+      styles.customTextLayer,
+      {
+        left: `${layer.x}%`,
+        top: `${layer.y}%`,
+        width: `${layer.width}%`,
+      },
+      selected && styles.customTextLayerSelected,
+      !interactive && styles.customMirrorPreviewLayer,
+    ]
+
+    if (!interactive) {
+      return (
+        <View key={`custom-text-preview-${item.id}`} style={layerStyle}>
+          {content}
+        </View>
+      )
+    }
+
+    return (
+      <Pressable
+        key={`custom-text-${item.id}`}
+        onPress={() => setSelectedCustomTextLayer(item.id)}
+        onPressIn={(event) => beginCustomTextPointer(item.id, event)}
+        style={layerStyle}
+        accessibilityRole="button"
+        accessibilityLabel={`Editar texto ${item.label}`}
+      >
+        {content}
+      </Pressable>
+    )
+  })
+
+  const renderCustomLayoutPhotoSlots = (interactive = false, mutedPreview = !interactive) => customLayoutSlots.map((slot, index) => {
+    const photoNumber = slot.photoNumber
+    const selected = interactive && selectedCustomLayoutPhotos.includes(photoNumber)
+    if (!slot) return null
+    const slotStyle = [
+      styles.customLayoutSlot,
+      !interactive && mutedPreview && styles.customLayoutSlotMirror,
+      {
+        left: `${slot.x}%`,
+        top: `${slot.y}%`,
+        width: `${slot.width}%`,
+        height: `${slot.height}%`,
+        zIndex: selected ? 10 : index + 1,
+      },
+      selected && styles.customLayoutSlotSelected,
+    ]
+
+    if (!interactive) {
+      return (
+        <View key={`custom-layout-preview-slot-${photoNumber}-${index}`} style={slotStyle}>
+          <Text style={styles.customLayoutSlotNumber}>{photoNumber}</Text>
+          <Text style={styles.customLayoutSlotMeta}>Foto {photoNumber}</Text>
+        </View>
+      )
+    }
+
+    return (
+      <Pressable
+        key={`custom-layout-slot-${photoNumber}-${index}`}
+        testID={`custom-layout-slot-${photoNumber}`}
+        onPress={() => selectCustomLayoutPhoto(photoNumber)}
+        onPressIn={(event) => beginCustomLayoutPointer(photoNumber, 'move', event)}
+        style={slotStyle}
+      >
+        <Text style={styles.customLayoutSlotNumber}>{photoNumber}</Text>
+        <Text style={styles.customLayoutSlotMeta}>Foto {photoNumber}</Text>
+        <Pressable
+          testID={`custom-layout-resize-${photoNumber}`}
+          onPressIn={(event) => beginCustomLayoutPointer(photoNumber, 'resize', event)}
+          style={styles.customLayoutResizeHandle}
+        >
+          <Text style={styles.customLayoutResizeText}>↘</Text>
+        </Pressable>
+      </Pressable>
+    )
+  })
+
   const renderCustomPhotoLayoutScreen = () => (
-    <View style={styles.customLayoutPage}>
-      <View style={[styles.startEditorHeader, isMobile && styles.startEditorHeaderMobile]}>
+    <View style={[styles.customLayoutPage, isPortraitMirrorScreen && styles.customLayoutPagePortrait]}>
+      <View style={[styles.startEditorHeader, isMobile && styles.startEditorHeaderMobile, isPortraitMirrorScreen && styles.startEditorHeaderPortrait]}>
         <View style={styles.startEditorHeading}>
           <Text style={styles.panelEyebrow}>Personalizar</Text>
           <Text style={[styles.startEditorTitle, isMobile && styles.startEditorTitleMobile]}>Layout manual</Text>
@@ -3734,12 +5639,20 @@ const WebApp = () => {
         </View>
       </View>
 
-      <View style={[styles.customLayoutContent, isMobile && styles.customLayoutContentMobile]}>
+      <View style={[styles.customLayoutContent, isMobile && styles.customLayoutContentMobile, isPortraitMirrorScreen && styles.customLayoutContentPortrait]}>
         <View style={styles.customLayoutPreviewPanel}>
-          <View style={[styles.customLayoutSheet, isMobile && styles.customLayoutSheetMobile]}>
+          <View
+            style={[
+              styles.customLayoutSheet,
+              customMirrorMode && styles.customLayoutSheetMirrorPaper,
+              isMobile && styles.customLayoutSheetMobile,
+              isPortraitMirrorScreen && styles.customLayoutSheetPortrait,
+              isPortraitMirrorScreen && customMirrorMode && styles.customLayoutSheetMirrorPaperPortrait,
+            ]}
+          >
             <View
               ref={customEditorStripRef}
-              style={[styles.customLayoutStrip, styles.customLayoutStripEditable]}
+              style={[styles.customLayoutStrip, customMirrorMode && styles.customLayoutStripHalf, styles.customLayoutStripEditable]}
             >
               <Image
                 source={overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image}
@@ -3753,95 +5666,39 @@ const WebApp = () => {
               {customAlignmentGuides.y.map((guide) => (
                 <View key={`guide-y-${guide}`} style={[styles.customAlignGuideHorizontal, { top: `${guide}%` }]} />
               ))}
-              {[
-                { id: 'script', label: 'Frase', value: photoScriptText.trim() || photoTextPresets[0] },
-                { id: 'name', label: 'Nombre', value: getPhotoNameText() },
-                { id: 'event', label: 'Evento', value: getPhotoEventText() },
-                { id: 'date', label: 'Fecha', value: getPhotoDateText() },
-              ].filter((item) => item.value).map((item) => {
-                const layer = customTextLayers[item.id] || defaultCustomTextLayers[item.id]
-                const selected = selectedCustomTextLayer === item.id
-                return (
-                  <Pressable
-                    key={`custom-text-${item.id}`}
-                    onPress={() => setSelectedCustomTextLayer(item.id)}
-                    onPressIn={(event) => beginCustomTextPointer(item.id, event)}
-                    style={[
-                      styles.customTextLayer,
-                      {
-                        left: `${layer.x}%`,
-                        top: `${layer.y}%`,
-                        width: `${layer.width}%`,
-                      },
-                      selected && styles.customTextLayerSelected,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Editar texto ${item.label}`}
-                  >
-                    <Text
-                      style={[
-                        styles.customTextLayerValue,
-                        {
-                          color: layer.color,
-                          fontFamily: layer.font,
-                          fontSize: `clamp(${Math.max(10, layer.size - 4)}px, ${layer.size / 10}vw, ${layer.size + 8}px)`,
-                          lineHeight: `clamp(${Math.max(14, layer.size)}px, ${(layer.size + 5) / 10}vw, ${layer.size + 14}px)`,
-                        },
-                      ]}
-                    >
-                      {item.value}
-                    </Text>
-                  </Pressable>
-                )
-              })}
+              {renderCustomTextPreviewLayers(true)}
               {!customLayoutSlots.length ? (
                 <View style={styles.customLayoutEmptyState}>
                   <Text style={styles.customLayoutEmptyTitle}>Fondo activo</Text>
                   <Text style={styles.customLayoutEmptyText}>Toca “Agregar foto” para crear un recuadro.</Text>
                 </View>
               ) : null}
-              {customLayoutSlots.map((slot, index) => {
-                const photoNumber = slot.photoNumber
-                const selected = selectedCustomLayoutPhoto === photoNumber
-                if (!slot) return null
-                return (
-                  <Pressable
-                    key={`custom-layout-slot-${photoNumber}-${index}`}
-                    testID={`custom-layout-slot-${photoNumber}`}
-                    onPress={() => setSelectedCustomLayoutPhoto(photoNumber)}
-                    onPressIn={(event) => beginCustomLayoutPointer(photoNumber, 'move', event)}
-                    style={[
-                      styles.customLayoutSlot,
-                      {
-                        left: `${slot.x}%`,
-                        top: `${slot.y}%`,
-                        width: `${slot.width}%`,
-                        height: `${slot.height}%`,
-                        zIndex: selected ? 10 : index + 1,
-                      },
-                      selected && styles.customLayoutSlotSelected,
-                    ]}
-                  >
-                    <Text style={styles.customLayoutSlotNumber}>{photoNumber}</Text>
-                    <Text style={styles.customLayoutSlotMeta}>Foto {photoNumber}</Text>
-                    <Pressable
-                      testID={`custom-layout-resize-${photoNumber}`}
-                      onPressIn={(event) => beginCustomLayoutPointer(photoNumber, 'resize', event)}
-                      style={styles.customLayoutResizeHandle}
-                    >
-                      <Text style={styles.customLayoutResizeText}>↘</Text>
-                    </Pressable>
-                  </Pressable>
-                )
-              })}
+              {renderCustomLayoutPhotoSlots(true)}
             </View>
+            {customMirrorMode ? (
+              <View style={[styles.customLayoutStrip, styles.customLayoutStripHalf, styles.customLayoutMirrorCopy]}>
+                <Image
+                  source={overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image}
+                  style={styles.customLayoutBackgroundImage}
+                  accessibilityLabel={`Copia de plantilla ${selectedTemplate.name}`}
+                />
+                <View style={styles.customLayoutBackgroundShade} />
+                {renderCustomTextPreviewLayers(false)}
+                {renderCustomLayoutPhotoSlots(false)}
+                <View style={styles.customLayoutMirrorBadge}>
+                  <Text style={styles.customLayoutMirrorBadgeText}>Copia 5x15</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
           <Text style={styles.customLayoutHint}>
-            Arrastra los recuadros sobre el fondo. Al imprimir, la app repite el diseño si necesitas dos tiras.
+            {customMirrorMode
+              ? 'Modo espejo activo: editas la tira izquierda 5x15 y la app imprime una copia igual en la derecha para papel 10x15.'
+              : 'Arrastra los recuadros sobre el fondo. Activa modo espejo para imprimir dos tiras 5x15 en papel 10x15.'}
           </Text>
         </View>
 
-        <View style={styles.customLayoutControls}>
+        <View style={[styles.customLayoutControls, isPortraitMirrorScreen && styles.customLayoutControlsPortrait]}>
           <View style={styles.customMenuTabs}>
             {[
               { id: 'photos', label: 'Fotos' },
@@ -3881,8 +5738,40 @@ const WebApp = () => {
               <Pressable onPress={deleteCustomLayoutPhoto} disabled={!customLayoutSlots.length} style={[styles.customManualButton, !customLayoutSlots.length && styles.customManualButtonDisabled]} accessibilityRole="button" accessibilityLabel="Borrar recuadro seleccionado">
                 <Text style={styles.customManualButtonText}>Borrar</Text>
               </Pressable>
+              <Pressable
+                onPress={() => {
+                  setMultiCustomLayoutSelect((current) => {
+                    const next = !current
+                    if (!next) setSelectedCustomLayoutPhotos([selectedCustomLayoutPhoto])
+                    return next
+                  })
+                  setCaptureStatus(`Selección múltiple ${multiCustomLayoutSelect ? 'desactivada' : 'activa'}.`)
+                }}
+                style={[styles.customManualButton, multiCustomLayoutSelect && styles.customManualButtonActive]}
+                accessibilityRole="button"
+                accessibilityLabel="Seleccionar varios recuadros"
+              >
+                <Text style={[styles.customManualButtonText, multiCustomLayoutSelect && styles.customManualButtonTextActive]}>Seleccionar varios</Text>
+              </Pressable>
               <Pressable onPress={resetCustomPhotoLayout} style={styles.customManualGhostButton} accessibilityRole="button" accessibilityLabel="Limpiar todos los recuadros">
                 <Text style={styles.customManualGhostText}>Limpiar fondo</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setCustomMirrorMode((current) => !current)
+                  setPhotoFrames([])
+                  setFinalPhotoUrl('')
+                  clearSavedPhoto()
+                  setRetakeFrameIndex(null)
+                  setCaptureStatus(`Modo espejo ${customMirrorMode ? 'desactivado' : 'activado'}.`)
+                }}
+                style={[styles.customManualMirrorButton, customMirrorMode && styles.customManualMirrorButtonActive]}
+                accessibilityRole="button"
+                accessibilityLabel="Activar modo espejo"
+              >
+                <Text style={[styles.customManualMirrorText, customMirrorMode && styles.customManualMirrorTextActive]}>
+                  Modo espejo {customMirrorMode ? 'activo' : ''}
+                </Text>
               </Pressable>
             </View>
           </View> : null}
@@ -3895,48 +5784,6 @@ const WebApp = () => {
               </View>
               <Text style={styles.customLayoutCount}>{customTextLabels[selectedCustomTextLayer]}</Text>
             </View>
-            <View style={styles.customTextGrid}>
-              <TextInput
-                value={photoNameText}
-                onChangeText={(value) => {
-                  setPhotoNameText(value)
-                  setCaptureStatus('Nombre del diseño actualizado.')
-                }}
-                placeholder="Nombre principal"
-                placeholderTextColor="#9ca3af"
-                style={styles.customTextInput}
-              />
-              <TextInput
-                value={photoEventText}
-                onChangeText={(value) => {
-                  setPhotoEventText(value)
-                  setCaptureStatus('Texto del evento actualizado.')
-                }}
-                placeholder="Texto del evento"
-                placeholderTextColor="#9ca3af"
-                style={styles.customTextInput}
-              />
-              <TextInput
-                value={photoDateText}
-                onChangeText={(value) => {
-                  setPhotoDateText(value)
-                  setCaptureStatus('Fecha del diseño actualizada.')
-                }}
-                placeholder="Fecha"
-                placeholderTextColor="#9ca3af"
-                style={styles.customTextInput}
-              />
-              <TextInput
-                value={photoScriptText}
-                onChangeText={(value) => {
-                  setPhotoScriptText(value)
-                  setCaptureStatus('Frase superior actualizada.')
-                }}
-                placeholder="Frase superior"
-                placeholderTextColor="#9ca3af"
-                style={styles.customTextInput}
-              />
-            </View>
             <View style={styles.customTextLayerPicker}>
               {[
                 { id: 'script', label: 'Frase' },
@@ -3946,19 +5793,84 @@ const WebApp = () => {
               ].map((item) => (
                 <Pressable
                   key={`text-picker-${item.id}`}
-                  onPress={() => setSelectedCustomTextLayer(item.id)}
+                  onPress={() => {
+                    setSelectedCustomTextLayer(item.id)
+                    setShowCustomTextColorPalette(false)
+                    setShowCustomTextFontMenu(false)
+                  }}
                   style={[styles.customTextPickerButton, selectedCustomTextLayer === item.id && styles.customTextPickerButtonActive]}
                 >
                   <Text style={[styles.customTextPickerText, selectedCustomTextLayer === item.id && styles.customTextPickerTextActive]}>{item.label}</Text>
                 </Pressable>
               ))}
             </View>
+            <View style={[styles.customTextGrid, styles.customTextGridSingle]}>
+              {selectedCustomTextLayer === 'name' ? (
+                <TextInput
+                  value={photoNameText}
+                  onChangeText={(value) => {
+                    setPhotoNameText(value)
+                    setCaptureStatus('Nombre del diseño actualizado.')
+                  }}
+                  placeholder="Nombre principal"
+                  placeholderTextColor="#9ca3af"
+                  style={styles.customTextInput}
+                />
+              ) : null}
+              {selectedCustomTextLayer === 'event' ? (
+                <TextInput
+                  value={photoEventText}
+                  onChangeText={(value) => {
+                    setPhotoEventText(value)
+                    setCaptureStatus('Texto del evento actualizado.')
+                  }}
+                  placeholder="Texto del evento"
+                  placeholderTextColor="#9ca3af"
+                  style={styles.customTextInput}
+                />
+              ) : null}
+              {selectedCustomTextLayer === 'date' ? (
+                <input
+                  type="date"
+                  value={dateTextToISO(photoDateText)}
+                  onChange={(event) => updatePhotoDateFromISO(event.target.value, 'Fecha del diseño actualizada.')}
+                  aria-label="Fecha del diseño"
+                  style={styles.customTextDateInput}
+                />
+              ) : null}
+              {selectedCustomTextLayer === 'script' ? (
+                <TextInput
+                  value={photoScriptText}
+                  onChangeText={(value) => {
+                    setPhotoScriptText(value)
+                    setCaptureStatus('Frase superior actualizada.')
+                  }}
+                  placeholder="Frase superior"
+                  placeholderTextColor="#9ca3af"
+                  style={styles.customTextInput}
+                />
+              ) : null}
+            </View>
             <View style={styles.customTextStyleGrid}>
-              <Pressable onPress={() => cycleCustomTextFont(selectedCustomTextLayer)} style={styles.customTextStyleButton}>
+              <Pressable
+                onPress={() => {
+                  setShowCustomTextColorPalette(false)
+                  setShowCustomTextFontMenu((current) => !current)
+                }}
+                style={styles.customTextStyleButton}
+              >
                 <Text style={styles.customTextStyleButtonText}>Fuente</Text>
-                <Text style={styles.customTextStyleButtonValue}>{customTextLayers[selectedCustomTextLayer]?.font}</Text>
+                <Text style={styles.customTextStyleButtonValue}>
+                  {uploadedCustomFonts.find((font) => font.family === customTextLayers[selectedCustomTextLayer]?.font)?.name || customTextLayers[selectedCustomTextLayer]?.font}
+                </Text>
               </Pressable>
-              <Pressable onPress={() => cycleCustomTextColor(selectedCustomTextLayer)} style={styles.customTextStyleButton}>
+              <Pressable
+                onPress={() => {
+                  setShowCustomTextFontMenu(false)
+                  setShowCustomTextColorPalette((current) => !current)
+                }}
+                style={styles.customTextStyleButton}
+              >
                 <Text style={styles.customTextStyleButtonText}>Color</Text>
                 <View style={[styles.customTextColorSwatch, { backgroundColor: customTextLayers[selectedCustomTextLayer]?.color }]} />
               </Pressable>
@@ -3974,6 +5886,70 @@ const WebApp = () => {
               >
                 <Text style={styles.customTextStyleButtonText}>Texto +</Text>
               </Pressable>
+              {showCustomTextFontMenu ? (
+                <View style={styles.customTextFontMenu}>
+                  {customFontChoices.map((font) => {
+                    const uploadedFont = uploadedCustomFonts.find((item) => item.family === font)
+                    const label = uploadedFont?.name || font
+                    const active = customTextLayers[selectedCustomTextLayer]?.font === font
+                    return (
+                      <Pressable
+                        key={`custom-text-font-${font}`}
+                        onPress={() => chooseCustomTextFont(selectedCustomTextLayer, font)}
+                        style={[styles.customTextFontChoice, active && styles.customTextFontChoiceActive]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Elegir fuente ${label}`}
+                      >
+                        <Text style={[styles.customTextFontChoiceText, active && styles.customTextFontChoiceTextActive, { fontFamily: font }]}>
+                          {label}
+                        </Text>
+                      </Pressable>
+                    )
+                  })}
+                  <label style={styles.customTextFontUpload}>
+                    <Text style={styles.customTextFontUploadTitle}>+ Subir fuente</Text>
+                    <Text style={styles.customTextFontUploadText}>TTF, OTF, WOFF</Text>
+                    <input
+                      accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"
+                      type="file"
+                      onChange={handleCustomFontFile}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                </View>
+              ) : null}
+              {showCustomTextColorPalette ? (
+                <View style={styles.customTextColorPalette}>
+                  <View style={styles.customTextColorPaletteHeader}>
+                    <Text style={styles.customTextColorPaletteTitle}>Paleta de colores</Text>
+                    <label style={styles.customTextColorPickerLabel}>
+                      <Text style={styles.customTextColorPickerText}>Color libre</Text>
+                      <input
+                        type="color"
+                        value={customTextLayers[selectedCustomTextLayer]?.color || defaultCustomTextLayers[selectedCustomTextLayer]?.color || '#111827'}
+                        onChange={(event) => chooseCustomTextColor(selectedCustomTextLayer, event.target.value)}
+                        style={styles.customTextColorPickerInput}
+                      />
+                    </label>
+                  </View>
+                  <View style={styles.customTextColorGrid}>
+                    {customTextColors.map((color) => {
+                      const active = (customTextLayers[selectedCustomTextLayer]?.color || defaultCustomTextLayers[selectedCustomTextLayer]?.color) === color
+                      return (
+                        <Pressable
+                          key={`custom-text-color-${color}`}
+                          onPress={() => chooseCustomTextColor(selectedCustomTextLayer, color)}
+                          style={[styles.customTextColorChoice, active && styles.customTextColorChoiceActive]}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Elegir color ${color}`}
+                        >
+                          <View style={[styles.customTextColorChoiceSwatch, { backgroundColor: color }]} />
+                        </Pressable>
+                      )
+                    })}
+                  </View>
+                </View>
+              ) : null}
               <Pressable onPress={() => nudgeCustomTextLayer(selectedCustomTextLayer, 'y', -1.5)} style={styles.customFineButton}>
                 <Text style={styles.customFineButtonText}>↑</Text>
               </Pressable>
@@ -4046,9 +6022,11 @@ const WebApp = () => {
             <View style={styles.customLayoutCardHeader}>
               <View>
                 <Text style={styles.panelEyebrow}>Mouse</Text>
-                <Text style={styles.customLayoutTitle}>Tamaño y posición</Text>
+              <Text style={styles.customLayoutTitle}>Tamaño y posición</Text>
               </View>
-              <Text style={styles.customLayoutCount}>{customLayoutSlots.length ? `Foto ${selectedCustomLayoutPhoto}` : 'Sin foto'}</Text>
+              <Text style={styles.customLayoutCount}>
+                {customLayoutSlots.length ? (selectedCustomLayoutPhotos.length > 1 ? `${selectedCustomLayoutPhotos.length} fotos` : `Foto ${selectedCustomLayoutPhoto}`) : 'Sin foto'}
+              </Text>
             </View>
             <View style={styles.customFineGrid}>
               <Pressable disabled={!customLayoutSlots.length} onPress={() => nudgeCustomLayoutPhoto(selectedCustomLayoutPhoto, 'y', -1.5)} style={[styles.customFineButton, !customLayoutSlots.length && styles.customFineButtonDisabled]} accessibilityRole="button" accessibilityLabel="Subir foto seleccionada">
@@ -4090,7 +6068,7 @@ const WebApp = () => {
             <View style={styles.customOrderList}>
               {customLayoutSlots.length ? customLayoutSlots.map((slot, index) => {
                 const photoNumber = slot.photoNumber
-                const selected = selectedCustomLayoutPhoto === photoNumber
+                const selected = selectedCustomLayoutPhotos.includes(photoNumber)
                 return (
                 <View key={`custom-order-${photoNumber}-${index}`} style={styles.customOrderRow}>
                   <View style={styles.customOrderBadge}>
@@ -4102,7 +6080,7 @@ const WebApp = () => {
                   </View>
                   <View style={styles.customOrderActions}>
                     <Pressable
-                      onPress={() => setSelectedCustomLayoutPhoto(photoNumber)}
+                      onPress={() => selectCustomLayoutPhoto(photoNumber)}
                       style={[styles.customOrderButton, selected && styles.customOrderButtonActive]}
                       accessibilityRole="button"
                       accessibilityLabel={`Seleccionar foto ${photoNumber}`}
@@ -4119,7 +6097,20 @@ const WebApp = () => {
           </View> : null}
 
           <Pressable
-            onPress={() => {
+            onPress={async () => {
+              setFinalPhotoUrl('')
+              clearSavedPhoto()
+              setRetakeFrameIndex(null)
+              setSelectedCustomLayoutPhotos(selectedCustomLayoutPhotos.length ? selectedCustomLayoutPhotos : [selectedCustomLayoutPhoto])
+              saveCurrentSetupToRecentEvents('Layout manual guardado en el evento.')
+              if (photoFrames.length >= selectedShotCount) {
+                setCaptureStatus('Layout manual guardado. Actualizando resultado final...')
+                const output = await composeFinalPhoto(photoFrames)
+                setFinalPhotoUrl(output)
+                setCaptureStatus('Layout manual guardado y resultado actualizado.')
+              } else {
+                setCaptureStatus('Layout manual guardado. Toma o repite las fotos para generar el resultado actualizado.')
+              }
               setShowCustomPhotoLayoutScreen(false)
               updateAppRoute('configurar-evento')
             }}
@@ -4188,15 +6179,18 @@ const WebApp = () => {
 
   const renderAnimationOverlay = () => {
     if (!animationOverlay) return null
-    if (animationOverlay.stage === 'beforeCountdown') return null
 
     const hasAnimationVideo = Boolean(animationOverlay.videoUrl || animationVideoUrl)
-    const fallbackTitle = animationOverlay.stage === 'afterCapture' ? 'Efecto entre fotos' : 'Video de animación'
+    const isBeforeCountdown = animationOverlay.stage === 'beforeCountdown'
+    const isAfterCapture = animationOverlay.stage === 'afterCapture'
+    const fallbackTitle = isBeforeCountdown ? 'SONRÍE' : isAfterCapture ? 'GENIAL' : 'LISTO'
+    const stageKicker = isBeforeCountdown ? 'DI QUESO' : isAfterCapture ? 'QUEDÓ' : 'VIRALCO'
+    const stageFooter = isBeforeCountdown ? 'Prepárate para brillar' : isAfterCapture ? 'Foto guardada' : 'Armando recuerdo'
 
     return (
-      <View style={styles.animationOverlay}>
-        <View style={[styles.animationHalo, animationOverlay.mode === 'confeti' && styles.animationHaloConfetti]} />
-        <View style={[styles.animationCard, animationOverlay.mode === 'destello' && styles.animationCardLight]}>
+      <View style={[styles.animationOverlay, isBeforeCountdown && styles.animationOverlayBefore]}>
+        <View style={[styles.animationHalo, (isBeforeCountdown || isAfterCapture) && styles.animationHaloLarge, animationOverlay.mode === 'confeti' && styles.animationHaloConfetti]} />
+        <View style={[styles.animationCard, (isBeforeCountdown || isAfterCapture) && styles.animationCardImmersive, animationOverlay.mode === 'destello' && styles.animationCardLight]}>
           {hasAnimationVideo ? (
             React.createElement('video', {
               src: animationOverlay.videoUrl || animationVideoUrl,
@@ -4206,18 +6200,20 @@ const WebApp = () => {
               loop: true,
               style: {
                 width: '100%',
-                height: 150,
+                height: isBeforeCountdown || isAfterCapture ? 'clamp(260px, 52svh, 680px)' : 150,
                 objectFit: 'cover',
                 display: 'block',
                 borderRadius: 8,
-                marginBottom: 12,
+                marginBottom: isBeforeCountdown || isAfterCapture ? 20 : 12,
               },
             })
           ) : (
             React.createElement(
               'div',
-              { className: `viralco-capture-effect viralco-capture-effect-${animationOverlay.mode || 'base'}` },
-              React.createElement('div', { className: 'viralco-effect-burst' }),
+              { className: `viralco-capture-effect viralco-capture-effect-${animationOverlay.mode || 'base'} viralco-capture-stage-${animationOverlay.stage || 'processing'}` },
+              React.createElement('div', { className: 'viralco-effect-scanline' }),
+              React.createElement('div', { className: 'viralco-effect-orbit viralco-effect-orbit-one' }),
+              React.createElement('div', { className: 'viralco-effect-orbit viralco-effect-orbit-two' }),
               React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-a' }),
               React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-b' }),
               React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-c' }),
@@ -4225,19 +6221,22 @@ const WebApp = () => {
               React.createElement('span', { className: 'viralco-effect-spark viralco-effect-spark-e' }),
               React.createElement(
                 'div',
-                { className: 'viralco-effect-photo' },
-                React.createElement('div', { className: 'viralco-effect-photo-top' }),
+                { className: 'viralco-effect-triangle' },
+                React.createElement('div', { className: 'viralco-effect-triangle-glow' }),
+                React.createElement('div', { className: 'viralco-effect-kicker' }, stageKicker),
                 React.createElement(
                   'div',
-                  { className: 'viralco-effect-photo-body' },
-                  React.createElement('div', { className: 'viralco-effect-check' }, '✓'),
-                  React.createElement('div', { className: 'viralco-effect-caption' }, fallbackTitle),
+                  { className: 'viralco-effect-camera' },
+                  React.createElement('div', { className: 'viralco-effect-camera-top' }),
+                  React.createElement('div', { className: 'viralco-effect-camera-lens' }),
                 ),
+                React.createElement('div', { className: 'viralco-effect-caption' }, fallbackTitle),
+                React.createElement('div', { className: 'viralco-effect-footer' }, stageFooter),
               ),
             )
           )}
-          <Text style={styles.animationTitle}>{animationOverlay.title}</Text>
-          <Text style={styles.animationText}>{animationOverlay.text}</Text>
+          {isBeforeCountdown || isAfterCapture ? null : <Text style={styles.animationTitle}>{animationOverlay.title}</Text>}
+          <Text style={[styles.animationText, (isBeforeCountdown || isAfterCapture) && styles.animationTextPill]}>{animationOverlay.text}</Text>
           <View style={styles.animationDots}>
             {[0, 1, 2].map((dot) => (
               <View key={`animation-dot-${dot}`} style={[styles.animationDot, dot === 1 && styles.animationDotMiddle]} />
@@ -4501,8 +6500,10 @@ const WebApp = () => {
     )
   }
 
-  const renderCamera = (shellStyle = null, onPress = null, showBadge = true, showLiveFrame = false) => {
+  const renderCamera = (shellStyle = null, onPress = null, showBadge = true, showLiveFrame = false, elementRef = videoRef, frameOpacity = 0.68) => {
     const CameraContainer = onPress ? Pressable : View
+    const activeLensMode = getActiveCameraLensMode()
+    const cameraTransform = `scaleX(-1) scale(${activeLensMode.previewScale || 1})`
 
     return (
       <CameraContainer
@@ -4513,14 +6514,14 @@ const WebApp = () => {
       >
       {cameraStream ? (
         React.createElement('video', {
-          ref: videoRef,
+          ref: elementRef,
           playsInline: true,
           muted: true,
           style: {
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            transform: 'scaleX(-1)',
+            transform: cameraTransform,
             display: 'block',
           },
         })
@@ -4530,7 +6531,7 @@ const WebApp = () => {
       <View style={styles.cameraShade} />
       {showLiveFrame ? (
         <>
-          {renderLiveCaptureFrameOverlay()}
+          {renderLiveCaptureFrameOverlay(frameOpacity)}
           <View style={styles.safeFrame} />
         </>
       ) : <View style={styles.safeFrame} />}
@@ -4713,6 +6714,7 @@ const WebApp = () => {
                     </View>
                     <Text style={styles.photoSettingValue}>{photoReviewSeconds} sec</Text>
                   </View>
+                  {renderCameraLensPicker(true)}
                   <Pressable
                     onPress={() => {
                       setCaptureOriginal((value) => !value)
@@ -4966,12 +6968,10 @@ const WebApp = () => {
 
   const renderMirrorShareMenu = () => {
     const actions = [
-      { key: 'Email', icon: '✉️', label: 'Email' },
-      { key: 'SMS', icon: '💬', label: 'SMS' },
       { key: 'WhatsApp', icon: '🟢', label: 'WhatsApp' },
-      { key: 'Compartir', icon: '📤', label: 'Share' },
-      { key: 'QR', icon: '▣', label: 'Scan QR' },
-      { key: 'Imprimir', icon: '🖨️', label: 'Print' },
+      { key: 'Compartir', icon: '📤', label: 'Compartir' },
+      { key: 'QR', icon: '▣', label: 'QR' },
+      { key: 'Imprimir', icon: '🖨️', label: 'Imprimir' },
     ]
 
     return (
@@ -5016,7 +7016,9 @@ const WebApp = () => {
   const renderEventGalleryThumb = () =>
     latestEventGalleryPhoto ? (
       <Pressable
-        onPress={() => setShowEventGallery(true)}
+        onPress={() => {
+          openEventGallery(eventGalleryId)
+        }}
         style={[styles.eventGalleryThumbButton, isMobile && styles.eventGalleryThumbButtonMobile, isPhone && styles.eventGalleryThumbButtonPhone]}
         accessibilityRole="button"
         accessibilityLabel="Abrir galería del evento"
@@ -5029,48 +7031,194 @@ const WebApp = () => {
       </Pressable>
     ) : null
 
-  const renderEventGalleryModal = () =>
-    showEventGallery ? (
+  const renderEventGalleryModal = () => {
+    const selectedFolder = selectedGalleryId
+      ? visibleGalleryFolders.find((folder) => folder.id === selectedGalleryId)
+      : null
+    const modalGalleryId = selectedFolder?.id || selectedGalleryId || eventGalleryId
+    const modalGalleryItems = selectedFolder?.items || (selectedGalleryId ? (eventGalleries[selectedGalleryId]?.items || []) : currentEventGallery)
+    const modalGalleryTitle = selectedFolder?.eventName || eventGalleries[selectedGalleryId]?.eventName || eventTitle
+    const selectedPrintIdSet = new Set(selectedGalleryPrintIds)
+    const selectedPrintItems = modalGalleryItems.filter((photo, index) => selectedPrintIdSet.has(getGalleryPhotoKey(photo, index)))
+    const allGallerySelected = modalGalleryItems.length > 0 && selectedPrintItems.length === modalGalleryItems.length
+    const viewedPhoto = selectedGalleryViewPhoto?.photo
+    const viewedPhotoSource = getGalleryPhotoSource(viewedPhoto)
+    const viewedPhotoIndex = Number.isFinite(selectedGalleryViewPhoto?.index) ? selectedGalleryViewPhoto.index : 0
+
+    return showEventGallery ? (
       <View style={styles.eventGalleryOverlay}>
-        <Pressable onPress={() => setShowEventGallery(false)} style={styles.eventGalleryBackdrop} />
+        <Pressable onPress={closeEventGallery} style={styles.eventGalleryBackdrop} />
         <View style={[styles.eventGalleryPanel, isMobile && styles.eventGalleryPanelMobile]}>
+          {viewedPhoto && viewedPhotoSource ? (
+            <View style={styles.eventGalleryViewer}>
+              <View style={[styles.eventGalleryViewerHeader, isPhone && styles.eventGalleryViewerHeaderPhone]}>
+                <View>
+                  <Text style={styles.eventGalleryEyebrow}>Vista de foto</Text>
+                  <Text style={[styles.eventGalleryTitle, styles.eventGalleryViewerTitle, isMobile && styles.eventGalleryTitleMobile]}>
+                    Foto {modalGalleryItems.length - viewedPhotoIndex}
+                  </Text>
+                  <Text style={[styles.eventGalleryMeta, styles.eventGalleryViewerMeta]}>{viewedPhoto.photoType || modalGalleryTitle}</Text>
+                </View>
+                <View style={styles.eventGalleryViewerActions}>
+                  <Pressable
+                    onPress={() => printGalleryQueue([viewedPhoto])}
+                    style={[styles.eventGalleryMiniButton, styles.eventGalleryMiniButtonPrimary, styles.eventGalleryViewerActionButton]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={[styles.eventGalleryMiniButtonText, styles.eventGalleryMiniButtonPrimaryText]}>Imprimir</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      deleteGalleryPhoto(modalGalleryId, viewedPhoto, viewedPhotoIndex)
+                      setSelectedGalleryViewPhoto(null)
+                    }}
+                    style={[styles.eventGalleryMiniButton, styles.eventGalleryMiniButtonDanger, styles.eventGalleryViewerActionButton]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={[styles.eventGalleryMiniButtonText, styles.eventGalleryMiniButtonDangerText]}>Eliminar</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setSelectedGalleryViewPhoto(null)}
+                    style={[styles.eventGalleryClose, isMobile && styles.eventGalleryCloseMobile]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cerrar foto grande"
+                  >
+                    <Text style={[styles.eventGalleryCloseText, isMobile && styles.eventGalleryCloseTextMobile]}>×</Text>
+                  </Pressable>
+                </View>
+              </View>
+              <View style={styles.eventGalleryViewerBody}>
+                <Image source={{ uri: viewedPhotoSource }} style={styles.eventGalleryViewerImage} accessibilityLabel="Foto grande de la galería" />
+              </View>
+            </View>
+          ) : (
+            <>
           <View style={[styles.eventGalleryHeader, isMobile && styles.eventGalleryHeaderMobile]}>
             <View>
               <Text style={styles.eventGalleryEyebrow}>Galería del evento</Text>
-              <Text style={[styles.eventGalleryTitle, isMobile && styles.eventGalleryTitleMobile]}>{eventTitle}</Text>
-              <Text style={styles.eventGalleryMeta}>{currentEventGallery.length} foto{currentEventGallery.length === 1 ? '' : 's'} guardada{currentEventGallery.length === 1 ? '' : 's'}</Text>
+              <Text style={[styles.eventGalleryTitle, isMobile && styles.eventGalleryTitleMobile]}>{modalGalleryTitle}</Text>
+              <Text style={styles.eventGalleryMeta}>
+                {modalGalleryItems.length} foto{modalGalleryItems.length === 1 ? '' : 's'} guardada{modalGalleryItems.length === 1 ? '' : 's'}
+                {selectedPrintItems.length ? ` · ${selectedPrintItems.length} en cola` : ''}
+              </Text>
             </View>
-            <Pressable onPress={() => setShowEventGallery(false)} style={[styles.eventGalleryClose, isMobile && styles.eventGalleryCloseMobile]}>
+            <Pressable onPress={closeEventGallery} style={[styles.eventGalleryClose, isMobile && styles.eventGalleryCloseMobile]}>
               <Text style={[styles.eventGalleryCloseText, isMobile && styles.eventGalleryCloseTextMobile]}>×</Text>
             </Pressable>
           </View>
+          <View style={[styles.eventGalleryActionBar, isPhone && styles.eventGalleryActionBarPhone]}>
+            <View style={styles.eventGallerySelectionPill}>
+              <Text style={styles.eventGallerySelectionText}>
+                {selectedPrintItems.length ? `${selectedPrintItems.length} seleccionada${selectedPrintItems.length === 1 ? '' : 's'}` : 'Toca fotos para imprimir'}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                setSelectedGalleryPrintIds(allGallerySelected ? [] : modalGalleryItems.map((photo, index) => getGalleryPhotoKey(photo, index)))
+              }}
+              style={styles.eventGalleryActionButton}
+              accessibilityRole="button"
+            >
+              <Text style={styles.eventGalleryActionButtonText}>{allGallerySelected ? 'Limpiar' : 'Todas'}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => shareWholeGallery(modalGalleryItems, modalGalleryTitle)}
+              disabled={!modalGalleryItems.length}
+              style={[styles.eventGalleryActionButton, !modalGalleryItems.length && styles.eventGalleryPrimaryActionButtonDisabled]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.eventGalleryActionButtonText}>Compartir galería</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => downloadGalleryZip(modalGalleryItems, modalGalleryTitle)}
+              disabled={!modalGalleryItems.length}
+              style={[styles.eventGalleryActionButton, !modalGalleryItems.length && styles.eventGalleryPrimaryActionButtonDisabled]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.eventGalleryActionButtonText}>ZIP para Drive</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => printGalleryQueue(selectedPrintItems)}
+              disabled={!selectedPrintItems.length}
+              style={[styles.eventGalleryPrimaryActionButton, !selectedPrintItems.length && styles.eventGalleryPrimaryActionButtonDisabled]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.eventGalleryPrimaryActionText}>Imprimir cola</Text>
+            </Pressable>
+          </View>
           <ScrollView contentContainerStyle={[styles.eventGalleryGrid, isMobile && styles.eventGalleryGridMobile, isPhone && styles.eventGalleryGridPhone]}>
-            {currentEventGallery.map((photo, index) => (
-              <Pressable
-                key={photo.id || `${photo.src}-${index}`}
-                onPress={() => {
-                  setFinalPhotoUrl(photo.localUrl || photo.src)
-                  if (photo.publicUrl) {
-                    setSavedPhotoUrl(photo.publicUrl)
-                    setQrPhotoUrl(photo.publicUrl)
-                  }
-                  setShowEventGallery(false)
-                }}
-                style={styles.eventGalleryCard}
-                accessibilityRole="button"
-                accessibilityLabel={`Abrir foto ${index + 1}`}
-              >
-                <Image source={{ uri: photo.src }} style={[styles.eventGalleryImage, isMobile && styles.eventGalleryImageMobile]} accessibilityLabel={`Foto guardada ${index + 1}`} />
-                <View style={styles.eventGalleryCardFooter}>
-                  <Text style={styles.eventGalleryCardTitle}>Foto {currentEventGallery.length - index}</Text>
-                  <Text style={styles.eventGalleryCardText}>{photo.photoType}</Text>
+            {modalGalleryItems.map((photo, index) => {
+              const photoKey = getGalleryPhotoKey(photo, index)
+              const photoSelected = selectedPrintIdSet.has(photoKey)
+              return (
+                <View
+                  key={photoKey}
+                  style={[styles.eventGalleryCard, photoSelected && styles.eventGalleryCardSelected]}
+                >
+                  <Pressable
+                    onPress={() => toggleGalleryPrintSelection(photo, index)}
+                    style={styles.eventGalleryImageWrap}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Seleccionar foto ${index + 1} para imprimir`}
+                  >
+                    <Image source={{ uri: photo.src }} style={[styles.eventGalleryImage, isMobile && styles.eventGalleryImageMobile]} accessibilityLabel={`Foto guardada ${index + 1}`} />
+                    <View style={[styles.eventGallerySelectBadge, photoSelected && styles.eventGallerySelectBadgeActive]}>
+                      <Text style={[styles.eventGallerySelectBadgeText, photoSelected && styles.eventGallerySelectBadgeTextActive]}>{photoSelected ? '✓' : '+'}</Text>
+                    </View>
+                  </Pressable>
+                  <View style={styles.eventGalleryCardFooter}>
+                    <Text style={styles.eventGalleryCardTitle}>Foto {modalGalleryItems.length - index}</Text>
+                    <Text style={styles.eventGalleryCardText}>{photo.photoType}</Text>
+                    <View style={styles.eventGalleryCardActions}>
+                      <Pressable
+                        onPress={(event) => {
+                          stopGalleryActionEvent(event)
+                          openGalleryPhotoViewer(photo, index)
+                        }}
+                        style={styles.eventGalleryMiniButton}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.eventGalleryMiniButtonText}>Ver</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={(event) => {
+                          stopGalleryActionEvent(event)
+                          printGalleryQueue([photo])
+                        }}
+                        style={[styles.eventGalleryMiniButton, styles.eventGalleryMiniButtonPrimary]}
+                        accessibilityRole="button"
+                      >
+                        <Text style={[styles.eventGalleryMiniButtonText, styles.eventGalleryMiniButtonPrimaryText]}>Imprimir</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={(event) => {
+                          stopGalleryActionEvent(event)
+                          deleteGalleryPhoto(modalGalleryId, photo, index)
+                        }}
+                        style={[styles.eventGalleryMiniButton, styles.eventGalleryMiniButtonDanger]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Eliminar foto ${index + 1} de la galería`}
+                      >
+                        <Text style={[styles.eventGalleryMiniButtonText, styles.eventGalleryMiniButtonDangerText]}>Eliminar</Text>
+                      </Pressable>
+                    </View>
+                  </View>
                 </View>
-              </Pressable>
-            ))}
+              )
+            })}
+            {!modalGalleryItems.length ? (
+              <View style={styles.eventGalleryEmptyState}>
+                <Text style={styles.eventGalleryCardTitle}>Sin fotos guardadas</Text>
+                <Text style={styles.eventGalleryCardText}>Cuando este evento tome fotos, aparecerán aquí.</Text>
+              </View>
+            ) : null}
           </ScrollView>
+            </>
+          )}
         </View>
       </View>
     ) : null
+  }
 
   const renderMirrorPreviewScreen = () => (
     <View style={styles.mirrorPreviewPage}>
@@ -5095,8 +7243,20 @@ const WebApp = () => {
           <Text style={[styles.mirrorTitle, isMobile && styles.mirrorTitleMobile, isMobile && styles.mirrorPreviewTitleMobile]}>Preview</Text>
           <Text style={[styles.mirrorSubText, isMobile && styles.mirrorPreviewSubTextMobile]}>{eventTitle} / {selectedType.name}</Text>
         </View>
-        <View style={[styles.mirrorStatusPill, styles.mirrorPreviewStatusPill]}>
-          <Text style={[styles.mirrorStatusText, isMobile && styles.mirrorPreviewStatusTextMobile]}>{framesReady}/{selectedShotCount}</Text>
+        <View style={[styles.mirrorPreviewTopActions, isMobile && styles.mirrorPreviewTopActionsMobile]}>
+          <Pressable
+            onPress={returnToHomeScreen}
+            style={[styles.mirrorPreviewHomeButton, isMobile && styles.mirrorPreviewHomeButtonMobile]}
+            accessibilityRole="button"
+            accessibilityLabel="Volver a pantalla principal"
+          >
+            <Text style={[styles.mirrorPreviewHomeButtonText, isMobile && styles.mirrorPreviewHomeButtonTextMobile]}>
+              {isMobile ? 'Inicio' : '← Inicio'}
+            </Text>
+          </Pressable>
+          <View style={[styles.mirrorStatusPill, styles.mirrorPreviewStatusPill]}>
+            <Text style={[styles.mirrorStatusText, isMobile && styles.mirrorPreviewStatusTextMobile]}>{framesReady}/{selectedShotCount}</Text>
+          </View>
         </View>
       </View>
 
@@ -5335,8 +7495,8 @@ const WebApp = () => {
               <Text style={styles.editorSummaryLabel}>Marco base</Text>
             </View>
           </View>
-          <Pressable onPress={openPhotoDesignScreen} style={styles.editorNextButton}>
-            <Text style={styles.editorNextButtonText}>Diseño de foto →</Text>
+          <Pressable onPress={() => openCaptureConfigScreen(false)} style={styles.editorNextButton}>
+            <Text style={styles.editorNextButtonText}>Configuración de captura →</Text>
           </Pressable>
         </View>
       </View>
@@ -5653,6 +7813,144 @@ const WebApp = () => {
     </View>
   )
 
+  const renderCaptureLivePreview = () => (
+    <View style={styles.captureLivePreviewSection}>
+      <View style={styles.captureLivePreviewControls}>
+        <View style={styles.captureLivePreviewCopy}>
+          <Text style={styles.captureLivePreviewTitle}>Vista con cámara</Text>
+          <Text style={styles.captureLivePreviewText}>
+            Revisa el encuadre real y el marco antes de abrir el evento.
+          </Text>
+        </View>
+        <Pressable
+          onPress={() => {
+            if (showCaptureLivePreview) {
+              setShowCaptureLivePreview(false)
+              stopCamera()
+              setCaptureStatus('Vista de cámara cerrada.')
+              return
+            }
+            setShowCaptureLivePreview(true)
+            setTimeout(() => {
+              openCamera({
+                force: true,
+                reason: `Abriendo vista previa en modo ${getActiveCameraLensMode().label}...`,
+              })
+            }, 0)
+          }}
+          style={[styles.captureLivePreviewButton, showCaptureLivePreview && styles.captureLivePreviewButtonActive]}
+          accessibilityRole="button"
+          accessibilityLabel={showCaptureLivePreview ? 'Cerrar vista previa de cámara' : 'Abrir vista previa de cámara'}
+        >
+          <Text style={[styles.captureLivePreviewButtonText, showCaptureLivePreview && styles.captureLivePreviewButtonTextActive]}>
+            {showCaptureLivePreview ? 'Cerrar cámara' : 'Abrir cámara'}
+          </Text>
+        </Pressable>
+      </View>
+
+      {showCaptureLivePreview ? (
+        <View style={styles.captureLivePreviewStage}>
+          {renderCamera(styles.captureConfigLiveCamera, null, false, true, captureConfigVideoRef, 0.42)}
+          <View style={styles.captureLivePreviewStatus}>
+            <View style={[styles.captureLivePreviewStatusDot, cameraStream && styles.captureLivePreviewStatusDotReady]} />
+            <Text style={styles.captureLivePreviewStatusText}>
+              {cameraOpening ? 'Conectando cámara...' : cameraStream ? `Cámara activa · ${getActiveCameraLensMode().label}` : 'Permite el acceso a la cámara para verla aquí.'}
+            </Text>
+          </View>
+          {cameraError ? <Text style={styles.captureLivePreviewError}>{cameraError}</Text> : null}
+        </View>
+      ) : null}
+    </View>
+  )
+
+  const renderCaptureConfigPreview = () => {
+    const slots = getSelectedTypeLayoutSlots()
+    const frameSource = overlayImageUrl ? { uri: overlayImageUrl } : selectedTemplate.image
+    const usesManualText = selectedType.id.startsWith('personalizar')
+
+    return (
+      <View style={[styles.photoConfigCard, styles.capturePreviewConfigCard]}>
+        <View style={styles.capturePreviewConfigHeader}>
+          <View>
+            <Text style={styles.photoConfigTitle}>Vista previa de foto</Text>
+            <Text style={styles.capturePreviewConfigMeta}>
+              {selectedType.name} / {selectedTemplate.name} / {slots.length || selectedShotCount} foto{(slots.length || selectedShotCount) === 1 ? '' : 's'}
+            </Text>
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.capturePreviewConfigCanvas,
+            { aspectRatio: selectedType.width / selectedType.height },
+            isPhone && styles.capturePreviewConfigCanvasPhone,
+          ]}
+        >
+          <Image source={frameSource} style={styles.capturePreviewConfigFrame} accessibilityLabel={`Vista previa de ${selectedTemplate.name}`} />
+          <View style={styles.capturePreviewConfigSoftWash} />
+          {usesManualText ? renderCustomTextPreviewLayers(false) : (
+            <View style={styles.capturePreviewConfigEventText}>
+              <Text style={styles.capturePreviewConfigEventName}>{eventTitle}</Text>
+              <Text style={styles.capturePreviewConfigEventMeta}>{selectedType.name}</Text>
+            </View>
+          )}
+          {slots.length ? slots.map((slot) => (
+            <View
+              key={`capture-config-preview-${slot.photoNumber}`}
+              style={[
+                styles.capturePreviewConfigSlot,
+                {
+                  left: `${slot.x}%`,
+                  top: `${slot.y}%`,
+                  width: `${slot.width}%`,
+                  height: `${slot.height}%`,
+                },
+              ]}
+            >
+              <Text style={styles.capturePreviewConfigSlotNumber}>{slot.photoNumber}</Text>
+              <Text style={styles.capturePreviewConfigSlotLabel}>Foto</Text>
+            </View>
+          )) : (
+            <View style={styles.capturePreviewConfigEmpty}>
+              <Text style={styles.capturePreviewConfigEmptyText}>Agrega recuadros para ver el diseño.</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    )
+  }
+
+  const renderCameraLensPicker = (compact = false) => {
+    const currentLens = getActiveCameraLensMode()
+
+    return (
+      <View style={styles.cameraLensSection}>
+        <View style={styles.cameraLensHeader}>
+          <Text style={styles.photoSettingLabel}>Encuadre de cámara</Text>
+          <Text style={styles.cameraLensCurrent}>{currentLens.label}</Text>
+        </View>
+        <View style={[styles.cameraLensGrid, compact && styles.cameraLensGridCompact]}>
+          {cameraLensModes.map((mode) => {
+            const active = mode.id === cameraLensMode
+            return (
+              <Pressable
+                key={mode.id}
+                onPress={() => selectCameraLensMode(mode.id)}
+                style={[styles.cameraLensOption, active && styles.cameraLensOptionActive]}
+                accessibilityRole="button"
+                accessibilityLabel={`Usar cámara ${mode.label}`}
+              >
+                <Text style={[styles.cameraLensOptionTitle, active && styles.cameraLensOptionTitleActive]}>{mode.label}</Text>
+                {!compact ? <Text style={[styles.cameraLensOptionHelper, active && styles.cameraLensOptionHelperActive]}>{mode.helper}</Text> : null}
+                {!compact ? <Text style={[styles.cameraLensOptionDetail, active && styles.cameraLensOptionDetailActive]}>{mode.detail}</Text> : null}
+              </Pressable>
+            )
+          })}
+        </View>
+      </View>
+    )
+  }
+
   const renderCaptureConfigScreen = () => (
     <View style={styles.captureConfigPage}>
       <View style={[styles.captureModeHeader, isMobile && styles.captureModeHeaderMobile]}>
@@ -5678,10 +7976,15 @@ const WebApp = () => {
       <View style={styles.captureConfigContent}>
         <View style={styles.activeToolNotice}>
           <Text style={styles.activeToolTitle}>Configuración activa</Text>
-          <Text style={styles.activeToolText}>{captureStatus}</Text>
+          <Text style={styles.activeToolText}>
+            {captureStatus.toLowerCase().includes('gif') ? 'Configuración de captura lista para fotos.' : captureStatus}
+          </Text>
         </View>
         <View style={styles.photoConfigCard}>
           <Text style={styles.photoConfigTitle}>Foto</Text>
+
+          {renderCameraLensPicker()}
+          {renderCaptureLivePreview()}
 
           <View style={styles.photoSettingRow}>
             <Text style={styles.photoSettingLabel}>Cuenta regresiva antes</Text>
@@ -5741,17 +8044,7 @@ const WebApp = () => {
             </View>
           </Pressable>
 
-          <Pressable
-            onPress={() => {
-              setRoamingMode((value) => !value)
-              setCaptureStatus(`Modo fotógrafo itinerante ${roamingMode ? 'desactivado' : 'activado'}.`)
-            }}
-          >
-            <Text style={styles.previewConfigLink}>Modo fotógrafo itinerante {roamingMode ? 'activo' : '›'}</Text>
-          </Pressable>
         </View>
-
-        {renderGifSettingsCard()}
 
         <View style={styles.photoConfigCard}>
           <Text style={styles.photoConfigTitle}>Calidad y guía</Text>
@@ -5784,17 +8077,6 @@ const WebApp = () => {
 
           <Pressable
             onPress={() => {
-              const currentIndex = photoTypes.findIndex((item) => item.id === selectedType.id)
-              chooseType(photoTypes[(currentIndex + 1) % photoTypes.length])
-            }}
-            style={styles.sizeRow}
-          >
-            <Text style={styles.photoSettingLabel}>Tamaño</Text>
-            <Text style={styles.sizeValue}>{selectedType.name}⌄</Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => {
               setFlashBeforePhoto((value) => !value)
               setCaptureStatus(`Flash antes de la foto ${flashBeforePhoto ? 'desactivado' : 'activado'}.`)
             }}
@@ -5809,180 +8091,17 @@ const WebApp = () => {
             </View>
           </Pressable>
 
-          <View style={styles.configBlock}>
-            <Text style={styles.configTitle}>Preset</Text>
-            <View style={styles.presetGrid}>
-              {['Suave', 'Rápido', 'Fiesta', 'Evento'].map((preset) => (
-                <Pressable
-                  key={preset}
-                  onPress={() => applyCapturePreset(preset)}
-                  style={[styles.presetPill, activePreset === preset && styles.presetPillActive]}
-                >
-                  <Text style={[styles.presetPillText, activePreset === preset && styles.presetPillTextActive]}>{preset}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
         </View>
 
-        <View style={styles.photoConfigCard}>
-          <Text style={styles.photoConfigTitle}>Textos y animación</Text>
-
-          <View style={styles.scriptPreviewBox}>
-            <Text style={styles.normalPreviewName}>{getPhotoNameText()}</Text>
-            {getPhotoEventText() ? <Text style={styles.normalPreviewDetail}>{getPhotoEventText()}</Text> : null}
-            <Text style={styles.normalPreviewDate}>{getPhotoDateText()}</Text>
-            <Text style={styles.scriptPreviewMeta}>Nombre, fecha y texto en letra normal.</Text>
-          </View>
-
-          <TextInput
-            value={photoNameText}
-            onChangeText={(value) => {
-              setPhotoNameText(value)
-              setCaptureStatus('Nombre de la foto actualizado.')
-            }}
-            placeholder={`Nombre (${eventTitle})`}
-            placeholderTextColor="#9ca3af"
-            style={styles.scriptInput}
-          />
-
-          <TextInput
-            value={photoEventText}
-            onChangeText={(value) => {
-              setPhotoEventText(value)
-              setCaptureStatus('Texto inferior de la foto actualizado.')
-            }}
-            placeholder="Texto inferior opcional"
-            placeholderTextColor="#9ca3af"
-            style={styles.scriptInput}
-          />
-
-          <TextInput
-            value={photoDateText}
-            onChangeText={(value) => {
-              setPhotoDateText(value)
-              setCaptureStatus('Fecha de la foto actualizada.')
-            }}
-            placeholder={`Fecha (${formatEventDate()})`}
-            placeholderTextColor="#9ca3af"
-            style={styles.scriptInput}
-          />
-
-          <TextInput
-            value={photoScriptText}
-            onChangeText={(value) => {
-              setPhotoScriptText(value)
-              setCaptureStatus('Frase superior de la foto actualizada.')
-            }}
-            placeholder="Frase superior de la tira"
-            placeholderTextColor="#9ca3af"
-            style={styles.scriptInput}
-          />
-
-          <View style={styles.presetGrid}>
-            {photoTextPresets.map((preset) => (
-              <Pressable
-                key={preset}
-                onPress={() => {
-                  setPhotoScriptText(preset)
-                  setCaptureStatus(`Texto para la foto cambiado a: ${preset}.`)
-                }}
-                style={[styles.presetPill, photoScriptText === preset && styles.presetPillActive]}
-              >
-                <Text style={[styles.presetPillText, photoScriptText === preset && styles.presetPillTextActive]}>{preset}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Pressable
-            onPress={() => {
-              const options = ['Prepárese', 'Sonría', 'Mire al espejo']
-              const nextText = options[(options.indexOf(preCaptureText) + 1) % options.length]
-              setPreCaptureText(nextText)
-              setCaptureStatus(`Texto antes de capturar cambiado a: ${nextText}.`)
-            }}
-            style={styles.sizeRow}
-          >
-            <Text style={styles.photoSettingLabel}>Texto antes de tomar foto</Text>
-            <Text style={styles.sizeValue}>{preCaptureText}</Text>
-          </Pressable>
-
-          <View style={styles.animationPicker}>
-            {captureAnimationPresets.map((animation) => (
-              <Pressable
-                key={animation.id}
-                onPress={() => {
-                  setCaptureAnimation(animation.id)
-                  setCaptureStatus(`Animación antes y entre fotos: ${animation.label}.`)
-                }}
-                style={[styles.animationChoice, captureAnimation === animation.id && styles.animationChoiceActive]}
-              >
-                <View style={styles.animationChoiceIcon} />
-                <Text style={[styles.animationChoiceText, captureAnimation === animation.id && styles.animationChoiceTextActive]}>{animation.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.photoConfigCard}>
-          <Text style={styles.photoConfigTitle}>Vista previa de foto</Text>
-          <View style={styles.previewConfigRow}>
-            <Image source={selectedTemplate.image} style={styles.previewConfigImage} accessibilityLabel={`Plantilla seleccionada ${selectedTemplate.name}`} />
-            <View style={styles.previewConfigCopy}>
-              <Pressable
-                onPress={async () => {
-                  if (!photoFrames.length) {
-                    setCaptureStatus('Toma una foto para generar una previsualización real.')
-                    return
-                  }
-                  const output = await composeFinalPhoto(photoFrames)
-                  setFinalPhotoUrl(output)
-                  await saveFinalPhotoToServer(output, photoFrames)
-                  setCaptureStatus('Previsualización real actualizada con la configuración activa.')
-                }}
-                style={styles.previewConfigButton}
-              >
-                <Text style={styles.previewConfigButtonText}>Previsualizar</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  const nextTemplate = cycleTemplateForCurrentEvent()
-                  setCaptureStatus(`Foto de prueba cambiada a ${nextTemplate.name}.`)
-                }}
-              >
-                <Text style={styles.previewConfigLink}>Seleccionar foto de prueba ›</Text>
-              </Pressable>
-              <Text style={styles.previewConfigMeta}>
-                JPG/PNG recomendado. La app usará {selectedShotCount} foto{selectedShotCount === 1 ? '' : 's'} en el layout activo.
-              </Text>
-            </View>
-          </View>
-        </View>
+        {renderCaptureConfigPreview()}
       </View>
 
-      <View style={[styles.captureModeFooter, isMobile && styles.captureModeFooterMobile]}>
-        <Pressable
-          onPress={operatorSettingsActive ? () => openEventOptionsScreen(true) : () => {
-            setShowCaptureConfigScreen(false)
-            setShowPrintConfigScreen(false)
-            setShowCaptureModeScreen(true)
-          }}
-          style={styles.captureModeFooterButton}
-        >
-          <Text style={[styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>
-            {operatorSettingsActive ? 'Evento y marco' : '← Modo de captura'}
+      <View style={[styles.captureModeFooter, styles.captureConfigSimpleFooter, isMobile && styles.captureModeFooterMobile]}>
+        <Pressable onPress={saveCaptureConfigAndReturn} style={[styles.captureModeFooterPrimaryButton, styles.captureConfigSaveButton, isMobile && styles.captureModeFooterPrimaryButtonMobile]}>
+          <Text style={[styles.captureModeFooterPrimaryText, isMobile && styles.captureModeFooterTextMobile]}>
+            Guardar y volver
           </Text>
         </Pressable>
-        <Pressable onPress={operatorSettingsActive ? closeOperatorSettingsToCapture : openBackgroundRemovalScreen} style={operatorSettingsActive ? styles.eventOptionsPrimaryButton : styles.captureModeFooterButton}>
-          <Text style={operatorSettingsActive ? styles.eventOptionsPrimaryText : [styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>
-            {operatorSettingsActive ? 'Listo' : 'Eliminación de fondo →'}
-          </Text>
-        </Pressable>
-        {operatorSettingsActive ? (
-          <Pressable onPress={() => openPrintConfigScreen(true)} style={styles.captureModeFooterButton}>
-            <Text style={[styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>Impresión</Text>
-          </Pressable>
-        ) : null}
       </View>
     </View>
   )
@@ -6012,28 +8131,21 @@ const WebApp = () => {
       <View style={styles.captureConfigContent}>
         <View style={styles.activeToolNotice}>
           <Text style={styles.activeToolTitle}>Impresión activa</Text>
-          <Text style={styles.activeToolText}>{captureStatus}</Text>
+          <Text style={styles.activeToolText}>
+            {captureStatus.match(/4x6|5 x 15|10 x 20|15 x 20|manual/i)
+              ? 'Medida de impresora seleccionada: 10 x 15 (10 x 15 cm).'
+              : captureStatus}
+          </Text>
         </View>
         {renderPrintSettingsMenu()}
       </View>
 
-      <View style={[styles.captureModeFooter, isMobile && styles.captureModeFooterMobile]}>
-        <Pressable onPress={() => openEventOptionsScreen(operatorSettingsActive)} style={styles.captureModeFooterButton}>
-          <Text style={[styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>← Configurar fotos</Text>
-        </Pressable>
-        <Pressable
-          onPress={operatorSettingsActive ? closeOperatorSettingsToCapture : () => openCaptureConfigScreen(false)}
-          style={operatorSettingsActive ? styles.eventOptionsPrimaryButton : styles.captureModeFooterButton}
-        >
-          <Text style={operatorSettingsActive ? styles.eventOptionsPrimaryText : [styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>
-            {operatorSettingsActive ? 'Listo' : 'Configuración de captura →'}
+      <View style={[styles.captureModeFooter, styles.captureConfigSimpleFooter, isMobile && styles.captureModeFooterMobile]}>
+        <Pressable onPress={savePrintConfigAndReturn} style={[styles.captureModeFooterPrimaryButton, styles.captureConfigSaveButton, isMobile && styles.captureModeFooterPrimaryButtonMobile]}>
+          <Text style={[styles.captureModeFooterPrimaryText, isMobile && styles.captureModeFooterTextMobile]}>
+            Guardar y volver
           </Text>
         </Pressable>
-        {operatorSettingsActive ? (
-          <Pressable onPress={() => openCaptureConfigScreen(true)} style={styles.captureModeFooterButton}>
-            <Text style={[styles.captureModeFooterText, isMobile && styles.captureModeFooterTextMobile]}>Captura</Text>
-          </Pressable>
-        ) : null}
       </View>
     </View>
   )
@@ -6216,7 +8328,7 @@ const WebApp = () => {
   if (showStartEditor) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderStartEditor()}
         </ScrollView>
       </View>
@@ -6226,7 +8338,7 @@ const WebApp = () => {
   if (showPhotoDesignScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderPhotoDesignScreen()}
         </ScrollView>
       </View>
@@ -6236,7 +8348,7 @@ const WebApp = () => {
   if (showCaptureModeScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderCaptureModeScreen()}
         </ScrollView>
       </View>
@@ -6246,9 +8358,13 @@ const WebApp = () => {
   if (showCaptureConfigScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView
+          style={styles.configScrollView}
+          contentContainerStyle={[styles.captureConfigScrollContent, isPhone && styles.captureConfigScrollContentPhone]}
+        >
           {renderCaptureConfigScreen()}
         </ScrollView>
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6256,7 +8372,7 @@ const WebApp = () => {
   if (showPrintConfigScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderPrintConfigScreen()}
         </ScrollView>
       </View>
@@ -6266,9 +8382,18 @@ const WebApp = () => {
   if (showBackgroundRemovalScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderBackgroundRemovalScreen()}
         </ScrollView>
+        {renderHiddenHomeButton()}
+      </View>
+    )
+  }
+
+  if (!activeUser) {
+    return (
+      <View style={styles.page}>
+        {renderLoginScreen()}
       </View>
     )
   }
@@ -6276,10 +8401,12 @@ const WebApp = () => {
   if (showHomeLauncher) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
           {renderHomeLauncher()}
         </ScrollView>
+        {renderEventGalleryModal()}
         {showCreateEventModal && renderCreateEventModal()}
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6287,9 +8414,17 @@ const WebApp = () => {
   if (showCustomPhotoLayoutScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView
+          style={styles.configScrollView}
+          contentContainerStyle={[
+            styles.customLayoutScrollContent,
+            isPhone && styles.pageContentPhone,
+            isPortraitMirrorScreen && styles.customLayoutScrollContentPortrait,
+          ]}
+        >
           {renderCustomPhotoLayoutScreen()}
         </ScrollView>
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6298,19 +8433,28 @@ const WebApp = () => {
     if (showCustomPhotoLayoutScreen) {
       return (
         <View style={styles.page}>
-          <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+          <ScrollView
+            style={styles.configScrollView}
+            contentContainerStyle={[
+              styles.customLayoutScrollContent,
+              isPhone && styles.pageContentPhone,
+              isPortraitMirrorScreen && styles.customLayoutScrollContentPortrait,
+            ]}
+          >
             {renderCustomPhotoLayoutScreen()}
           </ScrollView>
+          {renderHiddenHomeButton()}
         </View>
       )
     }
 
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderEventOptionsScreen()}
         </ScrollView>
         {showCreateEventModal && renderCreateEventModal()}
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6318,9 +8462,10 @@ const WebApp = () => {
   if (showAnimationVideoScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderAnimationVideoScreen()}
         </ScrollView>
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6329,6 +8474,7 @@ const WebApp = () => {
     return (
       <View style={styles.page}>
         {renderLaunchIntroScreen()}
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6336,9 +8482,10 @@ const WebApp = () => {
   if (showCapturePhotoScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.mirrorPageContent}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={styles.mirrorPageContent}>
           {renderCapturePhotoScreen()}
         </ScrollView>
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6346,11 +8493,12 @@ const WebApp = () => {
   if (showPreviewScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderPreviewScreen()}
         </ScrollView>
         {showPrintOptions && renderPrintOptionsModal()}
         {showQrOptions && renderQrOptionsModal()}
+        {renderHiddenHomeButton()}
       </View>
     )
   }
@@ -6358,21 +8506,24 @@ const WebApp = () => {
   if (showShareScreen) {
     return (
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
+        <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone]}>
           {renderShareScreen()}
         </ScrollView>
         {showPrintOptions && renderPrintOptionsModal()}
         {showQrOptions && renderQrOptionsModal()}
+        {renderHiddenHomeButton()}
       </View>
     )
   }
 
   return (
     <View style={styles.page}>
-      <ScrollView contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
+      <ScrollView style={styles.configScrollView} contentContainerStyle={[styles.pageContent, isPhone && styles.pageContentPhone, styles.homePageContent, isPhone && styles.homePageContentPhone]}>
         {renderHomeLauncher()}
       </ScrollView>
+      {renderEventGalleryModal()}
       {showCreateEventModal && renderCreateEventModal()}
+      {renderHiddenHomeButton()}
     </View>
   )
 }
@@ -6386,11 +8537,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f7fb',
     overflow: 'hidden',
   },
+  hiddenHomeButton: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    zIndex: 99999,
+    width: 56,
+    height: 56,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    padding: 10,
+  },
+  hiddenHomeButtonDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.rose,
+    opacity: 0.12,
+  },
   pageContent: {
-    height: '100svh',
+    height: 'auto',
+    minHeight: '100svh',
     padding: 'clamp(10px, 2svh, 18px)',
-    paddingBottom: 'clamp(10px, 2svh, 18px)',
-    overflow: 'hidden',
+    paddingBottom: 'clamp(90px, 12svh, 180px)',
+    overflow: 'visible',
   },
   pageContentPhone: {
     height: 'auto',
@@ -6400,13 +8570,43 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     overflow: 'visible',
   },
+  configScrollView: {
+    height: '100svh',
+    width: '100vw',
+    overflowY: 'auto',
+    overflowX: 'hidden',
+  },
+  captureConfigScrollContent: {
+    minHeight: '100svh',
+    padding: 'clamp(10px, 2svh, 18px)',
+    paddingBottom: 160,
+    overflow: 'visible',
+  },
+  captureConfigScrollContentPhone: {
+    padding: 8,
+    paddingBottom: 170,
+  },
+  customLayoutScrollContent: {
+    height: 'auto',
+    minHeight: '100svh',
+    padding: 'clamp(10px, 2svh, 18px)',
+    paddingBottom: 220,
+    overflow: 'visible',
+  },
+  customLayoutScrollContentPortrait: {
+    height: 'auto',
+    minHeight: '100svh',
+    padding: 10,
+    paddingBottom: 190,
+    overflow: 'visible',
+  },
   homePageContent: {
     height: 'auto',
     minHeight: '100svh',
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 'clamp(18px, 3svh, 42px) clamp(18px, 4vw, 56px)',
-    paddingBottom: 'clamp(18px, 3svh, 42px)',
+    justifyContent: 'flex-start',
+    padding: 'clamp(12px, 2svh, 28px) clamp(18px, 4vw, 56px)',
+    paddingBottom: 'clamp(16px, 2.5svh, 32px)',
   },
   homePageContentPhone: {
     justifyContent: 'flex-start',
@@ -6580,13 +8780,12 @@ const styles = StyleSheet.create({
   homeLauncherPage: {
     width: '100%',
     maxWidth: 1120,
-    height: 'calc(100svh - clamp(36px, 6svh, 84px))',
-    minHeight: 720,
+    minHeight: 'calc(100svh - clamp(28px, 4svh, 56px))',
     alignSelf: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingTop: 0,
     paddingBottom: 0,
-    gap: 'clamp(12px, 1.6svh, 24px)',
+    gap: 'clamp(10px, 1.35svh, 18px)',
   },
   homeLauncherPagePhone: {
     height: 'auto',
@@ -6605,8 +8804,8 @@ const styles = StyleSheet.create({
   },
   homeWelcome: {
     color: colors.ink,
-    fontSize: 'clamp(42px, 5.4svh, 76px)',
-    lineHeight: 'clamp(50px, 6.1svh, 84px)',
+    fontSize: 'clamp(40px, 4.9svh, 68px)',
+    lineHeight: 'clamp(47px, 5.5svh, 76px)',
     fontWeight: '900',
     textAlign: 'center',
   },
@@ -6616,8 +8815,8 @@ const styles = StyleSheet.create({
   },
   homeWelcomeSub: {
     color: colors.muted,
-    fontSize: 'clamp(18px, 2.3svh, 28px)',
-    lineHeight: 'clamp(25px, 3svh, 36px)',
+    fontSize: 'clamp(17px, 2svh, 26px)',
+    lineHeight: 'clamp(23px, 2.6svh, 32px)',
     fontWeight: '800',
     textAlign: 'center',
     marginTop: -4,
@@ -6632,9 +8831,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 'clamp(16px, 2.2svh, 28px)',
-    gap: 'clamp(12px, 1.6svh, 22px)',
-    flexGrow: 1,
+    padding: 'clamp(14px, 1.8svh, 24px)',
+    gap: 'clamp(10px, 1.25svh, 16px)',
+    flexGrow: 0,
     flexShrink: 1,
     minHeight: 0,
   },
@@ -6657,8 +8856,8 @@ const styles = StyleSheet.create({
   },
   recentEventsIntro: {
     color: colors.muted,
-    fontSize: 'clamp(16px, 1.9svh, 22px)',
-    lineHeight: 'clamp(22px, 2.5svh, 30px)',
+    fontSize: 'clamp(15px, 1.7svh, 20px)',
+    lineHeight: 'clamp(20px, 2.25svh, 27px)',
     marginTop: 4,
   },
   newEventButton: {
@@ -6710,16 +8909,16 @@ const styles = StyleSheet.create({
   },
   recentEventCard: {
     position: 'relative',
-    minHeight: 'clamp(520px, calc(100svh - 520px), 980px)',
-    height: '100%',
+    minHeight: 'clamp(330px, 42svh, 460px)',
     borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: colors.dark,
+    backgroundColor: '#ffffff',
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: colors.line,
+    boxShadow: '0 18px 40px rgba(15,23,42,0.08)',
   },
   recentEventCardPhone: {
-    minHeight: 'min(58svh, 560px)',
+    minHeight: 390,
   },
   recentEventCardActive: {
     borderColor: colors.blue,
@@ -6737,34 +8936,75 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(13,18,32,0.56)',
   },
   recentEventContent: {
-    position: 'absolute',
-    inset: 0,
+    minHeight: '100%',
     padding: 'clamp(22px, 2.6svh, 36px)',
-    justifyContent: 'flex-end',
-    gap: 'clamp(8px, 1.1svh, 14px)',
+    justifyContent: 'space-between',
+    gap: 'clamp(12px, 1.4svh, 18px)',
+  },
+  recentEventTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
   recentEventMeta: {
     alignSelf: 'flex-start',
     minHeight: 'clamp(32px, 3.3svh, 44px)',
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.88)',
+    backgroundColor: colors.roseSoft,
     color: colors.rose,
     fontSize: 'clamp(14px, 1.6svh, 18px)',
     lineHeight: 'clamp(32px, 3.3svh, 44px)',
     fontWeight: '900',
     paddingHorizontal: 'clamp(14px, 1.8vw, 22px)',
   },
+  recentEventProfile: {
+    color: colors.muted,
+    fontSize: 'clamp(12px, 1.4svh, 16px)',
+    lineHeight: 'clamp(16px, 1.9svh, 21px)',
+    fontWeight: '900',
+    textAlign: 'right',
+  },
   recentEventTitle: {
-    color: '#ffffff',
+    color: colors.ink,
     fontSize: 'clamp(30px, 4svh, 52px)',
     lineHeight: 'clamp(37px, 4.7svh, 60px)',
     fontWeight: '900',
   },
   recentEventDetails: {
-    color: 'rgba(255,255,255,0.82)',
+    color: colors.muted,
     fontSize: 'clamp(17px, 2svh, 24px)',
     lineHeight: 'clamp(24px, 2.7svh, 32px)',
     fontWeight: '700',
+  },
+  recentEventDataGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  recentEventDataItem: {
+    minHeight: 74,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: 'center',
+  },
+  recentEventDataLabel: {
+    color: colors.rose,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '950',
+    textTransform: 'uppercase',
+  },
+  recentEventDataValue: {
+    color: colors.ink,
+    fontSize: 'clamp(14px, 1.7svh, 18px)',
+    lineHeight: 'clamp(18px, 2.1svh, 23px)',
+    fontWeight: '900',
+    marginTop: 4,
   },
   launchRecentButton: {
     minHeight: 'clamp(58px, 7svh, 86px)',
@@ -6772,12 +9012,135 @@ const styles = StyleSheet.create({
     backgroundColor: colors.blue,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
+    paddingHorizontal: 20,
+    flex: 1,
     boxShadow: '0 8px 14px rgba(10,77,232,0.28)',
   },
   launchRecentButtonText: {
     color: '#ffffff',
     fontSize: 'clamp(18px, 2.1svh, 26px)',
+    fontWeight: '900',
+  },
+  recentEventActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  editRecentButton: {
+    minHeight: 'clamp(58px, 7svh, 86px)',
+    borderRadius: 43,
+    borderWidth: 2,
+    borderColor: colors.blue,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    flex: 0.55,
+  },
+  editRecentButtonText: {
+    color: colors.blue,
+    fontSize: 'clamp(16px, 1.8svh, 22px)',
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  secondaryEventsPanel: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    padding: 14,
+    gap: 10,
+  },
+  secondaryEventsHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  secondaryEventsTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900',
+  },
+  secondaryEventsList: {
+    gap: 8,
+  },
+  secondaryEventRow: {
+    minHeight: 68,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  secondaryEventRowActive: {
+    borderColor: colors.blue,
+    backgroundColor: '#eff6ff',
+  },
+  secondaryEventIndex: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.roseSoft,
+    color: colors.rose,
+    fontSize: 14,
+    lineHeight: 34,
+    fontWeight: '950',
+    textAlign: 'center',
+    flexShrink: 0,
+  },
+  secondaryEventCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  secondaryEventName: {
+    color: colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  secondaryEventMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '750',
+    marginTop: 2,
+  },
+  secondaryEventEditButton: {
+    minHeight: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.blue,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    flexShrink: 0,
+  },
+  secondaryEventEditText: {
+    color: colors.blue,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  secondaryEventLaunchButton: {
+    minHeight: 38,
+    borderRadius: 19,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    flexShrink: 0,
+  },
+  secondaryEventLaunchText: {
+    color: '#ffffff',
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '900',
   },
   homeActionCard: {
@@ -6837,6 +9200,261 @@ const styles = StyleSheet.create({
     color: colors.blue,
     fontSize: 'clamp(20px, 2.3svh, 30px)',
     fontWeight: '900',
+  },
+  adminEventsSummary: {
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 'clamp(14px, 1.7svh, 22px)',
+    gap: 12,
+    boxShadow: '0 10px 18px rgba(15,23,42,0.06)',
+  },
+  adminEventsSummaryPhone: {
+    padding: 10,
+  },
+  adminEventsSummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  adminEventsSummaryTitle: {
+    color: colors.ink,
+    fontSize: 'clamp(22px, 2.4svh, 30px)',
+    lineHeight: 'clamp(27px, 3svh, 36px)',
+    fontWeight: '950',
+  },
+  adminEventsSummaryCount: {
+    minWidth: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.roseSoft,
+    color: colors.rose,
+    fontSize: 20,
+    lineHeight: 46,
+    fontWeight: '950',
+    textAlign: 'center',
+  },
+  adminEventsList: {
+    gap: 8,
+  },
+  adminEventRow: {
+    minHeight: 74,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    cursor: 'pointer',
+  },
+  adminEventRowActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+  },
+  adminEventIndex: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.rose,
+    color: '#ffffff',
+    fontSize: 15,
+    lineHeight: 34,
+    fontWeight: '950',
+    textAlign: 'center',
+    flexShrink: 0,
+  },
+  adminEventMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  adminEventName: {
+    color: colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '950',
+  },
+  adminEventMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  adminEventTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 6,
+    maxWidth: '30%',
+  },
+  adminEventTag: {
+    minHeight: 26,
+    borderRadius: 13,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    color: colors.rose,
+    fontSize: 11,
+    lineHeight: 24,
+    fontWeight: '900',
+    paddingHorizontal: 9,
+  },
+  adminOperatorControl: {
+    minWidth: 170,
+    maxWidth: 230,
+    gap: 4,
+    flexShrink: 0,
+  },
+  adminOperatorLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '950',
+    textTransform: 'uppercase',
+  },
+  adminOperatorSelect: {
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    color: colors.rose,
+    fontSize: 12,
+    fontWeight: '900',
+    paddingHorizontal: 12,
+    outlineColor: colors.rose,
+  },
+  adminEventActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  adminEventEditButton: {
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.rose,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    flexShrink: 0,
+  },
+  adminEventEditText: {
+    color: colors.rose,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
+  adminEventDeleteButton: {
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fff7f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    flexShrink: 0,
+  },
+  adminEventDeleteText: {
+    color: '#b91c1c',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
+  eventFoldersPanel: {
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 'clamp(14px, 1.7svh, 22px)',
+    gap: 14,
+    boxShadow: '0 10px 18px rgba(15,23,42,0.06)',
+  },
+  eventFoldersPanelPhone: {
+    padding: 10,
+  },
+  eventFoldersGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: 12,
+  },
+  eventFoldersGridPhone: {
+    display: 'flex',
+  },
+  eventFolderCard: {
+    minHeight: 210,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    overflow: 'hidden',
+    cursor: 'pointer',
+  },
+  eventFolderPreview: {
+    position: 'relative',
+    height: 132,
+    backgroundColor: colors.dark,
+  },
+  eventFolderPreviewImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  eventFolderEmptyPreview: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.roseSoft,
+  },
+  eventFolderEmptyIcon: {
+    color: colors.rose,
+    fontSize: 42,
+    lineHeight: 48,
+    fontWeight: '950',
+  },
+  eventFolderCount: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    minWidth: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  eventFolderCountText: {
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
+  },
+  eventFolderInfo: {
+    padding: 12,
+    gap: 3,
+  },
+  eventFolderName: {
+    color: colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '950',
+  },
+  eventFolderMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   mainGrid: {
     display: 'grid',
@@ -6974,6 +9592,186 @@ const styles = StyleSheet.create({
   eventOptionsSectionPhone: {
     padding: 9,
     gap: 9,
+  },
+  setupPreviewSection: {
+    backgroundColor: '#ffffff',
+  },
+  setupPreviewContent: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(220px, 360px) minmax(0, 1fr)',
+    gap: 16,
+    alignItems: 'center',
+  },
+  setupPreviewContentManual: {
+    gridTemplateColumns: 'minmax(280px, 520px) minmax(240px, 1fr)',
+  },
+  setupPreviewContentMobile: {
+    display: 'flex',
+  },
+  setupPreviewCanvas: {
+    position: 'relative',
+    width: '100%',
+    maxHeight: 420,
+    borderRadius: 8,
+    overflow: 'hidden',
+    alignSelf: 'center',
+    borderWidth: 2,
+    borderColor: colors.blue,
+    backgroundColor: colors.dark,
+    boxShadow: '0 18px 42px rgba(15,23,42,0.16)',
+  },
+  setupPreviewCanvasMobile: {
+    maxHeight: 340,
+  },
+  setupPreviewManualSheet: {
+    minWidth: 0,
+    width: '100%',
+    maxWidth: 520,
+    padding: 12,
+    borderWidth: 2,
+    borderColor: colors.rose,
+    boxShadow: '0 18px 42px rgba(15,23,42,0.16)',
+  },
+  setupPreviewManualSheetMirror: {
+    maxWidth: 640,
+    gap: 6,
+  },
+  setupPreviewManualStrip: {
+    minHeight: 0,
+  },
+  setupPreviewFrameImage: {
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  setupPreviewWash: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  setupPreviewEventText: {
+    position: 'absolute',
+    left: '7%',
+    top: '6%',
+    right: '7%',
+    zIndex: 2,
+  },
+  setupPreviewEventName: {
+    color: '#ffffff',
+    fontSize: 'clamp(20px, 3.4vw, 30px)',
+    lineHeight: 'clamp(25px, 4vw, 36px)',
+    fontWeight: '950',
+    textShadowColor: 'rgba(0,0,0,0.32)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+  setupPreviewEventMeta: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.28)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  setupPreviewSlot: {
+    position: 'absolute',
+    zIndex: 3,
+    borderRadius: 8,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(224,242,254,0.76)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 12px 26px rgba(15,23,42,0.18)',
+  },
+  setupPreviewSlotNumber: {
+    color: colors.blue,
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '950',
+  },
+  setupPreviewSlotLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  setupPreviewEmpty: {
+    position: 'absolute',
+    left: '10%',
+    right: '10%',
+    top: '42%',
+    minHeight: 72,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.blue,
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+  },
+  setupPreviewEmptyText: {
+    color: colors.blue,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  setupPreviewInfo: {
+    gap: 9,
+  },
+  setupPreviewInfoTitle: {
+    color: colors.ink,
+    fontSize: 26,
+    lineHeight: 31,
+    fontWeight: '950',
+  },
+  setupPreviewInfoText: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '750',
+  },
+  setupPreviewStats: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  setupPreviewStat: {
+    minHeight: 30,
+    borderRadius: 15,
+    backgroundColor: colors.roseSoft,
+    color: colors.roseDark,
+    fontSize: 12,
+    lineHeight: 30,
+    fontWeight: '950',
+    paddingHorizontal: 12,
+  },
+  setupPreviewHint: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+  },
+  setupPreviewEditButton: {
+    minHeight: 42,
+    borderRadius: 21,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    boxShadow: '0 12px 28px rgba(10,77,232,0.22)',
+    cursor: 'pointer',
+  },
+  setupPreviewEditText: {
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
   },
   eventOptionsFooter: {
     borderTopWidth: 1,
@@ -7891,6 +10689,42 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     backgroundColor: 'rgba(255,255,255,0.62)',
   },
+  mirrorPreviewTopActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    flexShrink: 0,
+  },
+  mirrorPreviewTopActionsMobile: {
+    gap: 6,
+  },
+  mirrorPreviewHomeButton: {
+    minHeight: 40,
+    borderRadius: 20,
+    backgroundColor: colors.blue,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 15,
+    boxShadow: '0 10px 22px rgba(10,77,232,0.24)',
+    cursor: 'pointer',
+  },
+  mirrorPreviewHomeButtonMobile: {
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 10,
+  },
+  mirrorPreviewHomeButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
+  },
+  mirrorPreviewHomeButtonTextMobile: {
+    fontSize: 12,
+    lineHeight: 15,
+  },
   mirrorPreviewActions: {
     position: 'absolute',
     left: 24,
@@ -8156,18 +10990,22 @@ const styles = StyleSheet.create({
     fontWeight: '950',
   },
   eventGalleryOverlay: {
-    position: 'absolute',
+    position: 'fixed',
     inset: 0,
-    zIndex: 12,
+    zIndex: 200,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 16,
   },
   eventGalleryBackdrop: {
     position: 'absolute',
     inset: 0,
+    zIndex: 0,
     backgroundColor: 'rgba(3,7,18,0.82)',
   },
   eventGalleryPanel: {
+    position: 'relative',
+    zIndex: 1,
     width: 'min(92vw, 980px)',
     maxHeight: '88svh',
     borderRadius: 8,
@@ -8179,6 +11017,61 @@ const styles = StyleSheet.create({
     width: '96vw',
     maxHeight: '90svh',
     borderRadius: 7,
+  },
+  eventGalleryViewer: {
+    position: 'relative',
+    width: '100%',
+    height: 'min(80svh, 780px)',
+    minHeight: 360,
+    zIndex: 1,
+    backgroundColor: 'rgba(3,7,18,0.96)',
+  },
+  eventGalleryViewerHeader: {
+    minHeight: 86,
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.12)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  eventGalleryViewerHeaderPhone: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  eventGalleryViewerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  eventGalleryViewerActionButton: {
+    flex: 0,
+    minWidth: 104,
+    backgroundColor: '#ffffff',
+  },
+  eventGalleryViewerTitle: {
+    color: '#ffffff',
+  },
+  eventGalleryViewerMeta: {
+    color: 'rgba(255,255,255,0.74)',
+  },
+  eventGalleryViewerBody: {
+    height: 'calc(100% - 86px)',
+    padding: 'clamp(10px, 2vw, 22px)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventGalleryViewerImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain',
+    borderRadius: 8,
+    backgroundColor: colors.dark,
+    boxShadow: '0 24px 80px rgba(0,0,0,0.38)',
   },
   eventGalleryHeaderMobile: {
     minHeight: 72,
@@ -8244,6 +11137,75 @@ const styles = StyleSheet.create({
     fontSize: 32,
     lineHeight: 36,
   },
+  eventGalleryActionBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    backgroundColor: colors.soft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  eventGalleryActionBarPhone: {
+    flexWrap: 'wrap',
+    justifyContent: 'stretch',
+  },
+  eventGallerySelectionPill: {
+    marginRight: 'auto',
+    minHeight: 42,
+    borderRadius: 21,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  eventGallerySelectionText: {
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
+  eventGalleryActionButton: {
+    minHeight: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    cursor: 'pointer',
+  },
+  eventGalleryActionButtonText: {
+    color: colors.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
+  eventGalleryPrimaryActionButton: {
+    minHeight: 42,
+    borderRadius: 21,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    cursor: 'pointer',
+    boxShadow: '0 10px 22px rgba(21,88,230,0.20)',
+  },
+  eventGalleryPrimaryActionButtonDisabled: {
+    opacity: 0.45,
+    cursor: 'not-allowed',
+  },
+  eventGalleryPrimaryActionText: {
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
   eventGalleryGrid: {
     padding: 16,
     display: 'grid',
@@ -8268,6 +11230,14 @@ const styles = StyleSheet.create({
     boxShadow: '0 12px 30px rgba(15,23,42,0.10)',
     cursor: 'pointer',
   },
+  eventGalleryCardSelected: {
+    borderColor: colors.blue,
+    boxShadow: '0 18px 38px rgba(21,88,230,0.18)',
+  },
+  eventGalleryImageWrap: {
+    position: 'relative',
+    backgroundColor: colors.dark,
+  },
   eventGalleryImage: {
     width: '100%',
     aspectRatio: 0.78,
@@ -8279,7 +11249,81 @@ const styles = StyleSheet.create({
   },
   eventGalleryCardFooter: {
     padding: 10,
-    gap: 2,
+    gap: 8,
+  },
+  eventGallerySelectBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.88)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 10px 22px rgba(0,0,0,0.20)',
+  },
+  eventGallerySelectBadgeActive: {
+    backgroundColor: colors.blue,
+  },
+  eventGallerySelectBadgeText: {
+    color: colors.blue,
+    fontSize: 20,
+    lineHeight: 22,
+    fontWeight: '950',
+  },
+  eventGallerySelectBadgeTextActive: {
+    color: '#ffffff',
+  },
+  eventGalleryCardActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  eventGalleryMiniButton: {
+    minHeight: 34,
+    flex: 1,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    cursor: 'pointer',
+  },
+  eventGalleryMiniButtonPrimary: {
+    borderColor: colors.blue,
+    backgroundColor: colors.blue,
+  },
+  eventGalleryMiniButtonDanger: {
+    borderColor: 'rgba(220,38,38,0.28)',
+    backgroundColor: '#fef2f2',
+  },
+  eventGalleryMiniButtonText: {
+    color: colors.ink,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '950',
+  },
+  eventGalleryMiniButtonPrimaryText: {
+    color: '#ffffff',
+  },
+  eventGalleryMiniButtonDangerText: {
+    color: '#b91c1c',
+  },
+  eventGalleryEmptyState: {
+    minHeight: 180,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
   },
   eventGalleryCardTitle: {
     color: colors.ink,
@@ -8959,9 +12003,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(10,18,32,0.30)',
+    backgroundColor: 'rgba(3,7,18,0.68)',
     overflow: 'hidden',
     zIndex: 4,
+  },
+  animationOverlayBefore: {
+    backgroundColor: 'rgba(3,7,18,0.64)',
   },
   animationHalo: {
     position: 'absolute',
@@ -8969,9 +12016,16 @@ const styles = StyleSheet.create({
     height: 'min(58vw, 560px)',
     borderRadius: 999,
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.56)',
-    backgroundColor: 'rgba(10,77,232,0.18)',
-    boxShadow: '0 0 90px rgba(10,77,232,0.32)',
+    borderColor: 'rgba(255,255,255,0.36)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    boxShadow: '0 0 90px rgba(255,255,255,0.16)',
+  },
+  animationHaloLarge: {
+    width: 'min(92vw, 920px)',
+    height: 'min(92vw, 920px)',
+    borderWidth: 3,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    boxShadow: '0 0 160px rgba(255,255,255,0.18)',
   },
   animationHaloConfetti: {
     borderStyle: 'dashed',
@@ -8981,11 +12035,21 @@ const styles = StyleSheet.create({
     minWidth: 'min(88vw, 390px)',
     maxWidth: 'min(88vw, 560px)',
     borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.94)',
+    backgroundColor: 'rgba(255,255,255,0.90)',
     paddingHorizontal: 'clamp(28px, 4vw, 48px)',
     paddingVertical: 'clamp(26px, 4svh, 42px)',
     alignItems: 'center',
     boxShadow: '0 34px 90px rgba(0,0,0,0.34)',
+  },
+  animationCardImmersive: {
+    minWidth: 'min(98vw, 1040px)',
+    maxWidth: 'min(98vw, 1120px)',
+    minHeight: 'min(78svh, 820px)',
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 'clamp(16px, 3vw, 48px)',
+    paddingVertical: 'clamp(14px, 3svh, 40px)',
+    boxShadow: 'none',
   },
   animationCardLight: {
     backgroundColor: 'rgba(255,253,248,0.95)',
@@ -9014,19 +12078,34 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   animationTitle: {
-    color: '#172554',
-    fontSize: 'clamp(44px, 5.2vw, 74px)',
-    lineHeight: 'clamp(48px, 5.8vw, 82px)',
-    fontFamily: '"Brush Script MT", "Segoe Script", "Comic Sans MS", cursive',
+    color: '#ffffff',
+    fontSize: 'clamp(44px, 7vw, 108px)',
+    lineHeight: 'clamp(48px, 7.6vw, 116px)',
+    fontWeight: '950',
     textAlign: 'center',
+    textTransform: 'uppercase',
+    textShadow: '0 18px 44px rgba(0,0,0,0.46)',
   },
   animationText: {
-    color: '#475569',
-    fontSize: 'clamp(16px, 1.8vw, 24px)',
-    lineHeight: 'clamp(21px, 2.3vw, 30px)',
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 'clamp(18px, 2.1vw, 30px)',
+    lineHeight: 'clamp(23px, 2.6vw, 36px)',
     fontWeight: '900',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 10,
+    textShadow: '0 10px 28px rgba(0,0,0,0.4)',
+  },
+  animationTextPill: {
+    marginTop: 12,
+    paddingHorizontal: 'clamp(18px, 3vw, 30px)',
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    color: colors.ink,
+    fontSize: 'clamp(15px, 1.7vw, 22px)',
+    lineHeight: 'clamp(20px, 2vw, 28px)',
+    textShadow: 'none',
+    boxShadow: '0 16px 38px rgba(0,0,0,0.26)',
   },
   animationDots: {
     flexDirection: 'row',
@@ -9801,6 +12880,13 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     justifyContent: 'flex-start',
   },
+  startEditorHeaderPortrait: {
+    minHeight: 104,
+    paddingHorizontal: 'clamp(18px, 3vw, 34px)',
+    paddingVertical: 'clamp(16px, 2svh, 24px)',
+    paddingRight: 'clamp(80px, 8vw, 112px)',
+    justifyContent: 'flex-start',
+  },
   startEditorHeading: {
     flex: 1,
     minWidth: 0,
@@ -10245,6 +13331,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: '900',
     paddingHorizontal: 10,
+  },
+  printInputLocked: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#bfdbfe',
+    color: colors.roseDark,
   },
   printOptionRow: {
     flexDirection: 'row',
@@ -10853,6 +13944,27 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
   },
+  captureModeFooterPrimaryButton: {
+    flex: 1.15,
+    minHeight: 52,
+    borderRadius: 28,
+    backgroundColor: colors.rose,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    boxShadow: '0 12px 26px rgba(10,77,232,0.18)',
+  },
+  captureModeFooterPrimaryButtonMobile: {
+    flex: 1.25,
+    minHeight: 48,
+  },
+  captureModeFooterPrimaryText: {
+    color: '#ffffff',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '950',
+    textAlign: 'center',
+  },
   captureModeFooterText: {
     color: colors.rose,
     fontSize: 18,
@@ -10864,41 +13976,62 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
   },
+  captureConfigSimpleFooter: {
+    justifyContent: 'center',
+  },
+  captureConfigSaveButton: {
+    flex: 0,
+    minWidth: 320,
+    maxWidth: 520,
+    width: '100%',
+  },
   captureConfigPage: {
-    minHeight: 'calc(100vh - 36px)',
+    minHeight: 'auto',
     borderRadius: 8,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: colors.line,
-    overflow: 'hidden',
+    overflow: 'visible',
   },
   captureConfigContent: {
-    maxWidth: 620,
+    maxWidth: 920,
     width: '100%',
     alignSelf: 'center',
     paddingHorizontal: 16,
     paddingTop: 18,
-    paddingBottom: 34,
+    paddingBottom: 140,
     gap: 18,
   },
   customLayoutPage: {
-    minHeight: 'calc(100vh - 36px)',
+    minHeight: 'auto',
     borderRadius: 8,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: colors.line,
-    overflow: 'hidden',
+    overflow: 'visible',
+  },
+  customLayoutPagePortrait: {
+    minHeight: 'auto',
+    overflow: 'visible',
   },
   customLayoutContent: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(520px, 1.45fr) minmax(360px, 0.85fr)',
-    gap: 20,
-    padding: 'clamp(16px, 2vw, 28px)',
+    gridTemplateColumns: 'minmax(460px, 1.45fr) minmax(320px, 0.85fr)',
+    gap: 'clamp(12px, 1.6vw, 20px)',
+    padding: 'clamp(10px, 1.6vw, 28px)',
     alignItems: 'start',
   },
   customLayoutContentMobile: {
     gridTemplateColumns: 'minmax(0, 1fr)',
     padding: 14,
+  },
+  customLayoutContentPortrait: {
+    gridTemplateColumns: 'minmax(0, 1fr)',
+    maxWidth: 780,
+    width: '100%',
+    alignSelf: 'center',
+    padding: 'clamp(12px, 1.6svh, 22px)',
+    gap: 16,
   },
   customLayoutPreviewPanel: {
     gap: 14,
@@ -10909,13 +14042,29 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 'min(54vw, 560px)',
     minWidth: 420,
-    aspectRatio: 10 / 15,
+    aspectRatio: cp1500ShortEdgeCm / cp1500LongEdgeCm,
     borderRadius: 8,
     backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: colors.line,
     padding: 'clamp(14px, 1.5vw, 22px)',
     alignSelf: 'center',
+  },
+  customLayoutSheetPortrait: {
+    minWidth: 0,
+    width: '100%',
+    maxWidth: 'min(86vw, 700px)',
+  },
+  customLayoutSheetMirrorPaper: {
+    display: 'flex',
+    flexDirection: 'row',
+    gap: 8,
+    maxWidth: 'min(66vw, 720px)',
+  },
+  customLayoutSheetMirrorPaperPortrait: {
+    maxWidth: 'min(94vw, 760px)',
+    gap: 6,
+    padding: 'clamp(10px, 1.2vw, 16px)',
   },
   customLayoutSheetMobile: {
     minWidth: 0,
@@ -10932,6 +14081,30 @@ const styles = StyleSheet.create({
   },
   customLayoutStripEditable: {
     boxShadow: '0 0 0 2px rgba(10,77,232,0.16)',
+  },
+  customLayoutStripHalf: {
+    flex: 1,
+    minWidth: 0,
+  },
+  customLayoutMirrorCopy: {
+    opacity: 0.92,
+    boxShadow: 'inset 0 0 0 1px rgba(10,77,232,0.18)',
+  },
+  customLayoutMirrorBadge: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    borderRadius: 999,
+    backgroundColor: colors.rose,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    zIndex: 30,
+  },
+  customLayoutMirrorBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '950',
   },
   customLayoutBackgroundImage: {
     position: 'absolute',
@@ -11009,6 +14182,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.34)',
     boxShadow: '0 0 0 2px rgba(10,77,232,0.9)',
   },
+  customMirrorPreviewLayer: {
+    pointerEvents: 'none',
+  },
   customTextLayerValue: {
     fontWeight: '900',
     textAlign: 'center',
@@ -11031,6 +14207,14 @@ const styles = StyleSheet.create({
     borderColor: colors.rose,
     backgroundColor: '#dbeafe',
     boxShadow: '0 0 0 3px rgba(10,77,232,0.22), 0 12px 26px rgba(15,23,42,0.18)',
+  },
+  customLayoutSlotMirror: {
+    opacity: 0.54,
+    borderStyle: 'dashed',
+    borderColor: colors.rose,
+    backgroundColor: 'rgba(238,245,255,0.52)',
+    cursor: 'default',
+    pointerEvents: 'none',
   },
   customLayoutSlotNumber: {
     color: colors.rose,
@@ -11157,6 +14341,11 @@ const styles = StyleSheet.create({
     gap: 14,
     minWidth: 0,
   },
+  customLayoutControlsPortrait: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+  },
   customMenuTabs: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -11278,11 +14467,19 @@ const styles = StyleSheet.create({
   customManualButtonDisabled: {
     opacity: 0.42,
   },
+  customManualButtonActive: {
+    backgroundColor: colors.roseSoft,
+    borderColor: colors.rose,
+    boxShadow: '0 0 0 3px rgba(10,77,232,0.14)',
+  },
   customManualButtonText: {
     color: colors.ink,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '900',
+  },
+  customManualButtonTextActive: {
+    color: colors.rose,
   },
   customManualGhostButton: {
     minHeight: 46,
@@ -11300,10 +14497,36 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '900',
   },
+  customManualMirrorButton: {
+    minHeight: 46,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  customManualMirrorButtonActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.rose,
+  },
+  customManualMirrorText: {
+    color: colors.ink,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  customManualMirrorTextActive: {
+    color: '#ffffff',
+  },
   customTextGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: 10,
+  },
+  customTextGridSingle: {
+    gridTemplateColumns: '1fr',
   },
   customTextInput: {
     minHeight: 44,
@@ -11316,6 +14539,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     paddingHorizontal: 12,
     outlineStyle: 'none',
+  },
+  customTextDateInput: {
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '800',
+    paddingHorizontal: 12,
+    outlineStyle: 'none',
+    cursor: 'pointer',
   },
   customTextLayerPicker: {
     flexDirection: 'row',
@@ -11379,6 +14615,145 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     borderWidth: 2,
     borderColor: '#ffffff',
+  },
+  customTextFontMenu: {
+    gridColumn: '1 / -1',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+  },
+  customTextFontChoice: {
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    cursor: 'pointer',
+  },
+  customTextFontChoiceActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+  },
+  customTextFontChoiceText: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  customTextFontChoiceTextActive: {
+    color: colors.rose,
+  },
+  customTextFontUpload: {
+    minHeight: 56,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    cursor: 'pointer',
+  },
+  customTextFontUploadTitle: {
+    color: colors.rose,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
+    textAlign: 'center',
+  },
+  customTextFontUploadText: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  customTextColorPalette: {
+    gridColumn: '1 / -1',
+    gap: 12,
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    boxShadow: '0 12px 28px rgba(15,23,42,0.08)',
+  },
+  customTextColorPaletteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  customTextColorPaletteTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '950',
+  },
+  customTextColorPickerLabel: {
+    minHeight: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.soft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 12,
+    paddingRight: 6,
+    cursor: 'pointer',
+  },
+  customTextColorPickerText: {
+    color: colors.rose,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '950',
+  },
+  customTextColorPickerInput: {
+    width: 34,
+    height: 34,
+    border: 0,
+    padding: 0,
+    backgroundColor: 'transparent',
+    cursor: 'pointer',
+  },
+  customTextColorGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(46px, 1fr))',
+    gap: 10,
+  },
+  customTextColorChoice: {
+    height: 48,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.soft,
+    cursor: 'pointer',
+  },
+  customTextColorChoiceActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+    boxShadow: '0 0 0 3px rgba(10,77,232,0.16)',
+  },
+  customTextColorChoiceSwatch: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: 'rgba(17,24,39,0.18)',
   },
   customTypePills: {
     flexDirection: 'row',
@@ -11594,11 +14969,297 @@ const styles = StyleSheet.create({
     gap: 24,
     boxShadow: '0 12px 34px rgba(15,23,42,0.07)',
   },
+  capturePreviewConfigCard: {
+    gap: 16,
+  },
+  capturePreviewConfigHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 14,
+    flexWrap: 'wrap',
+  },
+  captureLivePreviewSection: {
+    gap: 14,
+  },
+  captureLivePreviewControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+    flexWrap: 'wrap',
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(10,77,232,0.18)',
+    backgroundColor: colors.roseSoft,
+  },
+  captureLivePreviewCopy: {
+    flex: 1,
+    minWidth: 220,
+    gap: 2,
+  },
+  captureLivePreviewTitle: {
+    color: colors.ink,
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '950',
+  },
+  captureLivePreviewText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  captureLivePreviewButton: {
+    minHeight: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: colors.rose,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  captureLivePreviewButtonActive: {
+    backgroundColor: colors.rose,
+  },
+  captureLivePreviewButtonText: {
+    color: colors.rose,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
+  },
+  captureLivePreviewButtonTextActive: {
+    color: '#ffffff',
+  },
+  captureLivePreviewStage: {
+    gap: 10,
+  },
+  captureConfigLiveCamera: {
+    width: '100%',
+    height: 'min(62vh, 620px)',
+    minHeight: 340,
+    borderWidth: 2,
+    borderColor: colors.rose,
+  },
+  captureLivePreviewStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+  },
+  captureLivePreviewStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#94a3b8',
+  },
+  captureLivePreviewStatusDotReady: {
+    backgroundColor: '#16a34a',
+  },
+  captureLivePreviewStatusText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  captureLivePreviewError: {
+    color: '#b91c1c',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  capturePreviewConfigMeta: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  capturePreviewConfigCanvas: {
+    position: 'relative',
+    width: 'min(100%, 560px)',
+    maxHeight: 640,
+    borderRadius: 8,
+    overflow: 'hidden',
+    alignSelf: 'center',
+    backgroundColor: colors.dark,
+    borderWidth: 2,
+    borderColor: colors.rose,
+    boxShadow: '0 18px 44px rgba(15,23,42,0.16)',
+  },
+  capturePreviewConfigCanvasPhone: {
+    width: '100%',
+    maxHeight: 520,
+  },
+  capturePreviewConfigFrame: {
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  capturePreviewConfigSoftWash: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  capturePreviewConfigEventText: {
+    position: 'absolute',
+    left: '7%',
+    top: '6%',
+    right: '7%',
+    zIndex: 2,
+  },
+  capturePreviewConfigEventName: {
+    color: '#ffffff',
+    fontSize: 'clamp(22px, 4vw, 34px)',
+    lineHeight: 'clamp(27px, 4.6vw, 40px)',
+    fontWeight: '950',
+    textShadowColor: 'rgba(0,0,0,0.34)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+  capturePreviewConfigEventMeta: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.28)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  capturePreviewConfigSlot: {
+    position: 'absolute',
+    zIndex: 3,
+    borderRadius: 8,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(224,242,254,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 12px 26px rgba(15,23,42,0.18)',
+  },
+  capturePreviewConfigSlotNumber: {
+    color: colors.rose,
+    fontSize: 25,
+    lineHeight: 31,
+    fontWeight: '950',
+  },
+  capturePreviewConfigSlotLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  capturePreviewConfigEmpty: {
+    position: 'absolute',
+    left: '10%',
+    right: '10%',
+    top: '42%',
+    minHeight: 78,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.rose,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    zIndex: 4,
+  },
+  capturePreviewConfigEmptyText: {
+    color: colors.rose,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
   photoConfigTitle: {
     color: '#52525b',
     fontSize: 28,
     lineHeight: 34,
     fontWeight: '900',
+  },
+  cameraLensSection: {
+    gap: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(10,77,232,0.22)',
+    backgroundColor: colors.roseSoft,
+    padding: 14,
+  },
+  cameraLensHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  cameraLensCurrent: {
+    color: colors.rose,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '950',
+  },
+  cameraLensGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: 10,
+  },
+  cameraLensGridCompact: {
+    gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))',
+  },
+  cameraLensOption: {
+    minHeight: 88,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    justifyContent: 'center',
+    gap: 4,
+  },
+  cameraLensOptionActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+    boxShadow: '0 10px 24px rgba(10,77,232,0.12)',
+  },
+  cameraLensOptionTitle: {
+    color: colors.ink,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '950',
+  },
+  cameraLensOptionTitleActive: {
+    color: colors.rose,
+  },
+  cameraLensOptionHelper: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  cameraLensOptionHelperActive: {
+    color: colors.roseDark,
+  },
+  cameraLensOptionDetail: {
+    color: '#64748b',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '950',
+    textTransform: 'uppercase',
+  },
+  cameraLensOptionDetailActive: {
+    color: colors.rose,
   },
   gifHeaderRow: {
     flexDirection: 'row',
@@ -11864,6 +15525,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     paddingHorizontal: 14,
     backgroundColor: '#ffffff',
+  },
+  scriptDateInput: {
+    minHeight: 52,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d4d4d8',
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '600',
+    paddingHorizontal: 14,
+    backgroundColor: '#ffffff',
+    outlineStyle: 'none',
+    cursor: 'pointer',
   },
   photoTextQuickPanel: {
     gap: 14,
@@ -12395,6 +16069,71 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 30,
     gap: 14,
+  },
+  loginPage: {
+    minHeight: '100svh',
+    width: '100%',
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  loginCard: {
+    width: 'min(92vw, 460px)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#ffffff',
+    padding: 28,
+    gap: 14,
+    boxShadow: '0 20px 60px rgba(15,23,42,0.16)',
+  },
+  loginCardPhone: {
+    width: '100%',
+    padding: 20,
+  },
+  loginTitle: {
+    color: colors.ink,
+    fontSize: 34,
+    lineHeight: 39,
+    fontWeight: '900',
+  },
+  loginIntro: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '700',
+  },
+  loginInput: {
+    minHeight: 52,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#f8fafc',
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: '800',
+    paddingHorizontal: 16,
+    outlineStyle: 'none',
+  },
+  loginError: {
+    color: '#dc2626',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  loginButton: {
+    minHeight: 58,
+    borderRadius: 29,
+    backgroundColor: colors.rose,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 12px 24px rgba(10,77,232,0.25)',
+  },
+  loginButtonText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '900',
   },
   closeButton: {
     position: 'absolute',

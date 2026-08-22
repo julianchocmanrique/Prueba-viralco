@@ -17,6 +17,7 @@
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.11.0",
     "ffmpeg-kit-react-native": "^6.0.2",
+    "jszip": "^3.10.1",
     "ls": "^0.2.1",
     "npm": "^10.9.4",
     "react": "18.1.0",
