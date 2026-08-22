@@ -372,6 +372,19 @@ const mergeUsersWithDefaults = (users = []) => {
 const mergeEventsWithDefaults = (events = [], deletedIds = []) => {
   return events.filter((event) => !deletedIds.includes(getEventIdentity(event)))
 }
+const mergeCloudAndLocalEvents = (cloudEvents = [], localEvents = [], deletedIds = []) => {
+  const merged = new Map()
+  mergeEventsWithDefaults(cloudEvents, deletedIds).forEach((event) => {
+    merged.set(getEventIdentity(event), event)
+  })
+  mergeEventsWithDefaults(localEvents, deletedIds).forEach((event) => {
+    const identity = getEventIdentity(event)
+    if (!identity) return
+    merged.set(identity, event)
+  })
+  return Array.from(merged.values())
+}
+const serializeSyncState = (value) => JSON.stringify(value || null)
 const editorTools = [
   { id: 'imagen', label: 'Imagen', icon: '▧' },
   { id: 'texto', label: 'Texto', icon: 'T' },
@@ -1130,14 +1143,19 @@ const WebApp = () => {
     galleryIds.forEach((galleryId) => {
       deleteEventGalleryFromServer(galleryId)
     })
-    setRecentEvents((current) => current.filter((item) => getEventIdentity(item) !== eventId))
-    setDeletedEventIds((current) => (current.includes(eventId) ? current : [...current, eventId]))
-    setEventGalleries((current) => {
-      const next = { ...current }
-      galleryIds.forEach((galleryId) => {
-        delete next[galleryId]
-      })
-      return next
+    const nextRecentEvents = recentEvents.filter((item) => getEventIdentity(item) !== eventId)
+    const nextDeletedEventIds = deletedEventIds.includes(eventId) ? deletedEventIds : [...deletedEventIds, eventId]
+    const nextEventGalleries = { ...eventGalleries }
+    galleryIds.forEach((galleryId) => {
+      delete nextEventGalleries[galleryId]
+    })
+    setRecentEvents(nextRecentEvents)
+    setDeletedEventIds(nextDeletedEventIds)
+    setEventGalleries(nextEventGalleries)
+    void pushCloudStateNow({
+      recentEvents: nextRecentEvents,
+      deletedEventIds: nextDeletedEventIds,
+      eventGalleries: nextEventGalleries,
     })
     if ((selectedRecentId || '') === eventId || selectedRecentId === eventToDelete?.name) {
       setSelectedRecentId('')
@@ -1156,24 +1174,27 @@ const WebApp = () => {
     const eventId = getEventIdentity(eventToUpdate)
     const normalizedOperatorId = nextOperatorId === 'admin' ? '' : nextOperatorId
     const galleryIds = getEventGalleryIds(eventToUpdate)
-    setRecentEvents((current) => current.map((item) => {
+    const nextRecentEvents = recentEvents.map((item) => {
       if (getEventIdentity(item) !== eventId) return item
       return {
         ...item,
         operatorId: normalizedOperatorId,
         updatedAt: 'Ahora',
       }
-    }))
-    setEventGalleries((current) => {
-      const next = { ...current }
-      galleryIds.forEach((galleryId) => {
-        if (!next[galleryId]) return
-        next[galleryId] = {
-          ...next[galleryId],
-          operatorId: normalizedOperatorId || 'admin',
-        }
-      })
-      return next
+    })
+    const nextEventGalleries = { ...eventGalleries }
+    galleryIds.forEach((galleryId) => {
+      if (!nextEventGalleries[galleryId]) return
+      nextEventGalleries[galleryId] = {
+        ...nextEventGalleries[galleryId],
+        operatorId: normalizedOperatorId || 'admin',
+      }
+    })
+    setRecentEvents(nextRecentEvents)
+    setEventGalleries(nextEventGalleries)
+    void pushCloudStateNow({
+      recentEvents: nextRecentEvents,
+      eventGalleries: nextEventGalleries,
     })
     if ((selectedRecentId || '') === eventId || selectedRecentId === eventToUpdate?.name) {
       setAssignedOperatorId(normalizedOperatorId)
@@ -1187,7 +1208,7 @@ const WebApp = () => {
     const existingSetup =
       selectedRecentEvent ||
       recentEvents.find((item) => (item.id || item.name) === selectedRecentId)
-    const savedSetup = {
+    const savedSetupBase = {
       ...existingSetup,
       ...currentSetup,
       id: existingSetup?.id || selectedRecentId || currentSetup.id,
@@ -1196,8 +1217,20 @@ const WebApp = () => {
       createdAt: existingSetup?.createdAt || currentSetup.createdAt || new Date().toISOString(),
       updatedAt: 'Ahora',
     }
+    const savedSetupId = getEventIdentity(savedSetupBase) || createEventSlug(savedSetupBase.eventName || savedSetupBase.name || 'evento')
+    const savedSetup = { ...savedSetupBase, id: savedSetupBase.id || savedSetupId }
+    const nextDeletedEventIds = deletedEventIds.filter((id) => id !== savedSetupId)
+    const nextRecentEvents = [
+      savedSetup,
+      ...recentEvents.filter((item) => getEventIdentity(item) !== savedSetupId),
+    ].slice(0, 200)
 
-    rememberRecentEvent(savedSetup)
+    setDeletedEventIds(nextDeletedEventIds)
+    setRecentEvents(nextRecentEvents)
+    void pushCloudStateNow({
+      recentEvents: nextRecentEvents,
+      deletedEventIds: nextDeletedEventIds,
+    })
     setSelectedRecentId(savedSetup.id || savedSetup.name)
     setCaptureStatus(status)
     return savedSetup
@@ -1421,6 +1454,14 @@ const WebApp = () => {
     }
   }
 
+  const pushCloudStateNow = (overrides = {}) => saveServerAppState({
+    recentEvents,
+    deletedEventIds,
+    deletedGalleryPhotoIds,
+    eventGalleries: pruneDeletedGalleryPhotos(eventGalleries, deletedGalleryPhotoIds),
+    ...overrides,
+  })
+
   const nextShotLabel = useMemo(() => {
     if (captureComplete) return 'Foto final lista'
     if (!framesReady) return `Necesitas ${selectedShotCount} foto${selectedShotCount === 1 ? '' : 's'}`
@@ -1508,9 +1549,25 @@ const WebApp = () => {
         ].slice(-400)
         setDeletedGalleryPhotoIds(nextDeletedGalleryPhotoIds)
         const parsedRecent = savedRecent ? JSON.parse(savedRecent) : null
+        const parsedSetup = saved ? JSON.parse(saved) : null
         const cloudEvents = Array.isArray(cloudState?.recentEvents) ? cloudState.recentEvents : []
-        const localEvents = Array.isArray(parsedRecent) ? parsedRecent : []
-        const preferredEvents = cloudState ? cloudEvents : localEvents
+        const localEventsBase = Array.isArray(parsedRecent) ? parsedRecent : []
+        const localEvents = parsedSetup && typeof parsedSetup === 'object'
+          ? [
+            parsedSetup,
+            ...localEventsBase.filter((event) => getEventIdentity(event) !== getEventIdentity(parsedSetup)),
+          ]
+          : localEventsBase
+        const shouldBootstrapCloudEvents = Boolean(cloudState && !cloudEvents.length && localEvents.length)
+        const preferredEvents = cloudState
+          ? mergeCloudAndLocalEvents(cloudEvents, localEvents, nextDeletedEventIds)
+          : localEvents
+        const cloudEventsForCompare = mergeEventsWithDefaults(cloudEvents, nextDeletedEventIds).slice(0, 200)
+        const shouldPublishLocalEvents = Boolean(
+          cloudState &&
+          localEvents.length &&
+          serializeSyncState(preferredEvents.slice(0, 200)) !== serializeSyncState(cloudEventsForCompare),
+        )
         let cloudSetupToApply = null
         let activeHydratedEventId = ''
         if (preferredEvents.length) {
@@ -1519,8 +1576,16 @@ const WebApp = () => {
           const nextSelectedId = nextRecentEvents[0]?.id || nextRecentEvents[0]?.name || ''
           activeHydratedEventId = nextSelectedId
           setSelectedRecentId(nextSelectedId)
-          if (cloudState && nextRecentEvents[0]) {
+          if (nextRecentEvents[0]) {
             cloudSetupToApply = nextRecentEvents[0]
+          }
+          if (shouldBootstrapCloudEvents || shouldPublishLocalEvents) {
+            void saveServerAppState({
+              recentEvents: nextRecentEvents,
+              deletedEventIds: nextDeletedEventIds,
+              deletedGalleryPhotoIds: nextDeletedGalleryPhotoIds,
+              eventGalleries: {},
+            })
           }
         } else if (cloudState) {
           setRecentEvents([])
@@ -1532,7 +1597,7 @@ const WebApp = () => {
         } else if (!cloudState && saved) {
           const setup = JSON.parse(saved)
           applyEventSetup(setup, 'listo para fotos')
-        } else if (cloudState) {
+        } else if (cloudState && !localEvents.length) {
           window.localStorage.removeItem(appSetupStorageKey)
         }
         if (savedSession) {
@@ -1626,7 +1691,23 @@ const WebApp = () => {
             ...new Set([...current, ...cloudState.deletedGalleryPhotoIds].filter(Boolean)),
           ].slice(-400))
         }
-        setRecentEvents(mergeEventsWithDefaults(cloudState.recentEvents || [], nextDeletedIds).slice(0, 200))
+        const cloudEvents = Array.isArray(cloudState.recentEvents) ? cloudState.recentEvents : []
+        setRecentEvents((current) => {
+          const cloudEventsForCompare = mergeEventsWithDefaults(cloudEvents, nextDeletedIds).slice(0, 200)
+          const nextEvents = mergeCloudAndLocalEvents(cloudEvents, current, nextDeletedIds).slice(0, 200)
+          if (
+            current.length &&
+            serializeSyncState(nextEvents) !== serializeSyncState(cloudEventsForCompare)
+          ) {
+            void saveServerAppState({
+              recentEvents: nextEvents,
+              deletedEventIds: nextDeletedIds,
+              deletedGalleryPhotoIds,
+              eventGalleries: pruneDeletedGalleryPhotos(eventGalleries, deletedGalleryPhotoIds),
+            })
+          }
+          return nextEvents
+        })
       }
       if (!serverGalleries && !cloudState?.eventGalleries) return
       setEventGalleries((current) => pruneDeletedGalleryPhotos({
