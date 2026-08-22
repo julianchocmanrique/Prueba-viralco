@@ -43,7 +43,7 @@ const cloudApiBase = 'https://beijing-recommend-marilyn-por.trycloudflare.com'
 const photoUploadEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/`
 const photoDeleteEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/delete/`
 const eventGalleryDeleteEndpoint = `${cloudApiBase}/prueba-viralco/api/photos/delete-event/`
-const cloudStateEndpoint = `${cloudApiBase}/prueba-viralco/api/state/`
+const cloudStateEndpoint = `${cloudApiBase}/prueba-viralco/api/state`
 const cloudSyncToken = 'viralco-reset-20260821-login'
 const persistentPhotoDbName = 'viralco-mirror-photo-images'
 const persistentPhotoStoreName = 'images'
@@ -1511,44 +1511,62 @@ const WebApp = () => {
         const cloudEvents = Array.isArray(cloudState?.recentEvents) ? cloudState.recentEvents : []
         const localEvents = Array.isArray(parsedRecent) ? parsedRecent : []
         const preferredEvents = cloudState ? cloudEvents : localEvents
+        let cloudSetupToApply = null
+        let activeHydratedEventId = ''
         if (preferredEvents.length) {
           const nextRecentEvents = mergeEventsWithDefaults(preferredEvents, nextDeletedEventIds).slice(0, 200)
           setRecentEvents(nextRecentEvents)
-          setSelectedRecentId(nextRecentEvents[0]?.id || nextRecentEvents[0]?.name || '')
+          const nextSelectedId = nextRecentEvents[0]?.id || nextRecentEvents[0]?.name || ''
+          activeHydratedEventId = nextSelectedId
+          setSelectedRecentId(nextSelectedId)
+          if (cloudState && nextRecentEvents[0]) {
+            cloudSetupToApply = nextRecentEvents[0]
+          }
         } else if (cloudState) {
           setRecentEvents([])
           setSelectedRecentId('')
         }
-        if (saved) {
+        if (cloudSetupToApply) {
+          applyEventSetup(cloudSetupToApply, 'listo para fotos')
+          window.localStorage.setItem(appSetupStorageKey, JSON.stringify(cloudSetupToApply))
+        } else if (!cloudState && saved) {
           const setup = JSON.parse(saved)
           applyEventSetup(setup, 'listo para fotos')
+        } else if (cloudState) {
+          window.localStorage.removeItem(appSetupStorageKey)
         }
         if (savedSession) {
           const session = JSON.parse(savedSession)
-          const inlineFrames = Array.isArray(session.photoFrames) ? session.photoFrames.filter(Boolean) : []
-          const frameCount = Number(session.photoFrameCount) || inlineFrames.length || 0
-          const storedFrames = frameCount
-            ? await Promise.all(Array.from({ length: frameCount }, (_, index) => readPersistentPhoto(persistentFrameKey(index)).catch(() => '')))
-            : []
-          const nextFrames = storedFrames.filter(Boolean).length ? storedFrames.filter(Boolean) : inlineFrames
-          const storedFinalPhoto = await readPersistentPhoto(persistentFinalPhotoKey).catch(() => '')
-          if (!cancelled) {
-            if (nextFrames.length) setPhotoFrames(nextFrames)
-            if (storedFinalPhoto || typeof session.finalPhotoUrl === 'string') {
-              setFinalPhotoUrl(storedFinalPhoto || session.finalPhotoUrl)
+          const sessionEventId = session.eventId || session.selectedRecentId || ''
+          const canRestoreSession = !cloudState || (sessionEventId && sessionEventId === activeHydratedEventId)
+          if (canRestoreSession) {
+            const inlineFrames = Array.isArray(session.photoFrames) ? session.photoFrames.filter(Boolean) : []
+            const frameCount = Number(session.photoFrameCount) || inlineFrames.length || 0
+            const storedFrames = frameCount
+              ? await Promise.all(Array.from({ length: frameCount }, (_, index) => readPersistentPhoto(persistentFrameKey(index)).catch(() => '')))
+              : []
+            const nextFrames = storedFrames.filter(Boolean).length ? storedFrames.filter(Boolean) : inlineFrames
+            const storedFinalPhoto = await readPersistentPhoto(persistentFinalPhotoKey).catch(() => '')
+            if (!cancelled) {
+              if (nextFrames.length) setPhotoFrames(nextFrames)
+              if (storedFinalPhoto || typeof session.finalPhotoUrl === 'string') {
+                setFinalPhotoUrl(storedFinalPhoto || session.finalPhotoUrl)
+              }
+              if (typeof session.savedPhotoUrl === 'string') {
+                setSavedPhotoUrl(session.savedPhotoUrl)
+              }
+              if (typeof session.savedPhotoId === 'string') {
+                setSavedPhotoId(session.savedPhotoId)
+              }
+              if (typeof session.photoSaveStatus === 'string') {
+                setPhotoSaveStatus(session.photoSaveStatus)
+              }
+              if (typeof session.captureStatus === 'string' && session.captureStatus.trim()) {
+                setCaptureStatus(session.captureStatus)
+              }
             }
-            if (typeof session.savedPhotoUrl === 'string') {
-              setSavedPhotoUrl(session.savedPhotoUrl)
-            }
-            if (typeof session.savedPhotoId === 'string') {
-              setSavedPhotoId(session.savedPhotoId)
-            }
-            if (typeof session.photoSaveStatus === 'string') {
-              setPhotoSaveStatus(session.photoSaveStatus)
-            }
-            if (typeof session.captureStatus === 'string' && session.captureStatus.trim()) {
-              setCaptureStatus(session.captureStatus)
-            }
+          } else if (cloudState) {
+            window.localStorage.removeItem(appSessionStorageKey)
           }
         }
         let localGalleries = {}
@@ -1685,6 +1703,7 @@ const WebApp = () => {
       if (cancelled) return
       try {
         const session = {
+          eventId: selectedRecentId,
           photoFrameCount: photoFrames.length,
           hasFinalPhoto: Boolean(finalPhotoUrl),
           savedPhotoUrl,
@@ -1697,6 +1716,7 @@ const WebApp = () => {
       } catch {
         try {
           window.localStorage.setItem(appSessionStorageKey, JSON.stringify({
+            eventId: selectedRecentId,
             photoFrameCount: photoFrames.length,
             hasFinalPhoto: Boolean(finalPhotoUrl),
             captureStatus,
@@ -1712,7 +1732,7 @@ const WebApp = () => {
     return () => {
       cancelled = true
     }
-  }, [photoFrames, finalPhotoUrl, savedPhotoUrl, savedPhotoId, photoSaveStatus, captureStatus])
+  }, [photoFrames, finalPhotoUrl, savedPhotoUrl, savedPhotoId, photoSaveStatus, captureStatus, selectedRecentId])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !storageHydratedRef.current) return
