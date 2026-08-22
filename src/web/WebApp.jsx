@@ -4838,11 +4838,6 @@ const WebApp = () => {
         <Pressable onPress={handleLogin} style={styles.loginButton} accessibilityRole="button" accessibilityLabel="Entrar">
           <Text style={styles.loginButtonText}>Entrar</Text>
         </Pressable>
-        <View style={styles.loginHelpBox}>
-          <Text style={styles.loginHelpText}>Superadmin: Superadmin / Superadmin1234.</Text>
-          <Text style={styles.loginHelpText}>Administrador: Isaju / Isaju1234.</Text>
-          <Text style={styles.loginHelpText}>Operador: operador / operador1234.</Text>
-        </View>
       </View>
     </View>
   )
@@ -16004,18 +15999,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 18,
     fontWeight: '900',
-  },
-  loginHelpBox: {
-    borderRadius: 8,
-    backgroundColor: colors.roseSoft,
-    padding: 14,
-    gap: 4,
-  },
-  loginHelpText: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '800',
   },
   closeButton: {
     position: 'absolute',
